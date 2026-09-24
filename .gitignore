@@ -1,0 +1,25 @@
+# Gradle
+.gradle/
+build/
+app/build/
+spike/build/
+
+# Kotlin
+.kotlin/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Machine-specific
+local.properties
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs & crashes
+*.log
