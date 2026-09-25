@@ -114,7 +114,7 @@ fun ChatScreen(m: Modifier) {
     val db = remember { SliceDb(context) }
     val settings = remember { ChatSettings(context) }
     val client = remember {
-        ChatClient(settings.endpoint()) { line -> ChatLog.append(context, line) }
+        ChatClient(settings.endpoint(), log = { line -> ChatLog.append(context, line) })
     }
     // Данные для контекста вопроса и графиков ИИ: перечитываются после Разбора таблицы.
     var data by remember {

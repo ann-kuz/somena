@@ -22,10 +22,15 @@ class ChatClientTest {
     private val history = listOf(ChatMessage(ChatMessage.USER, "Почему вес встал?", 0L))
     private val lines = mutableListOf<String>()
 
-    private fun client(url: String) = ChatClient(ChatEndpoint(url, "токен")) { lines.add(it) }
+    private fun client(url: String) = ChatClient(ChatEndpoint(url, "токен"), log = { lines.add(it) })
 
     /** Минимальный HTTP-стаб: отвечает заданным кодом и JSON-телом на любой POST, тело запроса ловится. */
-    private fun stubServer(code: Int, json: String, bodies: MutableList<String>? = null): ServerSocket =
+    private fun stubServer(
+        code: Int,
+        json: String,
+        bodies: MutableList<String>? = null,
+        delayMs: Long = 0,
+    ): ServerSocket =
         ServerSocket(0, 8, InetAddress.getByName("127.0.0.1")).apply {
             thread(isDaemon = true) {
                 while (!isClosed) {
@@ -34,12 +39,12 @@ class ChatClientTest {
                     } catch (e: Exception) {
                         break
                     }
-                    thread(isDaemon = true) { socket.serve(code, json, bodies) }
+                    thread(isDaemon = true) { socket.serve(code, json, bodies, delayMs) }
                 }
             }
         }
 
-    private fun Socket.serve(code: Int, json: String, bodies: MutableList<String>?) {
+    private fun Socket.serve(code: Int, json: String, bodies: MutableList<String>?, delayMs: Long) {
         use { sock ->
             val reader = BufferedReader(InputStreamReader(sock.getInputStream(), Charsets.ISO_8859_1))
             var contentLength = 0
@@ -58,6 +63,7 @@ class ChatClientTest {
                 read += n
             }
             bodies?.add(String(raw)) // тело дочитываем, чтобы клиент не получил RST
+            if (delayMs > 0) Thread.sleep(delayMs)
             val reason = mapOf(200 to "OK", 401 to "Unauthorized")[code] ?: "Status"
             val body = json.toByteArray(Charsets.UTF_8)
             sock.getOutputStream().apply {
@@ -136,6 +142,24 @@ class ChatClientTest {
         assertTrue(lines.last().startsWith("← HTTP 200"))
         // Значение токена в журнал не попадает никогда (здесь токен = «токен»).
         assertTrue(lines.none { it.contains("токен") })
+        s.close()
+    }
+
+    @Test
+    fun `разбор таблицы ждёт дольше обычного чата`() {
+        // Инцидент 25.09: провайдер отвечает на длинную таблицу десятки секунд - успешные
+        // разборы шли 37-86 с. Обычный чат с коротким таймаутом роняет медленный ответ,
+        // разбор таблицы обязан дожидаться тот же ответ.
+        val s = stubServer(200, "{\"reply\": \"ок\"}", delayMs = 500)
+        val slow = ChatClient(
+            ChatEndpoint(s.url(), "токен"),
+            chatReadTimeoutMs = 100,
+            importReadTimeoutMs = 5_000,
+        )
+        runBlocking {
+            assertTrue("чат: ${lines.lastOrNull()}", slow.ask(history, "sys", "контекст", "fast").isFailure)
+            assertTrue("разбор: ${lines.lastOrNull()}", slow.askImport("Дата;Вес\n05.01.2025;62.4").isSuccess)
+        }
         s.close()
     }
 }

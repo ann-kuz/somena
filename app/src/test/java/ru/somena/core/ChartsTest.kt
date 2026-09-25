@@ -3,6 +3,7 @@ package ru.somena.core
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChartsTest {
@@ -77,5 +78,47 @@ class ChartsTest {
     fun `нулевой масштаб окна не двигает ничего`() {
         val pan = PanAccumulator()
         assertEquals(0, pan.add(-100f, 0f))
+    }
+
+    @Test
+    fun `окно месяца дотягивается до занесённого задним числом веса`() {
+        // Сценарий Разбора таблицы: HC дал только недавние дни, вес приехал из таблицы
+        // за старые месяцы редкими взвешиваниями. Как на экране Графиков: окно месяца
+        // листается от сегодня назад и обязано показать подтянутые точки.
+        val today = LocalDate.of(2026, 9, 25)
+        val hcDays = lastDays(today, 56) // HC: последние 8 недель без веса
+        val backfilled = listOf(
+            DaySlice(LocalDate.of(2026, 1, 5), weightKg = 61.5),
+            DaySlice(LocalDate.of(2026, 2, 10), weightKg = 61.8),
+            DaySlice(LocalDate.of(2026, 3, 15), weightKg = 61.2),
+        )
+        val slices = backfilled + hcDays.map { DaySlice(it, steps = 8000) }
+        val byDate = slices.associateBy { it.date }
+        val firstDataDate = listOfNotNull(slices.firstOrNull()?.date).minOrNull() ?: today
+
+        // Листание окна месяца назад рывками по месяцу, пока клэмп не остановит окно.
+        var windowEnd = today
+        var reachedOldest = false
+        val coveredWeights = mutableListOf<Pair<LocalDate, Double?>>()
+        repeat(24) {
+            windowEnd = clampWindowEnd(windowEnd.minusDays(31), today, firstDataDate)
+            val days = lastDays(windowEnd, 31)
+            if (windowEnd == firstDataDate) reachedOldest = true
+            // точки веса окна месяца, ровно как values { it.weightKg } на экране
+            days.mapNotNull(byDate::get).filter { it.weightKg != null }.forEach {
+                coveredWeights += it.date to it.weightKg
+            }
+            if (windowEnd == firstDataDate) return@repeat
+        }
+        assertTrue("клэмп пускает окно до самого старого дня данных", reachedOldest)
+        assertEquals(
+            "все три задним числом занесённые точки попадают в окно месяца",
+            listOf(
+                LocalDate.of(2026, 3, 15) to 61.2,
+                LocalDate.of(2026, 2, 10) to 61.8,
+                LocalDate.of(2026, 1, 5) to 61.5,
+            ),
+            coveredWeights.distinct(),
+        )
     }
 }

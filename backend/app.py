@@ -4,9 +4,11 @@
 в логи не попадают ни ключи, ни содержимое запросов.
 """
 
+import asyncio
 import logging
 import os
 import hmac
+import time
 from pathlib import Path
 
 import httpx
@@ -26,6 +28,12 @@ STEP_MODELS = {
     "max": os.environ.get("MODEL_MAX", "gpt-5.1"),
 }
 APP_TOKEN = os.environ.get("APP_TOKEN", "")
+# Суммарный дедлайн вызова провайдера: read-таймаут httpx порционный (между чтениями),
+# а провайдер бывает «медленный, но живой» - тело капает и вечно держит Бэкенд в тишине
+# (инцидент 25.09: клиент отвалился по своему таймауту, Бэкенд так и не ответил).
+# Дедлайн гарантирует клиенту ответ Бэкенда за конечное время; приложение на пути
+# разбора таблицы ждёт дольше (IMPORT_READ_TIMEOUT_MS в ChatClient).
+PROVIDER_TIMEOUT_S = float(os.environ.get("PROVIDER_TIMEOUT_S", "150"))
 # Единая точка раздачи APK: сюда его кладёт scripts/build-apk.sh (см. README «Скачать приложение»).
 APK_PATH = Path(os.environ.get("APK_PATH", str(Path(__file__).parent / "apk" / "somena.apk")))
 
@@ -98,14 +106,22 @@ async def chat(req: ChatRequest, authorization: str = Header(default="")) -> dic
     }
     async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
         try:
-            resp = await client.post(
-                f"{PROXYAPI_BASE}/chat/completions",
-                json=payload,
-                headers={"Authorization": f"Bearer {PROXYAPI_KEY}"},
+            started = time.monotonic()
+            resp = await asyncio.wait_for(
+                client.post(
+                    f"{PROXYAPI_BASE}/chat/completions",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {PROXYAPI_KEY}"},
+                ),
+                timeout=PROVIDER_TIMEOUT_S,
             )
+        except asyncio.TimeoutError:
+            log.warning("proxyapi exceeded total deadline of %ss", PROVIDER_TIMEOUT_S)
+            raise HTTPException(status_code=502, detail="ИИ-провайдер не успел ответить")
         except httpx.HTTPError:
             log.warning("proxyapi unreachable")
             raise HTTPException(status_code=502, detail="ИИ-провайдер недоступен")
+    log.info("proxyapi answered in %.1fs", time.monotonic() - started)
 
     if resp.status_code != 200:
         # Тело ошибки провайдера не логируем и не проксируем: там может быть что угодно.

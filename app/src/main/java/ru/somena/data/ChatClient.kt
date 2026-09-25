@@ -33,11 +33,20 @@ data class ChatEndpoint(val url: String, val token: String)
 class ChatClient(
     private val endpoint: ChatEndpoint,
     private val log: (String) -> Unit = {},
+    /** Сколько ждать ответа в обычном чате: ответы Бэкенда там секунды. */
+    private val chatReadTimeoutMs: Long = 90_000,
+    /**
+     * Сколько ждать Разбор таблицы: ответ провайдера на длинную таблицу занимает до
+     * пары минут (инцидент 25.09: 86 с успешные, дольше - Бэкенд сам обрывает по
+     * PROVIDER_TIMEOUT_S). Больше дедлайна Бэкенда, чтобы дожить до его ответа или
+     * 502, а не отвалиться по своему таймауту раньше.
+     */
+    private val importReadTimeoutMs: Long = 170_000,
 ) {
 
     suspend fun ask(history: List<ChatMessage>, system: String, context: String, step: String): Result<String> =
         withContext(Dispatchers.IO) {
-            exchange(request(history, system, context, step), describe = {
+            exchange(request(history, system, context, step), chatReadTimeoutMs, describe = {
                 "сообщений в истории: ${history.size}, ступень: $step"
             })
         }
@@ -51,7 +60,7 @@ class ChatClient(
                 "вложение ${attachment.length} симв. длиннее лимита",
             )
         } else {
-            exchange(requestImport(attachment), describe = {
+            exchange(requestImport(attachment), importReadTimeoutMs, describe = {
                 "разбор таблицы, ${attachment.length} симв., ступень: fast"
             })
         }
@@ -73,14 +82,14 @@ class ChatClient(
         null
     }
 
-    private fun exchange(req: WireRequest, describe: () -> String): Result<String> {
+    private fun exchange(req: WireRequest, readTimeoutMs: Long, describe: () -> String): Result<String> {
         val startedAt = System.currentTimeMillis()
         log("→ POST ${endpoint.url}/v1/chat (${describe()})")
         return try {
             val conn = (URL("${endpoint.url}/v1/chat").openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 10_000
-                readTimeout = 90_000
+                readTimeout = readTimeoutMs.toInt()
                 doOutput = true
                 setRequestProperty("Authorization", "Bearer ${endpoint.token}")
                 setRequestProperty("Content-Type", "application/json; charset=utf-8")
