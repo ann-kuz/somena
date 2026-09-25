@@ -11,7 +11,7 @@ class ChatSettings(context: Context) {
     private val prefs = context.getSharedPreferences("somena", Context.MODE_PRIVATE)
 
     var backendUrl: String
-        get() = prefs.getString(KEY_URL, DEFAULT_URL)?.trimEnd('/') ?: DEFAULT_URL
+        get() = (prefs.getString(KEY_URL, null) ?: "").trim().trimEnd('/').ifEmpty { DEFAULT_URL }
         set(value) = prefs.edit().putString(KEY_URL, value.trim().trimEnd('/')).apply()
 
     var appToken: String
@@ -20,6 +20,9 @@ class ChatSettings(context: Context) {
 
     /** Чат готов к работе, когда токен задан: адрес имеет осмысленное значение по умолчанию. */
     val isConfigured: Boolean get() = appToken.isNotEmpty()
+
+    /** Конфигурация одного запроса для ChatClient. */
+    fun endpoint(): ChatEndpoint = ChatEndpoint(backendUrl, appToken)
 
     private companion object {
         const val KEY_URL = "chat_backend_url"

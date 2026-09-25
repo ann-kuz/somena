@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.Icon
@@ -48,6 +49,7 @@ import ru.somena.core.lastDays
 import ru.somena.core.metricSeries
 import ru.somena.core.parseAiCharts
 import ru.somena.data.ChatClient
+import ru.somena.data.ChatLog
 import ru.somena.data.ChatMessage
 import ru.somena.data.ChatSettings
 import ru.somena.data.ProfileStore
@@ -84,7 +86,9 @@ fun ChatScreen(m: Modifier) {
     val scope = rememberCoroutineScope()
     val db = remember { SliceDb(context) }
     val settings = remember { ChatSettings(context) }
-    val client = remember { ChatClient(settings) }
+    val client = remember {
+        ChatClient(settings.endpoint()) { line -> ChatLog.append(context, line) }
+    }
     // Данные для контекста вопроса и графиков ИИ: свежие на входе на экран.
     val data = remember { DayData(db.all().associateBy { it.date }, db.allWellbeing().associateBy { it.date }) }
     var messages by remember { mutableStateOf(db.chatHistory()) }
@@ -129,12 +133,14 @@ fun ChatScreen(m: Modifier) {
         ScreenHeader("Чат по данным", "ИИ видит твои срезы, Самочувствие и профиль. Не врач: диагнозов не ставит.")
         if (!settings.isConfigured) {
             GlassCard(Modifier.fillMaxWidth()) {
-                Text(
-                    "Чат не настроен: введи токен приложения на вкладке «Ещё». " +
-                        "Остальное приложение работает и без него.",
-                    color = TextMuted,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                SelectionContainer {
+                    Text(
+                        "Чат не настроен: введи токен приложения на вкладке «Ещё». " +
+                            "Остальное приложение работает и без него.",
+                        color = TextMuted,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
             }
         }
         LazyColumn(
@@ -145,12 +151,14 @@ fun ChatScreen(m: Modifier) {
             if (messages.isEmpty() && !busy) {
                 item {
                     GlassCard(Modifier.fillMaxWidth()) {
-                        Text(
-                            "Спроси что угодно о своих данных: ИИ видит дневные срезы за 30 дней, " +
-                                "Самочувствие и профиль. Попроси показать график, например: «покажи вес за месяц».",
-                            color = TextMuted,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                        SelectionContainer {
+                            Text(
+                                "Спроси что угодно о своих данных: ИИ видит дневные срезы за 30 дней, " +
+                                    "Самочувствие и профиль. Попроси показать график, например: «покажи вес за месяц».",
+                                color = TextMuted,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
                     }
                 }
                 items(SUGGESTIONS) { q ->
@@ -171,11 +179,13 @@ fun ChatScreen(m: Modifier) {
             }
         }
         error?.let {
-            Text(
-                it,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
-            )
+            SelectionContainer {
+                Text(
+                    it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
         }
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedTextField(
@@ -204,7 +214,7 @@ private fun MessageBubble(msg: ChatMessage, data: DayData) {
                     .neonSurface(active = true, shape = RoundedCornerShape(20.dp))
                     .padding(12.dp),
             ) {
-                Text(msg.content, style = MaterialTheme.typography.bodyMedium)
+                SelectionContainer { Text(msg.content, style = MaterialTheme.typography.bodyMedium) }
             }
         }
     } else {
@@ -217,7 +227,7 @@ private fun MessageBubble(msg: ChatMessage, data: DayData) {
             GlassCard(Modifier.fillMaxWidth(0.94f)) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (text.isNotBlank()) {
-                        Text(text, style = MaterialTheme.typography.bodyMedium)
+                        SelectionContainer { Text(text, style = MaterialTheme.typography.bodyMedium) }
                     }
                     specs.forEach { spec -> AiChartCard(spec, anchor, data) }
                 }
@@ -314,7 +324,9 @@ fun ChatSettingsSection() {
             modifier = Modifier.fillMaxWidth(),
         )
         status?.let {
-            Text(it, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
+            SelectionContainer {
+                Text(it, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
+            }
         }
     }
 }

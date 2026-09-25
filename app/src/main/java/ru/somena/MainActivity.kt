@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
@@ -66,6 +67,7 @@ import ru.somena.core.parseBirthDate
 import ru.somena.core.parseOptionalDouble
 import ru.somena.core.parseOptionalInt
 import ru.somena.data.HcImporter
+import ru.somena.data.ChatLog
 import ru.somena.data.ProfileStore
 import ru.somena.data.SliceDb
 import ru.somena.ui.CardLabel
@@ -263,7 +265,9 @@ fun TodayScreen(m: Modifier) {
             icon = Icons.Filled.Refresh,
             modifier = Modifier.fillMaxWidth(),
         )
-        status?.let { Text(it, color = TextMuted, style = MaterialTheme.typography.bodySmall) }
+        status?.let {
+            SelectionContainer { Text(it, color = TextMuted, style = MaterialTheme.typography.bodySmall) }
+        }
         WellbeingSection(wellbeing, onEdit = { showWellbeingEditor = true })
         Text(
             "Шаги считаются только с браслета. «—» значит «данных нет за день».",
@@ -282,6 +286,8 @@ fun HcDebugScreen(m: Modifier) {
     var result by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var granted by remember { mutableStateOf<Int?>(null) }
+    var chatLog by remember { mutableStateOf(ChatLog.get(context)) }
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
 
     val permissionLauncher = rememberLauncherForActivityResult(
         PermissionController.createRequestPermissionResultContract()
@@ -306,9 +312,11 @@ fun HcDebugScreen(m: Modifier) {
         m.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        ScreenHeader("Отладка Health Connect", "Статус хаба и проверка записей Источников")
+        ScreenHeader("Отладка Health Connect", "Статус хаба, записи Источников и журнал чата")
         GlassCard(Modifier.fillMaxWidth()) {
-            Text(HealthProbe.statusText(context), style = MaterialTheme.typography.bodyMedium)
+            SelectionContainer {
+                Text(HealthProbe.statusText(context), style = MaterialTheme.typography.bodyMedium)
+            }
             granted?.let {
                 Text(
                     "Разрешений выдано: $it из ${HC_PERMISSIONS.size}",
@@ -332,12 +340,56 @@ fun HcDebugScreen(m: Modifier) {
         )
         result?.let {
             GlassCard(Modifier.fillMaxWidth()) {
-                Text(
-                    it,
-                    fontFamily = FontFamily.Monospace,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextMuted,
+                SelectionContainer {
+                    Text(
+                        it,
+                        fontFamily = FontFamily.Monospace,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextMuted,
+                    )
+                }
+                GhostButton(
+                    "Скопировать скан",
+                    onClick = { clipboard.setText(androidx.compose.ui.text.AnnotatedString(it)) },
+                    modifier = Modifier.fillMaxWidth(),
                 )
+            }
+        }
+        GlassCard(Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Журнал чата", style = MaterialTheme.typography.titleMedium)
+                if (chatLog.isBlank()) {
+                    Text(
+                        "Пусто: задай вопрос во вкладке «Чат», и здесь появятся запросы к Бэкенду " +
+                            "с исходами: удобно копировать и переслать при проблемах.",
+                        color = TextMuted,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else {
+                    SelectionContainer {
+                        Text(
+                            chatLog,
+                            fontFamily = FontFamily.Monospace,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextMuted,
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        GhostButton(
+                            "Скопировать журнал",
+                            onClick = { clipboard.setText(androidx.compose.ui.text.AnnotatedString(chatLog)) },
+                            modifier = Modifier.weight(1f),
+                        )
+                        GhostButton(
+                            "Очистить",
+                            onClick = {
+                                ChatLog.clear(context)
+                                chatLog = ""
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
             }
         }
     }

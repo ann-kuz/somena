@@ -60,7 +60,9 @@ fun WellbeingSection(w: Wellbeing?, onEdit: () -> Unit) {
                     ScaleDots("Сон", w.sleepQuality)
                 }
                 w.note?.takeIf { it.isNotBlank() }?.let {
-                    Text("Заметка: $it", color = TextMuted, style = MaterialTheme.typography.bodySmall)
+                    androidx.compose.foundation.text.selection.SelectionContainer(Modifier.fillMaxWidth()) {
+                        Text("Заметка: $it", color = TextMuted, style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
             GhostButton(if (w == null) "Отметить" else "Изменить", onEdit, Modifier.fillMaxWidth())
