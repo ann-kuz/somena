@@ -79,7 +79,7 @@ object DailyAggregator {
         fun inDay(start: Instant) = start >= dayStart && start < dayEnd
 
         // Запись принадлежит дню своего начала: интервал через полночь не считается дважды.
-        val bandSteps = steps.filter { it.source == BAND_SOURCE && inDay(it.start) }
+        val bandSteps = dedupeSteps(steps.filter { it.source == BAND_SOURCE && inDay(it.start) })
         val daySleep = sleep.filter { inDay(it.start) }
         val dayBurn = burn.filter { inDay(it.start) }
         val dayMeals = meals.filter { inDay(it.start) }
@@ -90,16 +90,54 @@ object DailyAggregator {
             steps = bandSteps.sumOf { it.count }.takeIf { bandSteps.isNotEmpty() },
             sleepMinutes = daySleep.sumOf { it.durationMinutes }.takeIf { daySleep.isNotEmpty() },
             burnedKcal = dayBurn.sumOf { it.kcal }.takeIf { dayBurn.isNotEmpty() },
-            eatenKcal = dayMeals.mapNotNull { it.kcal }.sum().takeIf { dayMeals.any { it.kcal != null } },
-            proteinG = dayMeals.mapNotNull { it.proteinG }.sum().takeIf { dayMeals.any { it.proteinG != null } },
-            fatG = dayMeals.mapNotNull { it.fatG }.sum().takeIf { dayMeals.any { it.fatG != null } },
-            carbsG = dayMeals.mapNotNull { it.carbsG }.sum().takeIf { dayMeals.any { it.carbsG != null } },
+            eatenKcal = dayMeals.sumOrNull { it.kcal },
+            proteinG = dayMeals.sumOrNull { it.proteinG },
+            fatG = dayMeals.sumOrNull { it.fatG },
+            carbsG = dayMeals.sumOrNull { it.carbsG },
             // По каждому показателю тела — последнее непустое значение дня.
-            weightKg = dayBody.map { it.weightKg }.lastOrNull { it != null },
-            bodyFatPct = dayBody.map { it.bodyFatPct }.lastOrNull { it != null },
-            boneMassKg = dayBody.map { it.boneMassKg }.lastOrNull { it != null },
-            bmrKcal = dayBody.map { it.bmrKcalPerDay }.lastOrNull { it != null },
+            weightKg = dayBody.lastNonNull { it.weightKg },
+            bodyFatPct = dayBody.lastNonNull { it.bodyFatPct },
+            boneMassKg = dayBody.lastNonNull { it.boneMassKg },
+            bmrKcal = dayBody.lastNonNull { it.bmrKcalPerDay },
         )
+    }
+
+    /**
+     * Схлопывает пересекающиеся записи шагов одного источника (ADR-0001: дедупликация —
+     * наша работа): интервалы объединяются, шаги из пересечения считаются один раз
+     * с пропорцией по длительности.
+     */
+    fun dedupeSteps(entries: List<StepEntry>): List<StepEntry> {
+        val out = mutableListOf<StepEntry>()
+        for (e in entries.sortedBy { it.start }) {
+            val last = out.lastOrNull()
+            if (last == null || !e.start.isBefore(last.end)) {
+                out.add(e)
+                continue
+            }
+            var newEnd = last.end
+            var newCount = last.count.toDouble()
+            if (e.end.isAfter(last.end)) {
+                val eDur = java.time.Duration.between(e.start, e.end).toMillis().coerceAtLeast(1)
+                val tail = java.time.Duration.between(maxOf(e.start, last.end), e.end).toMillis()
+                newCount += e.count.toDouble() * tail / eDur
+                newEnd = e.end
+            }
+            out[out.size - 1] = last.copy(count = newCount.toLong(), end = newEnd)
+        }
+        return out
+    }
+
+    private fun <T> List<T>.sumOrNull(selector: (T) -> Double?): Double? {
+        var any = false
+        var sum = 0.0
+        for (x in this) selector(x)?.let { any = true; sum += it }
+        return sum.takeIf { any }
+    }
+
+    private fun <T> List<T>.lastNonNull(selector: (T) -> Double?): Double? {
+        for (x in reversed()) selector(x)?.let { return it }
+        return null
     }
 
     private val SleepEntry.durationMinutes: Long

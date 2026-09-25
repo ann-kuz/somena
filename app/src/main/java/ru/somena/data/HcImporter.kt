@@ -13,7 +13,6 @@ import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import java.time.Instant
-import java.time.LocalDate
 import java.time.ZoneId
 import ru.somena.core.BurnEntry
 import ru.somena.core.BodyEntry
@@ -25,22 +24,21 @@ import ru.somena.core.StepEntry
 
 /**
  * Читает записи Health Connect за окно и пересчитывает Дневные срезы.
- * Пересчитанный день сливается с уже сохранённым (свежие поля сильнее) —
- * поэтому повторный импорт не создаёт дубликаты и не затирает дни вне окна.
+ * Окно всегда включает последний сохранённый день целиком — обновление того же дня
+ * и дозапись задним числом в уже сохранённые дни работают. Пересчитанный день
+ * сливается с сохранённым (свежие поля сильнее), поэтому дубликатов не бывает.
  */
 class HcImporter(
     private val db: SliceDb,
     private val zone: ZoneId = ZoneId.systemDefault(),
 ) {
-    suspend fun importRecent(context: Context, windowDays: Long = 14L): ImportStats {
+    suspend fun importRecent(context: Context, windowDays: Long = 14L): Int {
         if (HealthConnectClient.getSdkStatus(context) != HealthConnectClient.SDK_AVAILABLE) {
-            return ImportStats(importedDays = 0, hcAvailable = false)
+            return 0
         }
         val client = HealthConnectClient.getOrCreate(context)
         val now = Instant.now()
-        val from = db.lastStoredDate()
-        // Окно: от последнего сохранённого дня (полностью) до сих пор; в первый раз — N дней.
-        val windowStart = (from?.plusDays(1)?.atStartOfDay(zone)?.toInstant())
+        val windowStart = db.lastStoredDate()?.atStartOfDay(zone)?.toInstant()
             ?: now.minus(java.time.Duration.ofDays(windowDays))
         val range = TimeRangeFilter.between(windowStart, now)
 
@@ -87,14 +85,10 @@ class HcImporter(
         var imported = 0
         for (day in affectedDays.sorted()) {
             val fresh = DailyAggregator.buildSlice(day, zone, steps, sleep, burn, meals, body)
-            val merged = (db.get(day) ?: freshWithDate(day)).mergeFresh(fresh)
+            val merged = (db.get(day) ?: DailyAggregator.buildSlice(day, zone)).mergeFresh(fresh)
             db.upsert(merged)
             imported++
         }
-        return ImportStats(importedDays = imported, hcAvailable = true)
+        return imported
     }
-
-    private fun freshWithDate(day: LocalDate) = DaySlice(day, null, null, null, null, null, null, null, null, null, null, null)
 }
-
-data class ImportStats(val importedDays: Int, val hcAvailable: Boolean)

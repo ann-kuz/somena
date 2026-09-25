@@ -41,6 +41,10 @@ import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
 import androidx.health.connect.client.records.WeightRecord
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import ru.somena.core.DaySlice
+import ru.somena.data.HcImporter
+import ru.somena.data.SliceDb
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -92,24 +96,25 @@ fun App() {
 fun TodayScreen(m: Modifier) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val db = remember { ru.somena.data.SliceDb(context) }
-    val importer = remember { ru.somena.data.HcImporter(db) }
-    var slice by remember { mutableStateOf<ru.somena.core.DaySlice?>(null) }
+    val db = remember { SliceDb(context) }
+    val importer = remember { HcImporter(db) }
+    var slice by remember { mutableStateOf<DaySlice?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var note by remember { mutableStateOf<String?>(null) }
+    var status by remember { mutableStateOf<String?>(null) }
 
     fun refresh() {
         busy = true
         scope.launch {
-            note = try {
+            status = try {
                 if (HealthProbe.isAvailable(context)) {
-                    importer.importRecent(context)
-                    null
+                    val imported = importer.importRecent(context)
+                    if (imported == 0) "Новых данных нет"
+                    else null
                 } else "Health Connect недоступен — проверь вкладку «Отладка HC»"
             } catch (e: Exception) {
                 "Импорт не удался: ${e.message}"
             }
-            slice = db.get(java.time.LocalDate.now())
+            slice = db.get(LocalDate.now())
             busy = false
         }
     }
@@ -131,7 +136,7 @@ fun TodayScreen(m: Modifier) {
             MetricRow("Съедено", s.eatenKcal?.let { "%,.0f ккал".format(it) })
             if (s.proteinG != null || s.fatG != null || s.carbsG != null) {
                 Text(
-                    "   Б %,+.0f · Ж %,+.0f · У %,+.0f".format(s.proteinG ?: 0.0, s.fatG ?: 0.0, s.carbsG ?: 0.0),
+                    "   Б %,.0f · Ж %,.0f · У %,.0f".format(s.proteinG ?: 0.0, s.fatG ?: 0.0, s.carbsG ?: 0.0),
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -143,7 +148,7 @@ fun TodayScreen(m: Modifier) {
         Button(onClick = { refresh() }, enabled = !busy) {
             Text(if (busy) "Обновляю…" else "Обновить")
         }
-        note?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         Text(
             "Шаги считаются только с браслета. «—» значит «данных нет за день».",
             style = MaterialTheme.typography.bodySmall

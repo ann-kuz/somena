@@ -27,13 +27,17 @@ private data class SliceDto(
 )
 
 private fun DaySlice.toDto() = SliceDto(
-    date = date.format(ISO_LOCAL_DATE), steps, sleepMinutes, burnedKcal, eatenKcal,
-    proteinG, fatG, carbsG, weightKg, bodyFatPct, boneMassKg, bmrKcal,
+    date = date.format(ISO_LOCAL_DATE),
+    steps = steps, sleepMinutes = sleepMinutes, burnedKcal = burnedKcal, eatenKcal = eatenKcal,
+    proteinG = proteinG, fatG = fatG, carbsG = carbsG,
+    weightKg = weightKg, bodyFatPct = bodyFatPct, boneMassKg = boneMassKg, bmrKcal = bmrKcal,
 )
 
 private fun SliceDto.toDomain() = DaySlice(
-    date = LocalDate.parse(date), steps, sleepMinutes, burnedKcal, eatenKcal,
-    proteinG, fatG, carbsG, weightKg, bodyFatPct, boneMassKg, bmrKcal,
+    date = LocalDate.parse(date),
+    steps = steps, sleepMinutes = sleepMinutes, burnedKcal = burnedKcal, eatenKcal = eatenKcal,
+    proteinG = proteinG, fatG = fatG, carbsG = carbsG,
+    weightKg = weightKg, bodyFatPct = bodyFatPct, boneMassKg = boneMassKg, bmrKcal = bmrKcal,
 )
 
 /** Локальное хранилище Дневных срезов (ADR-0002: данные живут на телефоне). */
@@ -66,13 +70,6 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 1
             "SELECT data FROM day_slices WHERE date = ?", arrayOf(date.format(ISO_LOCAL_DATE))
         ).use { c ->
             if (c.moveToFirst()) json.decodeFromString<SliceDto>(c.getString(0)).toDomain() else null
-        }
-
-    fun all(): List<DaySlice> =
-        readableDatabase.rawQuery("SELECT data FROM day_slices ORDER BY date", null).use { c ->
-            buildList {
-                while (c.moveToNext()) add(json.decodeFromString<SliceDto>(c.getString(0)).toDomain())
-            }
         }
 
     fun lastStoredDate(): LocalDate? =

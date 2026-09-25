@@ -109,6 +109,36 @@ class DailyAggregatorTest {
     }
 
     @Test
+    fun `дубликаты шагов от браслета считаются один раз`() {
+        val dup = listOf(
+            StepEntry(at(9), at(10), 3000, DailyAggregator.BAND_SOURCE),
+            StepEntry(at(9), at(10), 3000, DailyAggregator.BAND_SOURCE),
+        )
+        assertEquals(3000L, DailyAggregator.buildSlice(day, zone, steps = dup).steps)
+    }
+
+    @Test
+    fun `пересекающиеся интервалы шагов схлопываются без двойного счёта`() {
+        // 9:00-10:00 = 3000 шагов; 9:30-10:30 = 3000 шагов; союз 9:00-10:30:
+        // 3000 + 3000 * (1800/3600) = 4500
+        val overlap = listOf(
+            StepEntry(at(9), at(10), 3000, DailyAggregator.BAND_SOURCE),
+            StepEntry(at(9, 30), at(10, 30), 3000, DailyAggregator.BAND_SOURCE),
+        )
+        assertEquals(4500L, DailyAggregator.buildSlice(day, zone, steps = overlap).steps)
+    }
+
+    @Test
+    fun `стык и разрыв интервалов не склеиваются ошибочно`() {
+        val adjacent = listOf(
+            StepEntry(at(9), at(10), 3000, DailyAggregator.BAND_SOURCE),
+            StepEntry(at(10), at(11), 2000, DailyAggregator.BAND_SOURCE),
+            StepEntry(at(12), at(13), 1000, DailyAggregator.BAND_SOURCE),
+        )
+        assertEquals(6000L, DailyAggregator.buildSlice(day, zone, steps = adjacent).steps)
+    }
+
+    @Test
     fun `слияние со свежим пересчётом не теряет старые поля`() {
         val stored = build(steps = listOf(StepEntry(at(9), at(10), 5000, DailyAggregator.BAND_SOURCE)))
         val fresh = build(body = listOf(BodyEntry(at(8), weightKg = 74.5, bodyFatPct = null, boneMassKg = null, bmrKcalPerDay = null)))
