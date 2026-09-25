@@ -92,7 +92,11 @@ private fun dayLine(s: DaySlice?, w: Wellbeing?, cyc: CycleDay?, phase: CyclePha
         } else if (phase == CyclePhase.PREDICTED) {
             parts += "прогноз менструации"
         }
-        if (c.pain > 0) parts += "боль ${painWord(c.pain)}"
+        when (c.pain) {
+            CycleDay.PAIN_NONE -> parts += "боли нет"
+            CycleDay.LEVEL_UNMARKED -> {}
+            else -> parts += "боль ${painWord(c.pain)}"
+        }
     }
     when (phase) {
         CyclePhase.FERTILE -> parts += "фертильное окно (прогноз)"

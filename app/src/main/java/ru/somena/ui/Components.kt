@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -326,12 +327,14 @@ fun PeriodChip(
             .selectable(selected = selected, role = Role.Tab, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            label,
-            modifier = Modifier.padding(horizontal = 18.dp),
-            style = MaterialTheme.typography.labelLarge,
-            color = if (selected) Color(0xFFF3F0FF) else TextMuted,
-        )
+            Text(
+                label,
+                modifier = Modifier.padding(horizontal = 18.dp),
+                style = MaterialTheme.typography.labelLarge,
+                color = if (selected) Color(0xFFF3F0FF) else TextMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
     }
 }
 

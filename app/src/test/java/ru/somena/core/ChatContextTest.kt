@@ -78,6 +78,19 @@ class ChatContextTest {
     }
 
     @Test
+    fun `явная нет боли отличается от неотмеченного`() {
+        val text = context(
+            cycle = listOf(
+                CycleDay(yesterday, menstruation = true, pain = CycleDay.PAIN_NONE),
+                CycleDay(today.minusDays(2), menstruation = true, flow = 1),
+            )
+        )
+        assertTrue(text.contains("менструация, боли нет"))
+        assertTrue(text.contains("менструация, выделения скудные"))
+        assertFalse(text.contains("выделения скудные, боль"))
+    }
+
+    @Test
     fun `видимые строки без типографских тире`() {
         val text = context(
             profile = Profile(heightCm = 168, birthDateIso = "1990-05-14", goalWeightKg = 60.0)

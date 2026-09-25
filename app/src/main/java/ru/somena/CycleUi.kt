@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -72,6 +74,15 @@ import ru.somena.ui.Violet
  * и статистика. Записи только ручные, хранение локальное (ADR-0005).
  */
 
+/** Записать или убрать день: без менструации и отметок день не хранится вовсе. */
+private fun writeDay(db: SliceDb, date: LocalDate, menstruation: Boolean, flow: Int, pain: Int) {
+    if (!menstruation && pain == CycleDay.LEVEL_UNMARKED) {
+        db.deleteCycleDay(date)
+    } else {
+        db.upsertCycleDay(CycleDay(date, menstruation = menstruation, flow = flow, pain = pain))
+    }
+}
+
 /** Карточка цикла на «Сегодня»: статус, прогноз и быстрый переключатель менструации. */
 @Composable
 fun CycleCard(db: SliceDb, revision: Int, onOpen: () -> Unit, onChanged: () -> Unit) {
@@ -105,23 +116,16 @@ fun CycleCard(db: SliceDb, revision: Int, onOpen: () -> Unit, onChanged: () -> U
             Switch(
                 checked = todayEntry?.menstruation == true,
                 onCheckedChange = { on ->
-                    saveDay(db, today, menstruation = on, flow = todayEntry, pain = todayEntry?.pain ?: 0)
+                    writeDay(
+                        db, today, menstruation = on,
+                        flow = if (on) todayEntry?.flow?.takeIf { it > 0 } ?: 0 else 0,
+                        pain = todayEntry?.pain ?: CycleDay.LEVEL_UNMARKED,
+                    )
                     onChanged()
                 },
                 modifier = Modifier.semantics { contentDescription = "Менструация идёт сегодня" },
             )
         }
-    }
-}
-
-/** Записать день из переключателя: при включении без истории берём умеренные выделения. */
-private fun saveDay(db: SliceDb, date: LocalDate, menstruation: Boolean, flow: CycleDay?, pain: Int) {
-    val flowValue = if (menstruation) (flow?.flow?.takeIf { it > 0 } ?: 2) else 0
-    val painValue = pain.takeIf { it > 0 } ?: 0
-    if (!menstruation && painValue == 0) {
-        db.deleteCycleDay(date)
-    } else {
-        db.upsertCycleDay(CycleDay(date, menstruation = menstruation, flow = flowValue, pain = painValue))
     }
 }
 
@@ -185,7 +189,11 @@ fun CycleScreen(m: Modifier, onBack: () -> Unit, onChanged: () -> Unit) {
                 Switch(
                     checked = entriesByDate[today]?.menstruation == true,
                     onCheckedChange = { on ->
-                        saveDay(db, today, menstruation = on, flow = entriesByDate[today], pain = entriesByDate[today]?.pain ?: 0)
+                        writeDay(
+                            db, today, menstruation = on,
+                            flow = if (on) entriesByDate[today]?.flow?.takeIf { it > 0 } ?: 0 else 0,
+                            pain = entriesByDate[today]?.pain ?: CycleDay.LEVEL_UNMARKED,
+                        )
                         reload()
                     },
                     modifier = Modifier.semantics { contentDescription = "Менструация идёт сегодня" },
@@ -439,6 +447,7 @@ private fun CycleStatsCard(periods: List<PeriodBlock>) {
 }
 
 /** Редактор дня: менструация, интенсивность выделений и боль, задним числом тоже. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CycleDayEditorDialog(
     db: SliceDb,
@@ -449,8 +458,8 @@ fun CycleDayEditorDialog(
     var date by remember { mutableStateOf(initialDate) }
     val existing = remember(date) { db.getCycleDay(date) }
     var menstruation by remember(date) { mutableStateOf(existing?.menstruation ?: false) }
-    var flow by remember(date) { mutableStateOf(existing?.flow ?: 2) }
-    var pain by remember(date) { mutableStateOf(existing?.pain ?: 0) }
+    var flow by remember(date) { mutableStateOf(existing?.flow ?: 0) }
+    var pain by remember(date) { mutableStateOf(existing?.pain ?: CycleDay.LEVEL_UNMARKED) }
     val today = LocalDate.now()
 
     Dialog(onDismissRequest = onDismiss) {
@@ -493,17 +502,18 @@ fun CycleDayEditorDialog(
                 }
                 if (menstruation) {
                     Text("Выделения", color = TextMuted, style = MaterialTheme.typography.bodySmall)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FlowChip("Скудные", 1, flow, Modifier.weight(1f)) { flow = it }
-                        FlowChip("Умеренные", 2, flow, Modifier.weight(1f)) { flow = it }
-                        FlowChip("Обильные", 3, flow, Modifier.weight(1f)) { flow = it }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LevelChip("Скудные", 1, flow) { flow = it }
+                        LevelChip("Умеренные", 2, flow) { flow = it }
+                        LevelChip("Обильные", 3, flow) { flow = it }
                     }
                 }
                 Text("Менструальная боль", color = TextMuted, style = MaterialTheme.typography.bodySmall)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FlowChip("Слабая", 1, pain, Modifier.weight(1f)) { pain = it }
-                    FlowChip("Средняя", 2, pain, Modifier.weight(1f)) { pain = it }
-                    FlowChip("Сильная", 3, pain, Modifier.weight(1f)) { pain = it }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LevelChip("Нет боли", CycleDay.PAIN_NONE, pain) { pain = it }
+                    LevelChip("Слабая", 1, pain) { pain = it }
+                    LevelChip("Средняя", 2, pain) { pain = it }
+                    LevelChip("Сильная", 3, pain) { pain = it }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (existing != null) {
@@ -520,18 +530,11 @@ fun CycleDayEditorDialog(
                     GlowButton(
                         "Сохранить",
                         onClick = {
-                            if (!menstruation && pain == 0) {
-                                db.deleteCycleDay(date)
-                            } else {
-                                db.upsertCycleDay(
-                                    CycleDay(
-                                        date = date,
-                                        menstruation = menstruation,
-                                        flow = if (menstruation) flow else 0,
-                                        pain = pain,
-                                    )
-                                )
-                            }
+                            writeDay(
+                                db, date, menstruation = menstruation,
+                                flow = if (menstruation) flow else 0,
+                                pain = pain,
+                            )
                             onSaved()
                         },
                         modifier = Modifier.weight(1f),
@@ -542,13 +545,12 @@ fun CycleDayEditorDialog(
     }
 }
 
-/** Чип уровня: повторный тап снимает выбор (0 = «нет отметки»). */
+/** Чип уровня: повторный тап снимает выбор («не отмечено»). */
 @Composable
-private fun FlowChip(label: String, level: Int, current: Int, modifier: Modifier = Modifier, onPick: (Int) -> Unit) {
+private fun LevelChip(label: String, level: Int, current: Int, onPick: (Int) -> Unit) {
     PeriodChip(
         label = label,
         selected = current == level,
-        onClick = { onPick(if (current == level) 0 else level) },
-        modifier = modifier,
+        onClick = { onPick(if (current == level) CycleDay.LEVEL_UNMARKED else level) },
     )
 }

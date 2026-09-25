@@ -11,7 +11,8 @@ import kotlin.math.roundToInt
  * Health Connect не участвует (ADR-0005).
  */
 
-/** Запись цикла одного дня. flow - интенсивность выделений 0..3, pain - боль 0..3. */
+/** Запись цикла одного дня. flow - интенсивность выделений 0..3, 0 значит «не отмечали».
+ *  pain - боль: PAIN_UNMARKED (не отмечали), PAIN_NONE (явно «нет боли») или уровень 1..3. */
 data class CycleDay(
     val date: LocalDate,
     val menstruation: Boolean = false,
@@ -21,6 +22,12 @@ data class CycleDay(
     companion object {
         const val MAX_FLOW = 3
         const val MAX_PAIN = 3
+
+        /** «Не отмечали»: общий нуль для выделений и боли. */
+        const val LEVEL_UNMARKED = 0
+
+        /** Явная отметка «нет боли»: не то же, что ноль «не отмечали». */
+        const val PAIN_NONE = -1
     }
 }
 

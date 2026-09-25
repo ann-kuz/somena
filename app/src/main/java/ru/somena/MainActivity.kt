@@ -217,12 +217,6 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         ScreenHeader("Сегодня", LocalDate.now().format(dateHeaderFormat))
-        CycleCard(
-            db = db,
-            revision = cycleRevision,
-            onOpen = onOpenCycle,
-            onChanged = onCycleChanged,
-        )
         val s = slice
         if (s == null) {
             GlassCard(Modifier.fillMaxWidth(), padding = 28.dp) {
@@ -294,6 +288,12 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
             SelectionContainer { Text(it, color = TextMuted, style = MaterialTheme.typography.bodySmall) }
         }
         WellbeingSection(wellbeing, onEdit = { showWellbeingEditor = true })
+        CycleCard(
+            db = db,
+            revision = cycleRevision,
+            onOpen = onOpenCycle,
+            onChanged = onCycleChanged,
+        )
         Text(
             "Шаги считаются только с браслета. «—» значит «данных нет за день».",
             color = TextMuted,
