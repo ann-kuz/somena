@@ -47,7 +47,9 @@ import java.time.LocalDate
 import ru.somena.core.DaySlice
 import ru.somena.core.Profile
 import ru.somena.core.ProfileValidator
+import ru.somena.core.birthDateFieldError
 import ru.somena.core.numericFieldError
+import ru.somena.core.parseBirthDate
 import ru.somena.core.parseOptionalDouble
 import ru.somena.core.parseOptionalInt
 import ru.somena.data.HcImporter
@@ -262,19 +264,22 @@ private fun ProfileSection() {
     val store = remember { ProfileStore(context) }
     val saved = remember { store.load() }
     var height by remember { mutableStateOf(saved.heightCm?.toString() ?: "") }
-    var age by remember { mutableStateOf(saved.ageYears?.toString() ?: "") }
+    var birth by remember {
+        mutableStateOf(saved.birthDate?.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.uuuu")) ?: "")
+    }
     var goal by remember { mutableStateOf(saved.goalWeightKg?.let { "%,.1f".format(it) } ?: "") }
     var status by remember { mutableStateOf<String?>(null) }
 
+    val today = LocalDate.now()
     val draft = Profile(
         heightCm = parseOptionalInt(height),
-        ageYears = parseOptionalInt(age),
+        birthDateIso = parseBirthDate(birth)?.toString(),
         goalWeightKg = parseOptionalDouble(goal),
     )
     val errors = buildList {
-        addAll(ProfileValidator.validate(draft))
+        addAll(ProfileValidator.validate(draft, today))
         numericFieldError(height, integer = true)?.let { add(ProfileValidator.Error("heightCm", it)) }
-        numericFieldError(age, integer = true)?.let { add(ProfileValidator.Error("ageYears", it)) }
+        birthDateFieldError(birth, today)?.let { add(ProfileValidator.Error("birthDate", it)) }
         numericFieldError(goal, integer = false)?.let { add(ProfileValidator.Error("goalWeightKg", it)) }
     }
     fun errorFor(field: String): String? = errors.firstOrNull { it.field == field }?.message
@@ -295,11 +300,18 @@ private fun ProfileSection() {
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
-            value = age,
-            onValueChange = { age = it },
-            label = { Text("Возраст, лет") },
-            isError = errorFor("ageYears") != null,
-            supportingText = { errorFor("ageYears")?.let { Text(it) } },
+            value = birth,
+            onValueChange = { birth = it },
+            label = { Text("Дата рождения, ДД.ММ.ГГГГ") },
+            isError = errorFor("birthDate") != null,
+            supportingText = {
+                val age = draft.ageYears(today)
+                val err = errorFor("birthDate")
+                when {
+                    err != null -> Text(err)
+                    age != null -> Text("Полных лет: $age (считается само)")
+                }
+            },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )

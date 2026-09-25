@@ -3,3 +3,7 @@ build/
 app/build/
 local.properties
 *.apk.idesetup
+
+# Секреты и окружение бэкенда
+backend/.env
+backend/venv/
