@@ -30,13 +30,13 @@ object ProfileValidator {
 
     fun validate(profile: Profile, today: LocalDate): List<Error> = buildList {
         profile.heightCm?.let {
-            if (it !in 100..250) add(Error("heightCm", "Рост: разумно 100–250 см"))
+            if (it !in 100..250) add(Error("heightCm", "Рост: разумно 100-250 см"))
         }
         profile.birthDate?.let { d ->
             birthRangeError(d, today)?.let { add(Error("birthDate", it)) }
         }
         profile.goalWeightKg?.let {
-            if (it !in 30.0..300.0) add(Error("goalWeightKg", "Цель по весу: разумно 30–300 кг"))
+            if (it !in 30.0..300.0) add(Error("goalWeightKg", "Цель по весу: разумно 30-300 кг"))
         }
     }
 }
@@ -45,7 +45,7 @@ private val RU_DATE = DateTimeFormatter.ofPattern("dd.MM.uuuu").withResolverStyl
 
 private fun birthRangeError(d: LocalDate, today: LocalDate): String? =
     if (d.isBefore(LocalDate.of(1920, 1, 1)) || d.isAfter(today.minusYears(10))) {
-        "Разумно: 01.01.1920 – ${today.minusYears(10).format(RU_DATE)}"
+        "Разумно: 01.01.1920 - ${today.minusYears(10).format(RU_DATE)}"
     } else null
 
 /** «14.05.1990» → дата; строго, с проверкой существования дня. Пусто/неверно = null. */

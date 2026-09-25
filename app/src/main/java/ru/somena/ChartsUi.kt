@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -27,13 +26,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -42,6 +45,9 @@ import kotlin.math.roundToLong
 import ru.somena.core.DaySlice
 import ru.somena.core.weightTrend
 import ru.somena.data.SliceDb
+import ru.somena.ui.GlassCard
+import ru.somena.ui.PeriodChip
+import ru.somena.ui.TextMuted
 
 private const val ALL_DAYS = 0 // «Всё»: без окна, все сохранённые срезы подряд
 private const val MONTH_DAYS = 31
@@ -105,68 +111,97 @@ fun ChartsScreen(m: Modifier) {
         m.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Text("Графики", style = MaterialTheme.typography.titleLarge)
+        Text(
+            "Графики",
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = (-0.5).sp,
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(
                 WEEK_DAYS to "Неделя",
                 MONTH_DAYS to "31 день",
                 ALL_DAYS to "Всё",
             ).forEach { (p, label) ->
-                OutlinedButton(onClick = {
+                PeriodChip(label, selected = windowDays == p, onClick = {
                     windowDays = p
                     windowEnd = today
-                }) {
-                    Text(if (windowDays == p) "• $label" else label)
-                }
+                })
             }
         }
         if (slices.isEmpty()) {
-            Text("Данных пока нет — загляни на вкладку «Сегодня» и нажми «Обновить».")
+            Text(
+                "Данных пока нет: загляни на вкладку «Сегодня» и нажми «Обновить».",
+                color = TextMuted,
+            )
         } else {
             if (windowDays != ALL_DAYS) {
                 Text(
-                    "Окно: ${fmtDate(days.first())} – ${fmtDate(days.last())}. Тяни графики влево/вправо, " +
-                        "коснись точки — покажу значение.",
+                    "Окно: ${fmtDate(days.first())} - ${fmtDate(days.last())}. Тяни графики влево/вправо, " +
+                        "коснись точки: покажу значение.",
+                    color = TextMuted,
                     style = MaterialTheme.typography.bodySmall
                 )
             } else {
                 Text(
-                    "Весь период: ${fmtDate(days.first())} – ${fmtDate(days.last())}. Коснись точки — покажу значение.",
+                    "Весь период: ${fmtDate(days.first())} - ${fmtDate(days.last())}. Коснись точки: покажу значение.",
+                    color = TextMuted,
                     style = MaterialTheme.typography.bodySmall
                 )
             }
-            LineChart("Шаги", days, listOf(series("Шаги", steps, MaterialTheme.colorScheme.primary)), "шаг.", ::shift)
-            LineChart("Сон", days, listOf(series("Сон", sleepH, MaterialTheme.colorScheme.primary)), "ч", ::shift)
-            LineChart(
-                "Вход против расхода", days,
-                listOf(
-                    series("Съедено", eaten, MaterialTheme.colorScheme.primary),
-                    series("Сожжено", burn, MaterialTheme.colorScheme.secondary, dash = true),
-                ),
-                "ккал", ::shift,
-            )
-            LineChart(
-                "Вес и тренд", days,
-                listOf(
-                    series("Вес", weight, MaterialTheme.colorScheme.primary),
-                    series("Тренд", weightTrend(weight), MaterialTheme.colorScheme.secondary, dash = true),
-                ),
-                "кг", ::shift,
-            )
-            LineChart(
-                "БЖУ", days,
-                listOf(
-                    series("Белки", protein, MaterialTheme.colorScheme.primary),
-                    series("Жиры", fat, MaterialTheme.colorScheme.secondary, dash = true),
-                    series("Углеводы", carbs, MaterialTheme.colorScheme.tertiary),
-                ),
-                "г", ::shift,
-            )
-            LineChart("Жир", days, listOf(series("Жир", bodyFat, MaterialTheme.colorScheme.primary)), "%", ::shift)
-            LineChart("Кости", days, listOf(series("Кости", bone, MaterialTheme.colorScheme.primary)), "кг", ::shift)
-            LineChart("Обмен", days, listOf(series("Обмен", bmr, MaterialTheme.colorScheme.primary)), "ккал/дн", ::shift)
+            ChartCard {
+                LineChart(
+                    "Дефицит", days,
+                    listOf(
+                        series("Съедено", eaten, MaterialTheme.colorScheme.tertiary),
+                        series("Сожжено", burn, MaterialTheme.colorScheme.primary),
+                    ),
+                    "ккал", ::shift,
+                )
+            }
+            ChartCard {
+                LineChart(
+                    "Вес и тренд", days,
+                    listOf(
+                        series("Вес", weight, MaterialTheme.colorScheme.primary),
+                        series("Тренд", weightTrend(weight), MaterialTheme.colorScheme.secondary, dash = true),
+                    ),
+                    "кг", ::shift,
+                )
+            }
+            ChartCard {
+                LineChart(
+                    "БЖУ", days,
+                    listOf(
+                        series("Белки", protein, MaterialTheme.colorScheme.primary),
+                        series("Жиры", fat, MaterialTheme.colorScheme.tertiary),
+                        series("Углеводы", carbs, MaterialTheme.colorScheme.secondary),
+                    ),
+                    "г", ::shift,
+                )
+            }
+            ChartCard {
+                LineChart("Шаги", days, listOf(series("Шаги", steps, MaterialTheme.colorScheme.tertiary)), "шаг.", ::shift)
+            }
+            ChartCard {
+                LineChart("Сон", days, listOf(series("Сон", sleepH, MaterialTheme.colorScheme.primary)), "ч", ::shift)
+            }
+            ChartCard {
+                LineChart("Жир", days, listOf(series("Жир", bodyFat, MaterialTheme.colorScheme.primary)), "%", ::shift)
+            }
+            ChartCard {
+                LineChart("Кости", days, listOf(series("Кости", bone, MaterialTheme.colorScheme.primary)), "кг", ::shift)
+            }
+            ChartCard {
+                LineChart("Обмен", days, listOf(series("Обмен", bmr, MaterialTheme.colorScheme.primary)), "ккал/дн", ::shift)
+            }
         }
     }
+}
+
+@Composable
+private fun ChartCard(content: @Composable () -> Unit) {
+    GlassCard(Modifier.fillMaxWidth()) { content() }
 }
 
 private fun series(label: String, values: List<Double?>, color: Color, dash: Boolean = false) =
@@ -193,7 +228,7 @@ fun LineChart(
     val span = (hi - lo).takeIf { it > 0 } ?: 1.0
     val mid = (lo + hi) / 2.0
     val hasData = allValues.isNotEmpty()
-    val gridColor = MaterialTheme.colorScheme.outlineVariant
+    val gridColor = Color.White.copy(alpha = 0.07f)
     var selected by remember(dates, seriesList) { mutableStateOf<Int?>(null) }
 
     fun x(i: Int, width: Float): Float {
@@ -216,9 +251,10 @@ fun LineChart(
                 s.values.getOrNull(sel)?.let { "${s.label} ${fmtNum(it)} $unit" }
             }
             Text(
-                if (parts.isEmpty()) "${fmtDate(dates[sel])} — данных нет"
+                if (parts.isEmpty()) "${fmtDate(dates[sel])}: данных нет"
                 else "${fmtDate(dates[sel])}: ${parts.joinToString(" · ")}",
                 style = MaterialTheme.typography.bodySmall,
+                color = TextMuted,
             )
         }
 
@@ -228,9 +264,9 @@ fun LineChart(
                 Modifier.width(44.dp).height(120.dp),
                 verticalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text(fmtNum(hi), style = MaterialTheme.typography.labelSmall)
-                Text(fmtNum(mid), style = MaterialTheme.typography.labelSmall)
-                Text(fmtNum(lo), style = MaterialTheme.typography.labelSmall)
+                Text(fmtNum(hi), style = MaterialTheme.typography.labelSmall, color = TextMuted)
+                Text(fmtNum(mid), style = MaterialTheme.typography.labelSmall, color = TextMuted)
+                Text(fmtNum(lo), style = MaterialTheme.typography.labelSmall, color = TextMuted)
             }
             Box(
                 Modifier
@@ -265,45 +301,71 @@ fun LineChart(
                         val effect = if (s.dash) PathEffect.dashPathEffect(floatArrayOf(12f, 8f)) else null
                         val path = Path()
                         var started = false
+                        var firstIdx = -1
+                        var lastIdx = -1
                         // Пропуски не рвут линию: к каждой непустой точке ведём линию от предыдущей непустой.
                         s.values.forEachIndexed { i, v ->
                             if (v != null) {
                                 if (!started) {
                                     path.moveTo(x(i, size.width), y(v, size.height))
                                     started = true
+                                    firstIdx = i
                                 } else {
                                     path.lineTo(x(i, size.width), y(v, size.height))
                                 }
+                                lastIdx = i
                             }
                         }
-                        drawPath(path, color = s.color, style = Stroke(width = 4f, pathEffect = effect))
+                        // градиентная заливка под сплошной линией — «неоновый» след
+                        if (!s.dash && firstIdx >= 0) {
+                            val area = Path().apply {
+                                addPath(path)
+                                lineTo(x(lastIdx, size.width), size.height)
+                                lineTo(x(firstIdx, size.width), size.height)
+                                close()
+                            }
+                            drawPath(
+                                area,
+                                brush = Brush.verticalGradient(
+                                    listOf(s.color.copy(alpha = 0.28f), Color.Transparent),
+                                    endY = size.height,
+                                ),
+                            )
+                        }
+                        // неоновое свечение линии: мягкий широкий штрих под основным
+                        drawPath(
+                            path,
+                            color = s.color.copy(alpha = 0.25f),
+                            style = Stroke(width = 10f, pathEffect = effect, cap = StrokeCap.Round),
+                        )
+                        drawPath(path, color = s.color, style = Stroke(width = 4f, pathEffect = effect, cap = StrokeCap.Round))
                     }
-                    // выделенная точка
+                    // выделенная точка со свечением
                     sel?.let { idx ->
                         seriesList.forEach { s ->
                             s.values.getOrNull(idx)?.let { v ->
-                                drawCircle(
-                                    s.color, radius = 7f,
-                                    center = androidx.compose.ui.geometry.Offset(x(idx, size.width), y(v, size.height)),
-                                )
+                                val c = androidx.compose.ui.geometry.Offset(x(idx, size.width), y(v, size.height))
+                                drawCircle(s.color.copy(alpha = 0.30f), radius = 15f, center = c)
+                                drawCircle(s.color, radius = 7f, center = c)
+                                drawCircle(Color.White, radius = 3f, center = c)
                             }
                         }
                     }
                 }
                 if (!hasData) {
-                    Text("данных нет", style = MaterialTheme.typography.bodySmall)
+                    Text("данных нет", style = MaterialTheme.typography.bodySmall, color = TextMuted)
                 }
             }
         }
         // Ось X: первая / средняя / последняя дата окна
         if (n >= 2) {
             Row(Modifier.padding(start = 44.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(fmtDate(dates.first()), style = MaterialTheme.typography.labelSmall)
-                Text(fmtDate(dates[n / 2]), style = MaterialTheme.typography.labelSmall)
-                Text(fmtDate(dates.last()), style = MaterialTheme.typography.labelSmall)
+                Text(fmtDate(dates.first()), style = MaterialTheme.typography.labelSmall, color = TextMuted)
+                Text(fmtDate(dates[n / 2]), style = MaterialTheme.typography.labelSmall, color = TextMuted)
+                Text(fmtDate(dates.last()), style = MaterialTheme.typography.labelSmall, color = TextMuted)
             }
         } else if (n == 1) {
-            Text(fmtDate(dates[0]), style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 44.dp))
+            Text(fmtDate(dates[0]), style = MaterialTheme.typography.labelSmall, color = TextMuted, modifier = Modifier.padding(start = 44.dp))
         }
         Legend(seriesList, unit)
     }
@@ -320,10 +382,11 @@ private fun Legend(seriesList: List<ChartSeries>, unit: String) {
                         androidx.compose.ui.geometry.Offset(0f, size.height / 2),
                         androidx.compose.ui.geometry.Offset(size.width, size.height / 2),
                         strokeWidth = 4f,
+                        cap = StrokeCap.Round,
                         pathEffect = if (s.dash) PathEffect.dashPathEffect(floatArrayOf(8f, 5f)) else null,
                     )
                 }
-                Text(" ${s.label} ($unit)", style = MaterialTheme.typography.bodySmall)
+                Text(" ${s.label} ($unit)", style = MaterialTheme.typography.bodySmall, color = TextMuted)
             }
         }
     }

@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Somena" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- Тёмное окно, чтобы не было белой вспышки до первого кадра Compose -->
+    <style name="Theme.Somena" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/window_bg</item>
+    </style>
 </resources>

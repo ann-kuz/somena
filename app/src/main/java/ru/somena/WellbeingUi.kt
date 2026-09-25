@@ -5,12 +5,19 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,28 +28,42 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import java.time.LocalDate
 import ru.somena.core.Wellbeing
 import ru.somena.data.SliceDb
 import ru.somena.data.WellbeingReminder
+import ru.somena.ui.GhostButton
+import ru.somena.ui.GlassCard
+import ru.somena.ui.GlowButton
+import ru.somena.ui.ScaleDots
+import ru.somena.ui.TextMuted
+import ru.somena.ui.Violet
+import ru.somena.ui.CardBorder
 
 /** Блок Самочувствия на экране «Сегодня». */
 @Composable
 fun WellbeingSection(w: Wellbeing?, onEdit: () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Самочувствие", style = MaterialTheme.typography.titleMedium)
-        if (w == null) {
-            Text("Сегодня ещё не отмечено")
-        } else {
-            MetricRow("Энергия", "${w.energy} из 5")
-            MetricRow("Настроение", "${w.mood} из 5")
-            MetricRow("Сон", "${w.sleepQuality} из 5")
-            w.note?.takeIf { it.isNotBlank() }?.let { Text("Заметка: $it", style = MaterialTheme.typography.bodySmall) }
-        }
-        OutlinedButton(onClick = onEdit) {
-            Text(if (w == null) "Отметить" else "Изменить")
+    GlassCard(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Самочувствие", style = MaterialTheme.typography.titleMedium)
+            if (w == null) {
+                Text("Сегодня ещё не отмечено", color = TextMuted)
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ScaleDots("Энергия", w.energy)
+                    ScaleDots("Настроение", w.mood)
+                    ScaleDots("Сон", w.sleepQuality)
+                }
+                w.note?.takeIf { it.isNotBlank() }?.let {
+                    Text("Заметка: $it", color = TextMuted, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            GhostButton(if (w == null) "Отметить" else "Изменить", onEdit, Modifier.fillMaxWidth())
         }
     }
 }
@@ -75,23 +96,34 @@ fun WellbeingEditorDialog(db: SliceDb, initialDate: LocalDate, onDismiss: () -> 
     }
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(shape = MaterialTheme.shapes.large) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = Color(0xFF171226),
+            border = androidx.compose.foundation.BorderStroke(1.dp, CardBorder),
+        ) {
             Column(
-                Modifier.padding(16.dp).fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                Modifier.padding(20.dp).fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text("Самочувствие", style = MaterialTheme.typography.titleLarge)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    OutlinedButton(onClick = { date = date.minusDays(1) }, enabled = date > LocalDate.now().minusYears(2)) {
-                        Text("<")
-                    }
-                    Text(date.toString(), modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                    OutlinedButton(onClick = { date = date.plusDays(1) }, enabled = date < LocalDate.now()) {
-                        Text(">")
-                    }
+                    IconButton(
+                        onClick = { date = date.minusDays(1) },
+                        enabled = date > LocalDate.now().minusYears(2),
+                    ) { Icon(Icons.Filled.KeyboardArrowLeft, "День назад", tint = TextMuted) }
+                    Text(
+                        date.toString(),
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = TextMuted,
+                    )
+                    IconButton(
+                        onClick = { date = date.plusDays(1) },
+                        enabled = date < LocalDate.now(),
+                    ) { Icon(Icons.Filled.KeyboardArrowRight, "День вперёд", tint = TextMuted) }
                 }
                 SliderRow("Энергия", energy) { energy = it }
                 SliderRow("Настроение", mood) { mood = it }
@@ -106,23 +138,27 @@ fun WellbeingEditorDialog(db: SliceDb, initialDate: LocalDate, onDismiss: () -> 
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = remind, onCheckedChange = { onRemindChanged(it) })
-                    Text("Напоминать вечером, если день не отмечен", style = MaterialTheme.typography.bodySmall)
+                    Text("Напоминать вечером, если день не отмечен", style = MaterialTheme.typography.bodySmall, color = TextMuted)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedButton(onClick = onDismiss) { Text("Отмена") }
-                    Button(onClick = {
-                        db.upsert(
-                            Wellbeing(
-                                date = date,
-                                energy = Wellbeing.clamp(energy.toInt()),
-                                mood = Wellbeing.clamp(mood.toInt()),
-                                sleepQuality = Wellbeing.clamp(sleep.toInt()),
-                                note = note.takeIf { it.isNotBlank() },
+                    GhostButton("Отмена", onDismiss, Modifier.weight(1f))
+                    GlowButton(
+                        "Сохранить",
+                        onClick = {
+                            db.upsert(
+                                Wellbeing(
+                                    date = date,
+                                    energy = Wellbeing.clamp(energy.toInt()),
+                                    mood = Wellbeing.clamp(mood.toInt()),
+                                    sleepQuality = Wellbeing.clamp(sleep.toInt()),
+                                    note = note.takeIf { it.isNotBlank() },
+                                )
                             )
-                        )
-                        WellbeingReminder.setEnabled(context, remind)
-                        onDismiss()
-                    }) { Text("Сохранить") }
+                            WellbeingReminder.setEnabled(context, remind)
+                            onDismiss()
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             }
         }
@@ -132,14 +168,25 @@ fun WellbeingEditorDialog(db: SliceDb, initialDate: LocalDate, onDismiss: () -> 
 @Composable
 private fun SliderRow(label: String, value: Float, onChange: (Float) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, modifier = Modifier.weight(1f))
-        Text("${value.toInt()}", style = MaterialTheme.typography.titleMedium)
+        Text(label, Modifier.weight(1f), color = TextMuted)
+        Text(
+            "${value.toInt()}",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            fontSize = 18.sp,
+            color = Violet,
+        )
         Slider(
             value = value,
             onValueChange = onChange,
             valueRange = Wellbeing.MIN.toFloat()..Wellbeing.MAX.toFloat(),
             steps = Wellbeing.MAX - Wellbeing.MIN - 1,
             modifier = Modifier.weight(2f),
+            colors = SliderDefaults.colors(
+                thumbColor = Violet,
+                activeTrackColor = Violet,
+                inactiveTrackColor = Color.White.copy(alpha = 0.12f),
+            ),
         )
     }
 }

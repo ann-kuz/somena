@@ -4,19 +4,26 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,10 +34,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.health.connect.client.PermissionController
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.BasalMetabolicRateRecord
@@ -44,6 +55,8 @@ import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
 import androidx.health.connect.client.records.WeightRecord
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import ru.somena.core.DaySlice
 import ru.somena.core.Profile
 import ru.somena.core.ProfileValidator
@@ -55,11 +68,29 @@ import ru.somena.core.parseOptionalInt
 import ru.somena.data.HcImporter
 import ru.somena.data.ProfileStore
 import ru.somena.data.SliceDb
+import ru.somena.ui.CardLabel
+import ru.somena.ui.GhostButton
+import ru.somena.ui.GlassCard
+import ru.somena.ui.GlowButton
+import ru.somena.ui.Gold
+import ru.somena.ui.MetricCard
+import ru.somena.ui.NebulaBackground
+import ru.somena.ui.NavItem
+import ru.somena.ui.SomenaNavBar
+import ru.somena.ui.SomenaTheme
+import ru.somena.ui.Sparkline
+import ru.somena.ui.TextMuted
+import ru.somena.ui.Violet
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ru.somena.data.WellbeingReminder.schedule(this, ru.somena.data.WellbeingReminder.isEnabled(this))
+        // Приложение всегда тёмное — системные панели принудительно со светлыми иконками.
+        enableEdgeToEdge(
+            statusBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
         setContent { App() }
     }
 }
@@ -76,42 +107,57 @@ val HC_PERMISSIONS = setOf(
     HealthPermission.getReadPermission(NutritionRecord::class),
 )
 
-private val TABS = listOf("Сегодня", "Графики", "Отладка HC", "Ещё")
+private val NAV_ITEMS = listOf(
+    NavItem(Icons.Filled.Home, "Сегодня"),
+    NavItem(Icons.Filled.DateRange, "Графики"),
+    NavItem(Icons.Filled.Build, "Отладка HC"),
+    NavItem(Icons.Filled.Settings, "Ещё"),
+)
 
 @Composable
 fun App() {
     val context = LocalContext.current
     var onboarding by remember { mutableStateOf(!onboardingCompleted(context)) }
-
-    if (onboarding) {
-        OnboardingScreen(onDone = {
-            setOnboardingCompleted(context)
-            onboarding = false
-        })
-        return
-    }
-
     var tab by remember { mutableIntStateOf(0) }
-    Scaffold(
-        bottomBar = {
-            NavigationBar {
-                TABS.forEachIndexed { i, label ->
-                    NavigationBarItem(
-                        selected = tab == i,
-                        onClick = { tab = i },
-                        icon = { Text("•") },
-                        label = { Text(label) },
-                    )
+
+    SomenaTheme {
+        Box(Modifier.fillMaxSize()) {
+            NebulaBackground()
+            if (onboarding) {
+                OnboardingScreen(
+                    Modifier.fillMaxSize(),
+                    onDone = {
+                        setOnboardingCompleted(context)
+                        onboarding = false
+                    },
+                )
+            } else {
+                Scaffold(
+                    containerColor = Color.Transparent,
+                    bottomBar = { SomenaNavBar(NAV_ITEMS, tab) { tab = it } },
+                ) { pad ->
+                    when (tab) {
+                        0 -> TodayScreen(Modifier.padding(pad))
+                        1 -> ChartsScreen(Modifier.padding(pad))
+                        2 -> HcDebugScreen(Modifier.padding(pad))
+                        else -> MoreScreen(Modifier.padding(pad), onRepeatOnboarding = { onboarding = true })
+                    }
                 }
             }
         }
-    ) { pad ->
-        when (tab) {
-            0 -> TodayScreen(Modifier.padding(pad))
-            1 -> ChartsScreen(Modifier.padding(pad))
-            2 -> HcDebugScreen(Modifier.padding(pad))
-            else -> MoreScreen(Modifier.padding(pad), onRepeatOnboarding = { onboarding = true })
-        }
+    }
+}
+
+@Composable
+private fun ScreenHeader(title: String, subtitle: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            title,
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = (-0.5).sp,
+        )
+        Text(subtitle, color = TextMuted, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -126,6 +172,7 @@ fun TodayScreen(m: Modifier) {
     var status by remember { mutableStateOf<String?>(null) }
     var wellbeing by remember { mutableStateOf(db.getWellbeing(LocalDate.now())) }
     var showWellbeingEditor by remember { mutableStateOf(false) }
+    val weekSteps = remember(db) { db.all().takeLast(7).map { it.steps?.toDouble() } }
 
     fun refresh() {
         busy = true
@@ -135,7 +182,7 @@ fun TodayScreen(m: Modifier) {
                     val imported = importer.importRecent(context)
                     if (imported == 0) "Новых данных нет"
                     else null
-                } else "Health Connect недоступен — проверь вкладку «Отладка HC»"
+                } else "Health Connect недоступен: проверь вкладку «Отладка HC»"
             } catch (e: Exception) {
                 "Импорт не удался: ${e.message}"
             }
@@ -156,47 +203,87 @@ fun TodayScreen(m: Modifier) {
 
     Column(
         m.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("Сегодня", style = MaterialTheme.typography.titleLarge)
+        ScreenHeader("Сегодня", LocalDate.now().format(dateHeaderFormat))
         val s = slice
         if (s == null) {
-            Text(if (busy) "Читаю Health Connect…" else "Данных пока нет — нажми «Обновить»")
-        } else {
-            MetricRow("Шаги", s.steps?.let { "%,d".format(it) })
-            MetricRow("Сон", s.sleepMinutes?.let { "%d ч %02d мин".format(it / 60, it % 60) })
-            MetricRow("Сожжено", s.burnedKcal?.let { "%,.0f ккал".format(it) })
-            MetricRow("Съедено", s.eatenKcal?.let { "%,.0f ккал".format(it) })
-            if (s.proteinG != null || s.fatG != null || s.carbsG != null) {
+            GlassCard(Modifier.fillMaxWidth(), padding = 28.dp) {
                 Text(
-                    "   Б %,.0f · Ж %,.0f · У %,.0f".format(s.proteinG ?: 0.0, s.fatG ?: 0.0, s.carbsG ?: 0.0),
-                    style = MaterialTheme.typography.bodySmall
+                    if (busy) "Читаю Health Connect…" else "Данных пока нет: нажми «Обновить»",
+                    color = TextMuted,
+                    style = MaterialTheme.typography.bodyLarge,
                 )
             }
-            MetricRow("Вес", s.weightKg?.let { "%,.1f кг".format(it) })
-            MetricRow("Жир", s.bodyFatPct?.let { "%,.1f %%".format(it) })
-            MetricRow("Кости", s.boneMassKg?.let { "%,.1f кг".format(it) })
-            MetricRow("Обмен", s.bmrKcal?.let { "%,.0f ккал/дн".format(it) })
+        } else {
+            // Главная карточка: шаги + мини-график недели
+            GlassCard(Modifier.fillMaxWidth()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        CardLabel("Шаги", Gold)
+                        Text(
+                            s.steps?.let { "%,d".format(it) } ?: "—",
+                            fontSize = 40.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = (-1).sp,
+                            color = if (s.steps == null) TextMuted else Color.Unspecified,
+                        )
+                    }
+                    if (weekSteps.count { it != null } >= 2) {
+                        Sparkline(weekSteps, Modifier.size(width = 96.dp, height = 56.dp), color = Gold)
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                MetricCard(
+                    "Сон", s.sleepMinutes?.let { "${it / 60}" }, Modifier.weight(1f),
+                    accent = Violet, unit = s.sleepMinutes?.let { "ч %02d мин".format(it % 60) } ?: "",
+                )
+                MetricCard(
+                    "Сожжено", s.burnedKcal?.let { "%,.0f".format(it) }, Modifier.weight(1f),
+                    accent = Violet, unit = "ккал",
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                MetricCard(
+                    "Съедено", s.eatenKcal?.let { "%,.0f".format(it) }, Modifier.weight(1f),
+                    accent = Gold, unit = "ккал",
+                    sub = if (s.proteinG != null || s.fatG != null || s.carbsG != null) {
+                        "Б %,.0f · Ж %,.0f · У %,.0f".format(s.proteinG ?: 0.0, s.fatG ?: 0.0, s.carbsG ?: 0.0)
+                    } else null,
+                )
+                MetricCard(
+                    "Вес", s.weightKg?.let { "%,.1f".format(it) }, Modifier.weight(1f),
+                    accent = Violet, unit = "кг",
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                MetricCard("Жир", s.bodyFatPct?.let { "%,.1f".format(it) }, Modifier.weight(1f), accent = Violet, unit = "%")
+                MetricCard("Кости", s.boneMassKg?.let { "%,.1f".format(it) }, Modifier.weight(1f), accent = Violet, unit = "кг")
+            }
+            MetricCard(
+                "Обмен", s.bmrKcal?.let { "%,.0f".format(it) }, Modifier.fillMaxWidth(),
+                accent = Violet, unit = "ккал/дн",
+            )
         }
-        Button(onClick = { refresh() }, enabled = !busy) {
-            Text(if (busy) "Обновляю…" else "Обновить")
-        }
-        status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        GlowButton(
+            if (busy) "Обновляю…" else "Обновить",
+            onClick = { refresh() },
+            enabled = !busy,
+            icon = Icons.Filled.Refresh,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        status?.let { Text(it, color = TextMuted, style = MaterialTheme.typography.bodySmall) }
         WellbeingSection(wellbeing, onEdit = { showWellbeingEditor = true })
         Text(
             "Шаги считаются только с браслета. «—» значит «данных нет за день».",
-            style = MaterialTheme.typography.bodySmall
+            color = TextMuted,
+            style = MaterialTheme.typography.bodySmall,
         )
     }
 }
 
-@Composable
-fun MetricRow(label: String, value: String?) {
-    androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth()) {
-        Text(label, modifier = Modifier.padding(end = 12.dp))
-        Text(value ?: "—", fontFamily = FontFamily.Monospace)
-    }
-}
+private val dateHeaderFormat = DateTimeFormatter.ofPattern("d MMMM, EEEE", Locale("ru", "RU"))
 
 @Composable
 fun HcDebugScreen(m: Modifier) {
@@ -229,25 +316,39 @@ fun HcDebugScreen(m: Modifier) {
         m.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("Отладка Health Connect", style = MaterialTheme.typography.titleLarge)
-        Text(HealthProbe.statusText(context))
-        granted?.let {
-            Text("Разрешений выдано: $it из ${HC_PERMISSIONS.size}")
+        ScreenHeader("Отладка Health Connect", "Статус хаба и проверка записей Источников")
+        GlassCard(Modifier.fillMaxWidth()) {
+            Text(HealthProbe.statusText(context), style = MaterialTheme.typography.bodyMedium)
+            granted?.let {
+                Text(
+                    "Разрешений выдано: $it из ${HC_PERMISSIONS.size}",
+                    color = TextMuted,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
         }
-        Button(
+        GlowButton(
+            "Выдать разрешения",
             onClick = { permissionLauncher.launch(HC_PERMISSIONS) },
             enabled = HealthProbe.isAvailable(context),
-        ) { Text("Выдать разрешения") }
-        Button(onClick = { scan() }, enabled = HealthProbe.isAvailable(context) && !busy) {
-            Text(if (busy) "Читаю…" else "Сканировать последние 7 дней")
-        }
+            icon = Icons.Filled.Lock,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        GhostButton(
+            if (busy) "Читаю…" else "Сканировать последние 7 дней",
+            onClick = { scan() },
+            enabled = HealthProbe.isAvailable(context) && !busy,
+            modifier = Modifier.fillMaxWidth(),
+        )
         result?.let {
-            Text(
-                it,
-                fontFamily = FontFamily.Monospace,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.fillMaxWidth()
-            )
+            GlassCard(Modifier.fillMaxWidth()) {
+                Text(
+                    it,
+                    fontFamily = FontFamily.Monospace,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextMuted,
+                )
+            }
         }
     }
 }
@@ -256,17 +357,20 @@ fun HcDebugScreen(m: Modifier) {
 fun MoreScreen(m: Modifier, onRepeatOnboarding: () -> Unit) {
     Column(
         m.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("Ещё", style = MaterialTheme.typography.titleLarge)
-        OutlinedButton(onClick = onRepeatOnboarding) {
-            Text("Онбординг источников")
+        ScreenHeader("Ещё", "Профиль и настройки приложения")
+        GlassCard(Modifier.fillMaxWidth()) {
+            GhostButton("Онбординг источников", onRepeatOnboarding, Modifier.fillMaxWidth())
         }
-        ProfileSection()
+        GlassCard(Modifier.fillMaxWidth()) {
+            ProfileSection()
+        }
         Text(
             "Скоро: чат по данным (нужен ключ proxyapi), вечерний опрос самочувствия, " +
                 "экспорт/импорт файла.",
-            style = MaterialTheme.typography.bodySmall
+            color = TextMuted,
+            style = MaterialTheme.typography.bodySmall,
         )
     }
 }
@@ -297,11 +401,12 @@ private fun ProfileSection() {
     }
     fun errorFor(field: String): String? = errors.firstOrNull { it.field == field }?.message
 
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Профиль", style = MaterialTheme.typography.titleMedium)
         Text(
             "Нужен для осмысленных советов ИИ. Можно оставить пустым.",
-            style = MaterialTheme.typography.bodySmall
+            color = TextMuted,
+            style = MaterialTheme.typography.bodySmall,
         )
         OutlinedTextField(
             value = height,
@@ -337,9 +442,14 @@ private fun ProfileSection() {
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
-        Button(onClick = { store.save(draft); status = "Сохранено ✓" }, enabled = errors.isEmpty()) {
-            Text("Сохранить")
+        GlowButton(
+            "Сохранить",
+            onClick = { store.save(draft); status = "Сохранено ✓" },
+            enabled = errors.isEmpty(),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        status?.let {
+            Text(it, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
         }
-        status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
     }
 }

@@ -9,3 +9,6 @@ backend/.env
 backend/venv/
 backend/__pycache__/
 __pycache__/
+
+# Черновики и раздача APK
+.scratch/

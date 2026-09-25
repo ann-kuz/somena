@@ -39,7 +39,7 @@ object HealthProbe {
     fun statusText(context: Context): String = when (HealthConnectClient.getSdkStatus(context)) {
         HealthConnectClient.SDK_AVAILABLE -> "Health Connect установлен ✓"
         HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED ->
-            "Health Connect установлен, но требует обновления — обнови его в Google Play"
+            "Health Connect установлен, но требует обновления: обнови его в Google Play"
         else -> "Health Connect не установлен"
     }
 
@@ -144,7 +144,7 @@ object HealthProbe {
             sb.appendLine("${fmtInt(eaten)} ккал за $days дн., записей: ${food.size}")
             food.groupBy { it.metadata.dataOrigin.packageName }.forEach { (pkg, rs) ->
                 val kcal = rs.sumOf { it.energy?.inKilocalories ?: 0.0 }
-                sb.appendLine("  источник: $pkg — ${fmtInt(kcal)} ккал (${rs.size} записей)")
+                sb.appendLine("  источник: $pkg, ${fmtInt(kcal)} ккал (${rs.size} записей)")
             }
         }
 
