@@ -57,7 +57,7 @@ import ru.somena.core.ImportPreview
 import ru.somena.core.WELLBEING_METRICS
 import ru.somena.core.Wellbeing
 import ru.somena.core.buildChatContext
-import ru.somena.core.decodeTableText
+import ru.somena.core.decodeTableBytes
 import ru.somena.core.describe
 import ru.somena.core.lastDays
 import ru.somena.core.metricSeries
@@ -139,8 +139,10 @@ fun ChatScreen(m: Modifier) {
                 bytes.size > MAX_ATTACHMENT_BYTES -> error =
                     "Файл больше 2 МБ: сохрани таблицу без лишних листов или разбей на части."
                 else -> {
-                    val text = decodeTableText(bytes)
-                    if (text.length > MAX_ATTACHMENT_CHARS) {
+                    val text = decodeTableBytes(bytes)
+                    if (text == null) {
+                        error = "Не получилось прочитать таблицу: поддерживаются csv, tsv и xlsx."
+                    } else if (text.length > MAX_ATTACHMENT_CHARS) {
                         error = "Таблица слишком длинная (${text.length} симв.): разбей файл на части, например по полгода."
                     } else {
                         error = null
@@ -346,7 +348,14 @@ fun ChatScreen(m: Modifier) {
                 enabled = settings.isConfigured && !busy && importPreview == null,
                 onClick = {
                     picker.launch(
-                        arrayOf("text/csv", "text/comma-separated-values", "text/tab-separated-values", "text/plain")
+                        arrayOf(
+                            "text/csv",
+                            "text/comma-separated-values",
+                            "text/tab-separated-values",
+                            "text/plain",
+                            "application/csv",
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        )
                     )
                 },
             )
