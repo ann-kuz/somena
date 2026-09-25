@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -71,6 +72,11 @@ private val SUGGESTIONS = listOf(
     "Как сон влияет на самочувствие?",
 )
 
+/** Ступень (спека 0004): Пользователь видит имена; названия моделей - деталь Бэкенда,
+ *  здесь они нужны только мелкой подписью у селектора. */
+private val STEP_LABELS = listOf("fast" to "Быстрая", "max" to "Максимальная")
+private val STEP_UI_MODELS = mapOf("fast" to "gpt-4.1-mini", "max" to "gpt-5.1")
+
 /** Цвет метрики на графике ИИ: правило цветов метрик спеки 0002, единое для всех экранов. */
 fun aiMetricColor(m: AiMetric): Color = when (m) {
     AiMetric.STEPS, AiMetric.EATEN, AiMetric.FAT -> Gold
@@ -96,6 +102,7 @@ fun ChatScreen(m: Modifier) {
     var input by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var step by remember { mutableStateOf(settings.modelStep) }
     val listState = rememberLazyListState()
 
     fun send(question: String) {
@@ -116,6 +123,7 @@ fun ChatScreen(m: Modifier) {
                     profile = ProfileStore(context).load(),
                     cycle = cycleEntries,
                 ),
+                step = step,
             ).fold(
                 onSuccess = { reply -> db.addChatMessage(ChatMessage.ASSISTANT, reply) },
                 onFailure = { e -> error = e.message ?: "Чат не удался." },
@@ -133,6 +141,20 @@ fun ChatScreen(m: Modifier) {
 
     Column(m.fillMaxSize().padding(16.dp).imePadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         ScreenHeader("Чат по данным", "ИИ видит твои срезы, Самочувствие и профиль. Не врач: диагнозов не ставит.")
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            STEP_LABELS.forEach { (key, label) ->
+                PeriodChip(label, selected = step == key, onClick = {
+                    step = key
+                    settings.modelStep = key
+                })
+            }
+            Spacer(Modifier.weight(1f))
+            Text(
+                STEP_UI_MODELS[step] ?: "",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextMuted,
+            )
+        }
         if (!settings.isConfigured) {
             GlassCard(Modifier.fillMaxWidth()) {
                 SelectionContainer {

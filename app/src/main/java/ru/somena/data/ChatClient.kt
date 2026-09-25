@@ -27,10 +27,10 @@ class ChatClient(
     private val log: (String) -> Unit = {},
 ) {
 
-    suspend fun ask(history: List<ChatMessage>, system: String, context: String): Result<String> =
+    suspend fun ask(history: List<ChatMessage>, system: String, context: String, step: String): Result<String> =
         withContext(Dispatchers.IO) {
             val startedAt = System.currentTimeMillis()
-            log("→ POST ${endpoint.url}/v1/chat (сообщений в истории: ${history.size})")
+            log("→ POST ${endpoint.url}/v1/chat (сообщений в истории: ${history.size}, ступень: $step)")
             try {
                 val conn = (URL("${endpoint.url}/v1/chat").openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
@@ -41,27 +41,34 @@ class ChatClient(
                     setRequestProperty("Content-Type", "application/json; charset=utf-8")
                 }
                 conn.outputStream.use {
-                    it.write(json.encodeToString(request(history, system, context)).toByteArray())
+                    it.write(json.encodeToString(request(history, system, context, step)).toByteArray())
                 }
                 fun spent() = "${System.currentTimeMillis() - startedAt} мс"
                 when (conn.responseCode) {
                     200 -> {
                         val body = runCatching {
-                            json.decodeFromString<WireReply>(conn.inputStream.bufferedReader().readText()).reply
+                            val wire = json.decodeFromString<WireReply>(conn.inputStream.bufferedReader().readText())
+                            wire.reply to wire.model
                         }.getOrNull()
-                        if (body.isNullOrBlank()) fail(
+                        val (reply, model) = body ?: ("" to null)
+                        if (reply.isNullOrBlank()) fail(
                             "Бэкенд вернул пустой ответ: попробуй ещё раз.",
                             "HTTP 200 за ${spent()}, пустой ответ",
                         )
                         else {
-                            log("← HTTP 200 за ${spent()}, ответ ${body.length} симв.")
-                            Result.success(body)
+                            log("← HTTP 200 за ${spent()}, ответ ${reply.length} симв." +
+                                (model?.let { ", модель $it" } ?: ""))
+                            Result.success(reply)
                         }
                     }
                     401 -> fail(
                         "Токен приложения неверный. Нужна строка APP_TOKEN из backend/.env на сервере " +
                             "(это не ключ proxyapi): проверь вкладку «Ещё» и попробуй снова.",
                         "HTTP 401 (неверный токен) за ${spent()}",
+                    )
+                    400 -> fail(
+                        backendDetail(conn) ?: "Бэкенд отклонил запрос (HTTP 400): обнови приложение и Бэкенд.",
+                        "HTTP 400 за ${spent()}",
                     )
                     502, 503 -> fail(
                         "ИИ сейчас недоступен: попробуй ещё раз позже.",
@@ -103,7 +110,7 @@ class ChatClient(
         "ошибка ${e.javaClass.simpleName}: ${e.message ?: "без подробностей"}",
     )
 
-    private fun request(history: List<ChatMessage>, system: String, context: String): WireRequest {
+    private fun request(history: List<ChatMessage>, system: String, context: String, step: String): WireRequest {
         val recent = history.takeLast(HISTORY_LIMIT)
             .map { WireMessage(it.role, it.content.take(MAX_CONTENT)) }
         val contextMsg = WireMessage("user", "$CONTEXT_MARK\n$context".take(MAX_CONTENT))
@@ -113,8 +120,14 @@ class ChatClient(
         } else {
             listOf(contextMsg) + recent
         }
-        return WireRequest(messages = messages, system = system, maxTokens = 3000)
+        return WireRequest(messages = messages, system = system, maxTokens = 3000, step = step)
     }
+
+    /** Читаемый текст ошибки из тела Бэкенда: {"detail": "..."}; без тела - null. */
+    private fun backendDetail(conn: HttpURLConnection): String? = runCatching {
+        val body = conn.errorStream?.bufferedReader()?.readText() ?: return null
+        json.decodeFromString<WireError>(body).detail?.take(200)
+    }.getOrNull()
 
     private companion object {
         val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
@@ -134,7 +147,11 @@ private data class WireRequest(
     val messages: List<WireMessage>,
     val system: String,
     @SerialName("max_tokens") val maxTokens: Int,
+    val step: String,
 )
 
 @Serializable
-private data class WireReply(val reply: String = "")
+private data class WireReply(val reply: String = "", val model: String? = null)
+
+@Serializable
+private data class WireError(val detail: String? = null)

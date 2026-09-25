@@ -19,7 +19,12 @@ load_dotenv(Path(__file__).parent / ".env")
 
 PROXYAPI_BASE = os.environ.get("PROXYAPI_BASE", "https://api.proxyapi.ru/openai/v1")
 PROXYAPI_KEY = os.environ.get("PROXYAPI_KEY", "")
-MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4.1-mini")
+# Белый список Ступень→модель (спека 0004): клиент передаёт Ступень, а не имя модели,
+# поэтому смена модели не требует обновления приложения. Неизвестная Ступень - 400.
+STEP_MODELS = {
+    "fast": os.environ.get("MODEL_FAST", "gpt-4.1-mini"),
+    "max": os.environ.get("MODEL_MAX", "gpt-5.1"),
+}
 APP_TOKEN = os.environ.get("APP_TOKEN", "")
 # Единая точка раздачи APK: сюда его кладёт scripts/build-apk.sh (см. README «Скачать приложение»).
 APK_PATH = Path(os.environ.get("APK_PATH", str(Path(__file__).parent / "apk" / "somena.apk")))
@@ -38,6 +43,7 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(min_length=1)
     system: str | None = Field(default=None, max_length=4000)
     max_tokens: int = Field(default=2000, ge=1, le=16000)
+    step: str | None = Field(default=None)
 
 
 @app.get("/health")
@@ -45,7 +51,7 @@ def health() -> dict:
     """Живость сервиса: без ключей, без внешних запросов, без авторизации."""
     return {
         "status": "ok",
-        "model": MODEL_NAME,
+        "steps": STEP_MODELS,
         "configured": bool(PROXYAPI_KEY and APP_TOKEN),
     }
 
@@ -69,8 +75,12 @@ async def chat(req: ChatRequest, authorization: str = Header(default="")) -> dic
     if not hmac.compare_digest(authorization, f"Bearer {APP_TOKEN}"):
         raise HTTPException(status_code=401, detail="Неверный токен приложения")
 
+    model = STEP_MODELS.get(req.step or "fast")
+    if model is None:
+        raise HTTPException(status_code=400, detail=f"Неизвестная ступень: {req.step}")
+
     payload = {
-        "model": MODEL_NAME,
+        "model": model,
         "messages": ([{"role": "system", "content": req.system}] if req.system else [])
         + [m.model_dump() for m in req.messages],
         "max_completion_tokens": req.max_tokens,
@@ -97,4 +107,4 @@ async def chat(req: ChatRequest, authorization: str = Header(default="")) -> dic
         log.warning("proxyapi unexpected response shape")
         raise HTTPException(status_code=502, detail="Неожиданный ответ ИИ-провайдера")
 
-    return {"reply": reply, "model": MODEL_NAME}
+    return {"reply": reply, "model": model}
