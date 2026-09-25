@@ -49,8 +49,8 @@ data class ChatMessage(val role: String, val content: String, val sentAt: Long) 
     }
 }
 
-/** Локальное хранилище Дневных срезов, Самочувствия и истории чата (ADR-0002: данные живут на телефоне). */
-class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 3) {
+/** Локальное хранилище Дневных срезов, Самочувствия, Записей цикла и истории чата (ADR-0002: данные живут на телефоне). */
+class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 4) {
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -58,6 +58,7 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 3
         db.execSQL(SQL_CREATE_DAY_SLICES)
         db.execSQL(SQL_CREATE_WELLBEING)
         db.execSQL(SQL_CREATE_CHAT)
+        db.execSQL(SQL_CREATE_CYCLE_DAYS)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -69,6 +70,7 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 3
             )
             db.execSQL(SQL_CREATE_CHAT)
         }
+        if (oldVersion < 4) db.execSQL(SQL_CREATE_CYCLE_DAYS)
     }
 
     fun upsert(slice: DaySlice) {
@@ -144,6 +146,54 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 3
             }
         }
 
+    // ---- Записи цикла (спека 0003, ADR-0005: только локально) ----
+
+    fun upsertCycleDay(e: ru.somena.core.CycleDay) {
+        val values = android.content.ContentValues().apply {
+            put("date", e.date.format(ISO_LOCAL_DATE))
+            put("menstruation", if (e.menstruation) 1 else 0)
+            put("flow", e.flow)
+            put("pain", e.pain)
+            put("updated_at", System.currentTimeMillis())
+        }
+        writableDatabase.insertWithOnConflict("cycle_days", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    fun getCycleDay(date: LocalDate): ru.somena.core.CycleDay? =
+        readableDatabase.rawQuery(
+            "SELECT menstruation, flow, pain FROM cycle_days WHERE date = ?",
+            arrayOf(date.format(ISO_LOCAL_DATE))
+        ).use { c ->
+            if (!c.moveToFirst()) null else ru.somena.core.CycleDay(
+                date = date,
+                menstruation = c.getInt(0) == 1,
+                flow = c.getInt(1),
+                pain = c.getInt(2),
+            )
+        }
+
+    /** Все Записи цикла по возрастанию даты: календарь, прогноз и контекст Чата. */
+    fun allCycleDays(): List<ru.somena.core.CycleDay> =
+        readableDatabase.rawQuery(
+            "SELECT date, menstruation, flow, pain FROM cycle_days ORDER BY date", null
+        ).use { c ->
+            buildList {
+                while (c.moveToNext()) add(
+                    ru.somena.core.CycleDay(
+                        date = LocalDate.parse(c.getString(0)),
+                        menstruation = c.getInt(1) == 1,
+                        flow = c.getInt(2),
+                        pain = c.getInt(3),
+                    )
+                )
+            }
+        }
+
+    /** Полное снятие отметки дня: отдельный delete, потому что REPLACE не умеет «удалить». */
+    fun deleteCycleDay(date: LocalDate) {
+        writableDatabase.delete("cycle_days", "date = ?", arrayOf(date.format(ISO_LOCAL_DATE)))
+    }
+
     fun addChatMessage(role: String, content: String) {
         val values = android.content.ContentValues().apply {
             put("role", role)
@@ -187,5 +237,12 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 3
                 "role TEXT NOT NULL, " +
                 "content TEXT NOT NULL, " +
                 "sent_at INTEGER NOT NULL)"
+        const val SQL_CREATE_CYCLE_DAYS =
+            "CREATE TABLE IF NOT EXISTS cycle_days (" +
+                "date TEXT PRIMARY KEY NOT NULL, " +
+                "menstruation INTEGER NOT NULL, " +
+                "flow INTEGER NOT NULL, " +
+                "pain INTEGER NOT NULL, " +
+                "updated_at INTEGER NOT NULL)"
     }
 }

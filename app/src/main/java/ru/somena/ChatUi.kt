@@ -91,6 +91,7 @@ fun ChatScreen(m: Modifier) {
     }
     // Данные для контекста вопроса и графиков ИИ: свежие на входе на экран.
     val data = remember { DayData(db.all().associateBy { it.date }, db.allWellbeing().associateBy { it.date }) }
+    val cycleEntries = remember { db.allCycleDays() }
     var messages by remember { mutableStateOf(db.chatHistory()) }
     var input by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -113,6 +114,7 @@ fun ChatScreen(m: Modifier) {
                     today = LocalDate.now(),
                     data = data,
                     profile = ProfileStore(context).load(),
+                    cycle = cycleEntries,
                 ),
             ).fold(
                 onSuccess = { reply -> db.addChatMessage(ChatMessage.ASSISTANT, reply) },

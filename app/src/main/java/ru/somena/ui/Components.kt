@@ -296,9 +296,14 @@ fun GhostButton(
 
 /** Пилюля выбора периода на графиках: выбранная — такое же неоновое стекло. */
 @Composable
-fun PeriodChip(label: String, selected: Boolean, onClick: () -> Unit) {
+fun PeriodChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Box(
-        Modifier
+        modifier
             .heightIn(min = 40.dp)
             .shadow(
                 if (selected) 10.dp else 0.dp, CircleShape,

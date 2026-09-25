@@ -28,7 +28,8 @@ class ChatContextTest {
         slices: Map<LocalDate, DaySlice> = mapOf(yesterday to slice),
         wellbeing: Map<LocalDate, Wellbeing> = mapOf(yesterday to this.wellbeing),
         profile: Profile? = null,
-    ) = buildChatContext(today, daysBack = 3, data = DayData(slices, wellbeing), profile = profile)
+        cycle: List<CycleDay> = emptyList(),
+    ) = buildChatContext(today, daysBack = 3, data = DayData(slices, wellbeing), profile = profile, cycle = cycle)
 
     @Test
     fun `контекст содержит показатели среза`() {
@@ -84,5 +85,41 @@ class ChatContextTest {
         assertFalse(text.contains("—"))
         assertFalse(text.contains("–"))
         assertFalse(CHAT_SYSTEM_PROMPT.contains("—"))
+    }
+
+    @Test
+    fun `менструация с интенсивностью и болью попадает в строку дня`() {
+        val text = context(
+            cycle = listOf(
+                CycleDay(yesterday, menstruation = true, flow = 3, pain = 1),
+                CycleDay(today.minusDays(2), menstruation = false, pain = 2),
+            )
+        )
+        assertTrue(text.contains("менструация, выделения обильные, боль слабая"))
+        assertTrue(text.contains("боль средняя"))
+    }
+
+    @Test
+    fun `строка Цикл содержит последний период и прогноз начала`() {
+        val text = context(
+            cycle = listOf(CycleDay(LocalDate.of(2026, 9, 23), menstruation = true, flow = 2))
+        )
+        assertTrue(text.contains("Цикл: последний период 23.09 - 23.09"))
+        assertTrue(text.contains("прогноз начала 21.10"))
+        assertTrue(text.contains("приблизительно"))
+    }
+
+    @Test
+    fun `фертильное окно и овуляция отмечаются в днях как прогноз`() {
+        // Один период 11.09: прогноз следующего начала 09.10, овуляция 09.10 - 14 = 25.09,
+        // фертильное окно 20.09 - 25.09 - попадает в окно контекста 23-25.09.
+        val text = context(cycle = listOf(CycleDay(LocalDate.of(2026, 9, 11), menstruation = true)))
+        assertTrue(text.contains("фертильное окно (прогноз)"))
+        assertTrue(text.contains("25.09: овуляция (прогноз)"))
+    }
+
+    @Test
+    fun `без записей цикл помечен честно`() {
+        assertTrue(context().contains("Цикл: записей нет"))
     }
 }

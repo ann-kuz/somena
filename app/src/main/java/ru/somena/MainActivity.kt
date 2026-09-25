@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -123,6 +124,9 @@ fun App() {
     val context = LocalContext.current
     var onboarding by remember { mutableStateOf(!onboardingCompleted(context)) }
     var tab by remember { mutableIntStateOf(0) }
+    var showCycle by remember { mutableStateOf(false) }
+    // Счётчик правок цикла: карточка на «Сегодня» перечитывает базу, когда он растёт.
+    var cycleRevision by remember { mutableIntStateOf(0) }
 
     SomenaTheme {
         Box(Modifier.fillMaxSize()) {
@@ -141,11 +145,26 @@ fun App() {
                     bottomBar = { SomenaNavBar(NAV_ITEMS, tab) { tab = it } },
                 ) { pad ->
                     when (tab) {
-                        0 -> TodayScreen(Modifier.padding(pad))
+                        0 -> TodayScreen(
+                            Modifier.padding(pad),
+                            cycleRevision = cycleRevision,
+                            onCycleChanged = { cycleRevision++ },
+                            onOpenCycle = { showCycle = true },
+                        )
                         1 -> ChartsScreen(Modifier.padding(pad))
                         2 -> ChatScreen(Modifier.padding(pad))
                         3 -> HcDebugScreen(Modifier.padding(pad))
                         else -> MoreScreen(Modifier.padding(pad), onRepeatOnboarding = { onboarding = true })
+                    }
+                }
+                if (showCycle) {
+                    Box(Modifier.fillMaxSize().background(ru.somena.ui.BgBase)) {
+                        NebulaBackground()
+                        CycleScreen(
+                            Modifier.fillMaxSize(),
+                            onBack = { showCycle = false },
+                            onChanged = { cycleRevision++ },
+                        )
                     }
                 }
             }
@@ -154,7 +173,7 @@ fun App() {
 }
 
 @Composable
-fun TodayScreen(m: Modifier) {
+fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onOpenCycle: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val db = remember { SliceDb(context) }
@@ -198,6 +217,12 @@ fun TodayScreen(m: Modifier) {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         ScreenHeader("Сегодня", LocalDate.now().format(dateHeaderFormat))
+        CycleCard(
+            db = db,
+            revision = cycleRevision,
+            onOpen = onOpenCycle,
+            onChanged = onCycleChanged,
+        )
         val s = slice
         if (s == null) {
             GlassCard(Modifier.fillMaxWidth(), padding = 28.dp) {

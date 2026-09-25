@@ -20,6 +20,7 @@ val BgBase = Color(0xFF0A0912)
 val Violet = Color(0xFF8B7CFF)
 val Indigo = Color(0xFF6D8DFF)
 val Gold = Color(0xFFFFC94D)
+val Rose = Color(0xFFFF6B9E)
 val TextMuted = Color(0xFFA8A4C4)
 val CardBorder = Color.White.copy(alpha = 0.08f)
 

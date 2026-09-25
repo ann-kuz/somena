@@ -2,6 +2,7 @@ package ru.somena.core
 
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import kotlin.math.roundToInt
 
 /**
  * Чат по данным (тикет 07): системный промпт и компактный контекст вопроса.
@@ -12,7 +13,7 @@ const val CHAT_SYSTEM_PROMPT = """Ты - помощник личного при�
 
 Безопасность: ты не врач и не ставишь диагнозов. Не называй болезней и не делай медицинских выводов. Если вопрос медицинский или данные похожи на симптом - мягко советуй: «обрати внимание и спроси врача».
 
-Данные пользователя придут отдельным сообщением с пометкой [Данные пользователя на момент вопроса] прямо перед вопросом: дневные срезы за последние 30 дней (шаги, сон, калории, БЖУ, вес, состав тела), Самочувствие (шкалы 0-10: энергия, настроение, качество сна, заметки) и профиль. «Дней без данных» перечислены явно: это пропуски, а не нули. Не выдумывай значения и не вычисляй «средние» по дням, которых нет.
+Данные пользователя придут отдельным сообщением с пометкой [Данные пользователя на момент вопроса] прямо перед вопросом: дневные срезы за последние 30 дней (шаги, сон, калории, БЖУ, вес, состав тела), Самочувствие (шкалы 0-10: энергия, настроение, качество сна, заметки), Записи цикла (менструация, интенсивность выделений, боль, а в строке «Цикл» - прогноз) и профиль. «Дней без данных» перечислены явно: это пропуски, а не нули. Не выдумывай значения и не вычисляй «средние» по дням, которых нет. Прогноз цикла приблизительный: подавай его как оценку, а не факт. К вопросам про цикл относись так же бережно: без диагнозов и назойливых советов.
 
 Графики: если к ответу уместен график, вставь один или несколько блоков точно в таком виде:
 ```chart
@@ -28,14 +29,23 @@ fun buildChatContext(
     daysBack: Int = 30,
     data: DayData = DayData(),
     profile: Profile? = null,
+    cycle: List<CycleDay> = emptyList(),
 ): String {
     val fmt = DateTimeFormatter.ofPattern("dd.MM")
     val dates = lastDays(today, daysBack)
+    val cycleByDate = cycle.associateBy { it.date }
+    val periods = buildPeriods(cycle)
+    val prediction = predictCycle(periods, today)
 
     val dayLines = mutableListOf<String>()
     val emptyDates = mutableListOf<String>()
     for (d in dates) {
-        val line = dayLine(data.slicesByDate[d], data.wellbeingByDate[d])
+        val line = dayLine(
+            data.slicesByDate[d],
+            data.wellbeingByDate[d],
+            cycleByDate[d],
+            cyclePhase(periods, prediction, d),
+        )
         if (line == null) emptyDates += d.format(fmt) else dayLines += "${d.format(fmt)}: $line"
     }
 
@@ -46,11 +56,12 @@ fun buildChatContext(
             append("\nДней без данных: ${emptyDates.size} (${emptyDates.joinToString(", ")}). Это пропуски, а не нули.")
         }
         append("\nПрофиль: ").append(profileLine(profile, today))
+        append("\nЦикл: ").append(cycleSummaryLine(periods, prediction, today, fmt))
     }
 }
 
 /** Строка одного дня; null значит «данных нет вообще». */
-private fun dayLine(s: DaySlice?, w: Wellbeing?): String? {
+private fun dayLine(s: DaySlice?, w: Wellbeing?, cyc: CycleDay?, phase: CyclePhase): String? {
     val parts = mutableListOf<String>()
     if (s != null) {
         s.steps?.let { parts += "шаги $it" }
@@ -74,7 +85,53 @@ private fun dayLine(s: DaySlice?, w: Wellbeing?): String? {
         parts += "самочувствие: энергия ${w.energy}/10, настроение ${w.mood}/10, сон ${w.sleepQuality}/10"
         w.note?.takeIf { it.isNotBlank() }?.let { parts += "заметка: «$it»" }
     }
+    cyc?.let { c ->
+        if (c.menstruation) {
+            parts += "менструация"
+            if (c.flow > 0) parts += "выделения ${flowWord(c.flow)}"
+        } else if (phase == CyclePhase.PREDICTED) {
+            parts += "прогноз менструации"
+        }
+        if (c.pain > 0) parts += "боль ${painWord(c.pain)}"
+    }
+    when (phase) {
+        CyclePhase.FERTILE -> parts += "фертильное окно (прогноз)"
+        CyclePhase.OVULATION -> parts += "овуляция (прогноз)"
+        else -> {}
+    }
     return if (parts.isEmpty()) null else parts.joinToString(", ")
+}
+
+/** Итоговая строка цикла для контекста: последний период, длина и прогноз начала. */
+private fun cycleSummaryLine(
+    periods: List<PeriodBlock>,
+    prediction: CyclePrediction?,
+    today: LocalDate,
+    fmt: DateTimeFormatter,
+): String {
+    if (periods.isEmpty()) return "записей нет"
+    val last = periods.last()
+    val parts = mutableListOf("последний период ${last.start.format(fmt)} - ${last.endInclusive.format(fmt)}")
+    cycleLengths(periods).takeLast(6).takeIf { it.size >= 3 }?.let {
+        parts += "длина цикла около ${it.average().roundToInt()} дн"
+    }
+    prediction?.let {
+        parts += "прогноз начала ${it.nextStart.format(fmt)}"
+        if (it.approximate) parts += "приблизительно"
+    }
+    return parts.joinToString(", ")
+}
+
+private fun flowWord(flow: Int) = when (flow) {
+    1 -> "скудные"
+    2 -> "умеренные"
+    else -> "обильные"
+}
+
+private fun painWord(pain: Int) = when (pain) {
+    1 -> "слабая"
+    2 -> "средняя"
+    else -> "сильная"
 }
 
 private fun profileLine(p: Profile?, today: LocalDate): String {
