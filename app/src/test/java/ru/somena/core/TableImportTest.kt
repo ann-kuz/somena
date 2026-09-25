@@ -5,6 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 class TableImportTest {
@@ -35,11 +36,161 @@ class TableImportTest {
     }
 
     @Test
-    fun `строки модели с лишними метриками не заносятся`() {
-        // Схема разбора не содержит шагов: таблица не может записать измерения устройств (ADR-0001).
-        val preview = parseImportReply("""{"days":[{"date":"05.01.2025","steps":12000,"weight":62.4}]}""", emptyMap())
-        assertEquals(62.4, preview!!.entries.single().values.weightKg!!, 1e-9)
-        assertTrue(preview.entries.single().toSlice(null).steps == null)
+    fun `шаги расход и сон разбираются в значения дня`() {
+        // ADR-0007: таблица восполняет измерения задним числом для дней без Источника.
+        val preview = parseImportReply(
+            """{"days":[{"date":"05.01.2025","steps":12000,"burned_kcal":2100,"sleep_h":7.5,"weight":62.4}]}""",
+            emptyMap(),
+        )
+        val values = preview!!.entries.single().values
+        assertEquals(12000L, values.steps)
+        assertEquals(2100.0, values.burnedKcal!!, 1e-9)
+        assertEquals("сон в часах хранится минутами", 450L, values.sleepMinutes)
+        val merged = preview.entries.single().toSlice(DaySlice(date = jan5, weightKg = 60.0, eatenKcal = 1800.0))
+        assertEquals(12000L, merged.steps)
+        assertEquals(2100.0, merged.burnedKcal!!, 1e-9)
+        assertEquals(450L, merged.sleepMinutes)
+        assertEquals("табличное значение сильнее существующего", 62.4, merged.weightKg!!, 1e-9)
+        assertEquals("чужие поля дня разбор не трогает", 1800.0, merged.eatenKcal!!, 1e-9)
+    }
+
+    @Test
+    fun `дробные шаги отбраковывают строку, а не весь разбор`() {
+        val preview = parseImportReply(
+            """{"days":[
+                {"date":"05.01.2025","steps":12000.5},
+                {"date":"06.01.2025","steps":8000}]}""",
+            emptyMap(),
+        )
+        assertEquals(listOf(jan6), preview!!.entries.map { it.date })
+        assertTrue(preview.rejected.single().raw.contains("12000.5"))
+        assertTrue(preview.rejected.single().reason.contains("steps не целое"))
+    }
+
+    @Test
+    fun `сон вне суток отбраковывается по значению из файла`() {
+        val preview = parseImportReply("""{"days":[{"date":"05.01.2025","sleep_h":30.0}]}""", emptyMap())
+        assertTrue(preview!!.entries.isEmpty())
+        assertEquals("30.0", preview.rejected.single().raw.substringAfter(": "))
+        assertTrue(preview.rejected.single().reason.contains("sleep_h вне диапазона 0..24"))
+    }
+
+    @Test
+    fun `мердж не создаёт новую отметку из неполной строки`() {
+        val entry = ImportWellbeingEntry(jan5, ImportWellbeing(mood = 7), ImportWellbeing())
+        try {
+            entry.toWellbeing(null)
+            fail("неполная строка без существующей отметки должна отказать")
+        } catch (e: IllegalStateException) {
+            // ожидаемый отказ: пустая шкала стала бы ложным нулём в графике
+        }
+    }
+
+    @Test
+    fun `шаги и сон вне диапазона отбрасывают строку`() {
+        val preview = parseImportReply(
+            """{"days":[
+                {"date":"05.01.2025","steps":200000},
+                {"date":"06.01.2025","sleep_h":30.0},
+                {"date":"07.01.2025","steps":8000}]}""",
+            emptyMap(),
+        )
+        assertEquals(listOf(LocalDate.of(2025, 1, 7)), preview!!.entries.map { it.date })
+        assertEquals(2, preview.rejected.size)
+    }
+
+    @Test
+    fun `дата из будущего уходит в отброшенные`() {
+        val today = LocalDate.of(2026, 9, 25)
+        val preview = parseImportReply(
+            """{"days":[{"date":"2026-09-26","weight":62.4}],
+                "wellbeing":[{"date":"2027-01-01","energy":7,"mood":6,"sleep_quality":8}]}""",
+            emptyMap(),
+            today = today,
+        )
+        assertTrue(preview!!.entries.isEmpty())
+        assertTrue(preview.wellbeing.isEmpty())
+        assertEquals(2, preview.rejected.size)
+    }
+
+    @Test
+    fun `самочувствие разбирается в предпросмотр`() {
+        val preview = parseImportReply(
+            """{"wellbeing":[{"date":"05.01.2025","energy":7,"mood":6,"sleep_quality":8}]}""",
+            emptyMap(),
+        )
+        val entry = preview!!.wellbeing.single()
+        assertEquals(jan5, entry.date)
+        assertEquals(7, entry.values.energy)
+        assertEquals(6, entry.values.mood)
+        assertEquals(8, entry.values.sleepQuality)
+        assertEquals("энергия 7, настроение 6, качество сна 8", entry.values.describe())
+        assertEquals(0, preview.wellbeingReplacedCount)
+    }
+
+    @Test
+    fun `частичное самочувствие заменяет отмеченный день и бережёт заметку`() {
+        val existingWb = mapOf(jan5 to Wellbeing(jan5, energy = 4, mood = 5, sleepQuality = 3, note = "была мигрень"))
+        val preview = parseImportReply(
+            """{"wellbeing":[{"date":"05.01.2025","mood":7}]}""",
+            emptyMap(),
+            existingWellbeing = existingWb,
+        )
+        val entry = preview!!.wellbeing.single()
+        assertEquals(1, preview.wellbeingReplacedCount)
+        assertEquals(5, entry.old.mood)
+        val merged = entry.toWellbeing(existingWb[jan5])
+        assertEquals("не указана - осталась старая", 4, merged.energy)
+        assertEquals("указана - заменена", 7, merged.mood)
+        assertEquals(3, merged.sleepQuality)
+        assertEquals("была мигрень", merged.note)
+    }
+
+    @Test
+    fun `новый день с неполным самочувствием отбрасывается`() {
+        // Пустая шкала в новой отметке стала бы ложным нулём в графике.
+        val preview = parseImportReply(
+            """{"wellbeing":[{"date":"05.01.2025","mood":7}]}""",
+            emptyMap(),
+        )
+        assertTrue(preview!!.wellbeing.isEmpty())
+        assertEquals(1, preview.rejected.size)
+    }
+
+    @Test
+    fun `дробная шкала и шкала вне 0-10 отбрасывают строку`() {
+        val preview = parseImportReply(
+            """{"wellbeing":[
+                {"date":"05.01.2025","mood":6.5},
+                {"date":"06.01.2025","energy":11},
+                {"date":"07.01.2025","energy":3,"mood":3,"sleep_quality":3}]}""",
+            emptyMap(),
+        )
+        assertEquals(listOf(LocalDate.of(2025, 1, 7)), preview!!.wellbeing.map { it.date })
+        assertEquals(2, preview.rejected.size)
+    }
+
+    @Test
+    fun `повторное самочувствие без изменений не предлагается`() {
+        val existingWb = mapOf(jan5 to Wellbeing(jan5, energy = 7, mood = 6, sleepQuality = 8))
+        val preview = parseImportReply(
+            """{"wellbeing":[{"date":"05.01.2025","energy":7,"mood":6,"sleep_quality":8}]}""",
+            emptyMap(),
+            existingWellbeing = existingWb,
+        )
+        assertTrue(preview!!.wellbeing.isEmpty())
+    }
+
+    @Test
+    fun `замены новых полей дня считаются заменами`() {
+        val existing = mapOf(jan5 to DaySlice(date = jan5, steps = 9000))
+        val preview = parseImportReply("""{"days":[{"date":"05.01.2025","steps":8000}]}""", existing)
+        assertEquals(1, preview!!.replacedCount)
+    }
+
+    @Test
+    fun `промпт разбора умещается в лимит бэкенда на system`() {
+        assertTrue("лимит Бэкенда на system - 4000 символов", IMPORT_SYSTEM_PROMPT.length < 4000)
     }
 
     @Test

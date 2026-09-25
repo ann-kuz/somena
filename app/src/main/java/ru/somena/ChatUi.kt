@@ -51,10 +51,11 @@ import ru.somena.core.AiChartSpec
 import ru.somena.core.AiMetric
 import ru.somena.core.CHAT_SYSTEM_PROMPT
 import ru.somena.core.DayData
+import ru.somena.core.ImportPreview
 import ru.somena.core.ImportValues
+import ru.somena.core.ImportWellbeing
 import ru.somena.core.MAX_ATTACHMENT_BYTES
 import ru.somena.core.MAX_ATTACHMENT_CHARS
-import ru.somena.core.ImportPreview
 import ru.somena.core.WELLBEING_METRICS
 import ru.somena.core.Wellbeing
 import ru.somena.core.buildChatContext
@@ -65,6 +66,7 @@ import ru.somena.core.metricSeries
 import ru.somena.core.parseAiCharts
 import ru.somena.core.parseImportReply
 import ru.somena.core.toSlice
+import ru.somena.core.toWellbeing
 import ru.somena.data.ChatClient
 import ru.somena.data.ChatLog
 import ru.somena.data.ChatMessage
@@ -173,7 +175,7 @@ fun ChatScreen(m: Modifier) {
         scope.launch {
             client.askImport(tableText).fold(
                 onSuccess = { raw ->
-                    val preview = parseImportReply(raw, data.slicesByDate)
+                    val preview = parseImportReply(raw, data.slicesByDate, data.wellbeingByDate)
                     if (preview == null) {
                         error = "ИИ не смог разобрать таблицу. Нужны колонки с датами и показателями. " +
                             "Если таблица длинная, разбей её на части."
@@ -195,9 +197,20 @@ fun ChatScreen(m: Modifier) {
         for (entry in preview.entries) {
             db.upsert(entry.toSlice(db.get(entry.date)))
         }
+        for (entry in preview.wellbeing) {
+            db.upsert(entry.toWellbeing(db.getWellbeing(entry.date)))
+        }
         val note = buildString {
-            append("Разобрала таблицу «$name»: записала ${preview.entries.size} дн. ")
-            append("(новых ${preview.entries.size - preview.replacedCount}, замен ${preview.replacedCount}).")
+            val parts = buildList {
+                if (preview.entries.isNotEmpty()) {
+                    add("записала ${preview.entries.size} дн. " +
+                        "(новых ${preview.entries.size - preview.replacedCount}, замен ${preview.replacedCount})")
+                }
+                if (preview.wellbeing.isNotEmpty()) {
+                    add("самочувствия ${preview.wellbeing.size} дн. (замен ${preview.wellbeingReplacedCount})")
+                }
+            }
+            append("Разобрала таблицу «$name»: ${parts.joinToString(", ")}.")
             if (preview.rejected.isNotEmpty()) append(" Строк не разобрано: ${preview.rejected.size}.")
         }
         val withText = importUserText?.takeIf { it.isNotBlank() }?.let { ":\n$it" } ?: ""
@@ -440,15 +453,24 @@ fun AiChartCard(spec: AiChartSpec, anchor: LocalDate, data: DayData) {
     )
 }
 
-/** Карточка Предпросмотра (спека 0004): ничего не записано, пока не нажато «Записать». */
+/** Карточка Предпросмотра (спеки 0004 и 0006): ничего не записано, пока не нажато «Записать». */
 @Composable
 private fun ImportPreviewCard(preview: ImportPreview, onConfirm: () -> Unit, onCancel: () -> Unit) {
     GlassCard(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Предпросмотр: разобрано дней ${preview.entries.size}", style = MaterialTheme.typography.titleSmall)
+            Text(
+                buildString {
+                    append("Предпросмотр: разобрано дней ${preview.entries.size}")
+                    if (preview.wellbeing.isNotEmpty()) append(", самочувствия ${preview.wellbeing.size}")
+                },
+                style = MaterialTheme.typography.titleSmall,
+            )
             Text(
                 buildString {
                     append("Новых: ${preview.entries.size - preview.replacedCount}, замен: ${preview.replacedCount}")
+                    if (preview.wellbeing.isNotEmpty()) {
+                        append(", самочувствия замен: ${preview.wellbeingReplacedCount}")
+                    }
                     if (preview.rejected.isNotEmpty()) append(", не разобрано: ${preview.rejected.size}")
                 },
                 color = TextMuted,
@@ -465,6 +487,10 @@ private fun ImportPreviewCard(preview: ImportPreview, onConfirm: () -> Unit, onC
                     val was = if (entry.old == ImportValues()) "" else " (было: ${entry.old.describe()})"
                     Text("${entry.date.format(fmt)}: ${entry.values.describe()}$was", style = MaterialTheme.typography.bodyMedium)
                 }
+                preview.wellbeing.forEach { entry ->
+                    val was = if (entry.old == ImportWellbeing()) "" else " (было: ${entry.old.describe()})"
+                    Text("${entry.date.format(fmt)}: ${entry.values.describe()}$was", style = MaterialTheme.typography.bodyMedium)
+                }
                 preview.rejected.forEach { row ->
                     Text(
                         "Не разобрано: ${row.raw.take(60)} - ${row.reason}",
@@ -477,7 +503,7 @@ private fun ImportPreviewCard(preview: ImportPreview, onConfirm: () -> Unit, onC
                 GlowButton(
                     "Записать",
                     onClick = onConfirm,
-                    enabled = preview.entries.isNotEmpty(),
+                    enabled = preview.entries.isNotEmpty() || preview.wellbeing.isNotEmpty(),
                     modifier = Modifier.weight(1f),
                 )
                 GhostButton("Отмена", onClick = onCancel, modifier = Modifier.weight(1f))
