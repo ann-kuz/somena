@@ -59,6 +59,7 @@ import ru.somena.data.SliceDb
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ru.somena.data.WellbeingReminder.schedule(this, ru.somena.data.WellbeingReminder.isEnabled(this))
         setContent { App() }
     }
 }
@@ -75,7 +76,7 @@ val HC_PERMISSIONS = setOf(
     HealthPermission.getReadPermission(NutritionRecord::class),
 )
 
-private val TABS = listOf("Сегодня", "Отладка HC", "Ещё")
+private val TABS = listOf("Сегодня", "Графики", "Отладка HC", "Ещё")
 
 @Composable
 fun App() {
@@ -107,7 +108,8 @@ fun App() {
     ) { pad ->
         when (tab) {
             0 -> TodayScreen(Modifier.padding(pad))
-            1 -> HcDebugScreen(Modifier.padding(pad))
+            1 -> ChartsScreen(Modifier.padding(pad))
+            2 -> HcDebugScreen(Modifier.padding(pad))
             else -> MoreScreen(Modifier.padding(pad), onRepeatOnboarding = { onboarding = true })
         }
     }
@@ -122,6 +124,8 @@ fun TodayScreen(m: Modifier) {
     var slice by remember { mutableStateOf<DaySlice?>(null) }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
+    var wellbeing by remember { mutableStateOf(db.getWellbeing(LocalDate.now())) }
+    var showWellbeingEditor by remember { mutableStateOf(false) }
 
     fun refresh() {
         busy = true
@@ -136,11 +140,19 @@ fun TodayScreen(m: Modifier) {
                 "Импорт не удался: ${e.message}"
             }
             slice = db.get(LocalDate.now())
+            wellbeing = db.getWellbeing(LocalDate.now())
             busy = false
         }
     }
 
     LaunchedEffect(Unit) { refresh() }
+
+    if (showWellbeingEditor) {
+        WellbeingEditorDialog(db = db, initialDate = LocalDate.now(), onDismiss = {
+            showWellbeingEditor = false
+            wellbeing = db.getWellbeing(LocalDate.now())
+        })
+    }
 
     Column(
         m.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
@@ -170,6 +182,7 @@ fun TodayScreen(m: Modifier) {
             Text(if (busy) "Обновляю…" else "Обновить")
         }
         status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        WellbeingSection(wellbeing, onEdit = { showWellbeingEditor = true })
         Text(
             "Шаги считаются только с браслета. «—» значит «данных нет за день».",
             style = MaterialTheme.typography.bodySmall
@@ -178,7 +191,7 @@ fun TodayScreen(m: Modifier) {
 }
 
 @Composable
-private fun MetricRow(label: String, value: String?) {
+fun MetricRow(label: String, value: String?) {
     androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth()) {
         Text(label, modifier = Modifier.padding(end = 12.dp))
         Text(value ?: "—", fontFamily = FontFamily.Monospace)
