@@ -18,6 +18,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -89,15 +90,72 @@ fun App() {
 
 @Composable
 fun TodayScreen(m: Modifier) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val db = remember { ru.somena.data.SliceDb(context) }
+    val importer = remember { ru.somena.data.HcImporter(db) }
+    var slice by remember { mutableStateOf<ru.somena.core.DaySlice?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var note by remember { mutableStateOf<String?>(null) }
+
+    fun refresh() {
+        busy = true
+        scope.launch {
+            note = try {
+                if (HealthProbe.isAvailable(context)) {
+                    importer.importRecent(context)
+                    null
+                } else "Health Connect недоступен — проверь вкладку «Отладка HC»"
+            } catch (e: Exception) {
+                "Импорт не удался: ${e.message}"
+            }
+            slice = db.get(java.time.LocalDate.now())
+            busy = false
+        }
+    }
+
+    LaunchedEffect(Unit) { refresh() }
+
     Column(
-        m.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        m.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Text("Somena 0.1 — каркас", style = MaterialTheme.typography.titleLarge)
+        Text("Сегодня", style = MaterialTheme.typography.titleLarge)
+        val s = slice
+        if (s == null) {
+            Text(if (busy) "Читаю Health Connect…" else "Данных пока нет — нажми «Обновить»")
+        } else {
+            MetricRow("Шаги", s.steps?.let { "%,d".format(it) })
+            MetricRow("Сон", s.sleepMinutes?.let { "%d ч %02d мин".format(it / 60, it % 60) })
+            MetricRow("Сожжено", s.burnedKcal?.let { "%,.0f ккал".format(it) })
+            MetricRow("Съедено", s.eatenKcal?.let { "%,.0f ккал".format(it) })
+            if (s.proteinG != null || s.fatG != null || s.carbsG != null) {
+                Text(
+                    "   Б %,+.0f · Ж %,+.0f · У %,+.0f".format(s.proteinG ?: 0.0, s.fatG ?: 0.0, s.carbsG ?: 0.0),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            MetricRow("Вес", s.weightKg?.let { "%,.1f кг".format(it) })
+            MetricRow("Жир", s.bodyFatPct?.let { "%,.1f %%".format(it) })
+            MetricRow("Кости", s.boneMassKg?.let { "%,.1f кг".format(it) })
+            MetricRow("Обмен", s.bmrKcal?.let { "%,.0f ккал/дн".format(it) })
+        }
+        Button(onClick = { refresh() }, enabled = !busy) {
+            Text(if (busy) "Обновляю…" else "Обновить")
+        }
+        note?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         Text(
-            "Здесь будет «Сегодня»: дневной срез (шаги, сон, расход, съедено, вес, самочувствие) и графики.\n\n" +
-                "Сейчас проверь вкладку «Отладка HC»: она показывает, какие источники реально пишут данные в Health Connect."
+            "Шаги считаются только с браслета. «—» значит «данных нет за день».",
+            style = MaterialTheme.typography.bodySmall
         )
+    }
+}
+
+@Composable
+private fun MetricRow(label: String, value: String?) {
+    androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth()) {
+        Text(label, modifier = Modifier.padding(end = 12.dp))
+        Text(value ?: "—", fontFamily = FontFamily.Monospace)
     }
 }
 
