@@ -6,6 +6,7 @@ import java.time.temporal.ChronoUnit
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -58,8 +59,6 @@ class XlsxReaderTest {
         val csv = "Дата;Вес\n05.01.2025;62.4".toByteArray(Charsets.UTF_8)
         assertEquals("Дата;Вес\n05.01.2025;62.4", decodeTableBytes(csv))
     }
-
-    private fun assertNotNull(x: Any?) = assertTrue(x != null)
 
     /** Собирает минимальный xlsx: workbook, rels, стили с датовым форматом, sharedStrings, лист(ы). */
     private fun xlsx(

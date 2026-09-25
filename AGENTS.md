@@ -16,6 +16,12 @@
 debug-APK и кладёт его в `backend/apk/somena.apk`, который раздаёт бэкенд.
 После правки `backend/app.py` — `systemctl restart somena-ai` (см. backend/README.md).
 
+## Тикеты
+
+Трекера нет. Тикеты фичи живут в `.scratch/<слаг-фичи>/issues/NN-слаг.md`: номер задаёт
+порядок зависимостей, блокировки - в поле «Blocked by» каждого тикета, статус
+`ready-for-agent` означает «можно брать». Пример: `.scratch/somena-mvp/issues/`.
+
 ## Остальное
 
 - Словарь домена и «избегать»-термины: CONTEXT.md. Говори словами словаря.

@@ -113,7 +113,10 @@ async def chat(req: ChatRequest, authorization: str = Header(default="")) -> dic
         raise HTTPException(status_code=502, detail=f"Ошибка ИИ-провайдера (HTTP {resp.status_code})")
 
     try:
-        reply = resp.json()["choices"][0]["message"]["content"] or ""
+        data = resp.json()
+        reply = data["choices"][0]["message"]["content"] or ""
+        # Фактическая модель отвечает - имя из ответа провайдера, если он его прислал.
+        model = data.get("model") or model
     except (KeyError, IndexError, ValueError):
         log.warning("proxyapi unexpected response shape")
         raise HTTPException(status_code=502, detail="Неожиданный ответ ИИ-провайдера")

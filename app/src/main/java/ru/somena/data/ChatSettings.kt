@@ -19,8 +19,8 @@ class ChatSettings(context: Context) {
         set(value) = prefs.edit().putString(KEY_TOKEN, value.trim()).apply()
 
     /**
-     * Выбранная Ступень (спека 0004): "fast" или "max". Бэкенд сам знает, какая модель
-     * за Ступенью стоит; приложение хранит только выбор. Чужое значение читается как "fast".
+     * Выбранная Ступень (спека 0004): fast или max. Бэкенд сам знает, какая модель
+     * за Ступенью стоит; приложение хранит только выбор. Чужое значение читается как fast.
      */
     var modelStep: String
         get() = if (prefs.getString(KEY_STEP, STEP_FAST) == STEP_MAX) STEP_MAX else STEP_FAST
@@ -36,8 +36,6 @@ class ChatSettings(context: Context) {
         const val KEY_URL = "chat_backend_url"
         const val KEY_TOKEN = "chat_app_token"
         const val KEY_STEP = "chat_model_step"
-        const val STEP_FAST = "fast"
-        const val STEP_MAX = "max"
         /** Адрес из README Бэкенда; владелица может поменять на свой при переезде сервера. */
         const val DEFAULT_URL = "http://77.239.99.15:8787"
     }

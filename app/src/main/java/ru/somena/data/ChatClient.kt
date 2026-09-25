@@ -12,6 +12,11 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import ru.somena.core.IMPORT_SYSTEM_PROMPT
+import ru.somena.core.MAX_ATTACHMENT_CHARS
+
+/** Ступени (спека 0004): одно место на весь пакет data. */
+const val STEP_FAST = "fast"
+const val STEP_MAX = "max"
 
 /** Адрес и токен запросов к Бэкенду: чистые данные, тестируются без Android. */
 data class ChatEndpoint(val url: String, val token: String)
@@ -39,9 +44,33 @@ class ChatClient(
 
     /** Разбор таблицы: ответ - строгий JSON, его валидирует core (TableImport). */
     suspend fun askImport(attachment: String): Result<String> = withContext(Dispatchers.IO) {
-        exchange(requestImport(attachment), describe = {
-            "разбор таблицы, ${attachment.length} симв., ступень: fast"
-        })
+        // Спека 0004: длиннее лимита - отказ, никакой молчаливой обрезки.
+        if (attachment.length > MAX_ATTACHMENT_CHARS) {
+            fail(
+                "Таблица слишком длинная (${attachment.length} симв.): разбей файл на части.",
+                "вложение ${attachment.length} симв. длиннее лимита",
+            )
+        } else {
+            exchange(requestImport(attachment), describe = {
+                "разбор таблицы, ${attachment.length} симв., ступень: fast"
+            })
+        }
+    }
+
+    /** Ступень→модель с Бэкенда (/health, без авторизации): подпись селектора не врёт после смены модели. */
+    fun steps(): Map<String, String>? = try {
+        val conn = (URL("${endpoint.url}/health").openConnection() as HttpURLConnection).apply {
+            connectTimeout = 5000
+            readTimeout = 5000
+        }
+        runCatching {
+            val body = conn.inputStream.bufferedReader().readText()
+            json.decodeFromString<WireHealth>(body).steps
+                ?.filterKeys { it == STEP_FAST || it == STEP_MAX }
+                ?.takeIf { it.isNotEmpty() }
+        }.getOrNull()
+    } catch (e: Exception) {
+        null
     }
 
     private fun exchange(req: WireRequest, describe: () -> String): Result<String> {
@@ -145,7 +174,7 @@ class ChatClient(
         // JSON разбора длинной таблицы - большой ответ: лимит почти на максимуме Бэкенда.
         maxTokens = 16000,
         step = STEP_FAST,
-        attachment = attachment.take(ATTACHMENT_LIMIT),
+        attachment = attachment,
     )
 
     /** Читаемый текст ошибки из тела Бэкенда: {"detail": "..."}; без тела - null. */
@@ -161,9 +190,7 @@ class ChatClient(
         const val HISTORY_LIMIT = 12
         const val MAX_CONTENT = 20000
         const val CONTEXT_MARK = "[Данные пользователя на момент вопроса]"
-        const val STEP_FAST = "fast"
         const val IMPORT_QUESTION = "Разбери приложенную таблицу и верни JSON."
-        const val ATTACHMENT_LIMIT = 60000
     }
 }
 
@@ -184,3 +211,6 @@ private data class WireReply(val reply: String = "", val model: String? = null)
 
 @Serializable
 private data class WireError(val detail: String? = null)
+
+@Serializable
+private data class WireHealth(val steps: Map<String, String>? = null)

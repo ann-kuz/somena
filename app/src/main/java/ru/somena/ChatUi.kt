@@ -45,6 +45,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import ru.somena.core.AiChartSpec
 import ru.somena.core.AiMetric
@@ -70,6 +71,8 @@ import ru.somena.data.ChatMessage
 import ru.somena.data.ChatSettings
 import ru.somena.data.ProfileStore
 import ru.somena.data.SliceDb
+import ru.somena.data.STEP_FAST
+import ru.somena.data.STEP_MAX
 import ru.somena.ui.AttachFileIcon
 import ru.somena.ui.GhostButton
 import ru.somena.ui.GlassCard
@@ -88,10 +91,10 @@ private val SUGGESTIONS = listOf(
     "Как сон влияет на самочувствие?",
 )
 
-/** Ступень (спека 0004): Пользователь видит имена; названия моделей - деталь Бэкенда,
- *  здесь они нужны только мелкой подписью у селектора. */
-private val STEP_LABELS = listOf("fast" to "Быстрая", "max" to "Максимальная")
-private val STEP_UI_MODELS = mapOf("fast" to "gpt-4.1-mini", "max" to "gpt-5.1")
+/** Ступень (спека 0004): Пользователь видит имена; названия моделей приходят из /health
+ *  Бэкенда (единая точка правды), этот запасной список - только пока /health не ответит. */
+private val STEP_LABELS = listOf(STEP_FAST to "Быстрая", STEP_MAX to "Максимальная")
+private val STEP_UI_MODELS_FALLBACK = mapOf(STEP_FAST to "gpt-4.1-mini", STEP_MAX to "gpt-5.1")
 
 /** Цвет метрики на графике ИИ: правило цветов метрик спеки 0002, единое для всех экранов. */
 fun aiMetricColor(m: AiMetric): Color = when (m) {
@@ -115,12 +118,22 @@ fun ChatScreen(m: Modifier) {
     var data by remember {
         mutableStateOf(DayData(db.all().associateBy { it.date }, db.allWellbeing().associateBy { it.date }))
     }
+    fun reloadData() {
+        data = DayData(db.all().associateBy { it.date }, db.allWellbeing().associateBy { it.date })
+    }
     val cycleEntries = remember { db.allCycleDays() }
     var messages by remember { mutableStateOf(db.chatHistory()) }
     var input by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var step by remember { mutableStateOf(settings.modelStep) }
+    // Подпись моделей у селектора: живёт на Бэкенде, сюда попадает через /health.
+    var stepModels by remember { mutableStateOf(STEP_UI_MODELS_FALLBACK) }
+    LaunchedEffect(Unit) {
+        launch(Dispatchers.IO) {
+            client.steps()?.let { stepModels = it }
+        }
+    }
     // Вложение (спека 0004): имя файла и его текст; Предпросмотр до записи - обязателен.
     var attachment by remember { mutableStateOf<Pair<String, String>?>(null) }
     var importPreview by remember { mutableStateOf<ImportPreview?>(null) }
@@ -135,15 +148,15 @@ fun ChatScreen(m: Modifier) {
                 context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
             }.getOrNull()
             when {
-                bytes == null -> error = "Не удалось прочитать файл: выбери его заново."
+                bytes == null -> error = "Не удалось прочитать таблицу: выбери её заново."
                 bytes.size > MAX_ATTACHMENT_BYTES -> error =
-                    "Файл больше 2 МБ: сохрани таблицу без лишних листов или разбей на части."
+                    "Таблица больше 2 МБ: убери лишние листы или разбей на части."
                 else -> {
                     val text = decodeTableBytes(bytes)
                     if (text == null) {
                         error = "Не получилось прочитать таблицу: поддерживаются csv, tsv и xlsx."
                     } else if (text.length > MAX_ATTACHMENT_CHARS) {
-                        error = "Таблица слишком длинная (${text.length} симв.): разбей файл на части, например по полгода."
+                        error = "Таблица слишком длинная (${text.length} симв.): разбей её на части, например по полгода."
                     } else {
                         error = null
                         attachment = name to text
@@ -162,7 +175,7 @@ fun ChatScreen(m: Modifier) {
                 onSuccess = { raw ->
                     val preview = parseImportReply(raw, data.slicesByDate)
                     if (preview == null) {
-                        error = "ИИ не смог разобрать таблицу. Нужен файл с колонками дат и показателей. " +
+                        error = "ИИ не смог разобрать таблицу. Нужны колонки с датами и показателями. " +
                             "Если таблица длинная, разбей её на части."
                     } else {
                         importFileName = name
@@ -194,7 +207,7 @@ fun ChatScreen(m: Modifier) {
         importPreview = null
         importFileName = null
         importUserText = null
-        data = DayData(db.all().associateBy { it.date }, db.allWellbeing().associateBy { it.date })
+        reloadData()
         messages = db.chatHistory()
     }
 
@@ -255,7 +268,7 @@ fun ChatScreen(m: Modifier) {
             }
             Spacer(Modifier.weight(1f))
             Text(
-                STEP_UI_MODELS[step] ?: "",
+                stepModels[step] ?: "",
                 style = MaterialTheme.typography.labelSmall,
                 color = TextMuted,
             )
@@ -485,7 +498,7 @@ private fun AttachButton(enabled: Boolean, onClick: () -> Unit) {
     ) {
         Icon(
             AttachFileIcon,
-            contentDescription = "Прикрепить таблицу",
+            contentDescription = "Приложить таблицу",
             tint = if (enabled) MaterialTheme.colorScheme.onBackground else TextMuted,
             modifier = Modifier.size(20.dp),
         )
