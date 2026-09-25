@@ -164,6 +164,18 @@ fun ChartsScreen(m: Modifier) {
                 LineChart(
                     "Дефицит", days,
                     listOf(
+                        ChartSeries(
+                            "Дефицит", metricSeries(AiMetric.DEFICIT, days, data),
+                            MaterialTheme.colorScheme.primary, "ккал"
+                        ),
+                    ),
+                    onPan = ::shift,
+                )
+            }
+            ChartCard {
+                LineChart(
+                    "Калории", days,
+                    listOf(
                         ChartSeries("Съедено", eaten, MaterialTheme.colorScheme.tertiary, "ккал"),
                         ChartSeries("Сожжено", burn, MaterialTheme.colorScheme.primary, "ккал"),
                     ),
