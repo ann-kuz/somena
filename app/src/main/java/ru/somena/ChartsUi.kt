@@ -47,7 +47,9 @@ import ru.somena.core.DayData
 import ru.somena.core.DaySlice
 import ru.somena.core.Wellbeing
 import ru.somena.core.lastDays
+import ru.somena.core.clampWindowEnd
 import ru.somena.core.metricSeries
+import ru.somena.core.PanAccumulator
 import ru.somena.core.weightTrend
 import ru.somena.data.SliceDb
 import ru.somena.ui.GlassCard
@@ -84,13 +86,6 @@ fun ChartsScreen(m: Modifier) {
     val firstDataDate = listOfNotNull(slices.firstOrNull()?.date, wellbeing.firstOrNull()?.date)
         .minOrNull() ?: today
 
-    fun clampEnd(d: LocalDate): LocalDate =
-        when {
-            d > today -> today
-            d < firstDataDate -> firstDataDate
-            else -> d
-        }
-
     val days: List<LocalDate> = if (windowDays == ALL_DAYS) {
         // «Всё»: даты срезов и Самочувствия вместе, день без обеих записей не существует.
         (slices.map { it.date } + wellbeing.map { it.date }).distinct().sorted()
@@ -99,7 +94,7 @@ fun ChartsScreen(m: Modifier) {
     }
     fun shift(deltaDays: Int) {
         if (windowDays != ALL_DAYS && deltaDays != 0) {
-            windowEnd = clampEnd(windowEnd.plusDays(deltaDays.toLong()))
+            windowEnd = clampWindowEnd(windowEnd.plusDays(deltaDays.toLong()), today, firstDataDate)
         }
     }
 
@@ -339,12 +334,14 @@ fun LineChart(
                             else ((pos.x / size.width) * (n - 1)).roundToInt().coerceIn(0, n - 1)
                         }
                     }
-                    .pointerInput(dates, seriesList) {
+                    .pointerInput(n) {
+                        // Ключ n, а не dates: сдвиг окна не рвёт жест, копилка живёт до смены периода.
+                        val pan = PanAccumulator()
                         detectDragGestures { change, dragAmount ->
                             change.consume()
                             if (n > 1) {
                                 val pxPerDay = size.width.toFloat() / n
-                                val delta = (-dragAmount.x / pxPerDay).roundToInt()
+                                val delta = pan.add(-dragAmount.x, pxPerDay)
                                 if (delta != 0) onPan(delta)
                             }
                         }

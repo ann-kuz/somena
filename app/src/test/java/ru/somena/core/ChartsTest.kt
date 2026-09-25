@@ -43,4 +43,39 @@ class ChartsTest {
         assertEquals(30, month.size)
         assertEquals(emptyList<LocalDate>(), chartRange(end, ChartPeriod.ALL))
     }
+
+    @Test
+    fun `границы окна - не дальше сегодня и не раньше первых данных`() {
+        val today = LocalDate.of(2026, 9, 25)
+        val first = LocalDate.of(2026, 9, 1)
+        assertEquals(today, clampWindowEnd(today.plusDays(3), today, first))
+        assertEquals(first, clampWindowEnd(first.minusDays(10), today, first))
+        assertEquals(LocalDate.of(2026, 9, 10), clampWindowEnd(LocalDate.of(2026, 9, 10), today, first))
+    }
+
+    @Test
+    fun `перетаскивание мелкими шагами сдвигает окно данных`() {
+        // Жест по неделе при ~41px на день (график ~290dp): 60 событий по 5px = 300px, это ~7 дней.
+        val pan = PanAccumulator()
+        var shifted = 0
+        repeat(60) { shifted += pan.add(-5f, 41f) }
+        assertEquals("палец тянет вправо - окно уходит в прошлое", -7, shifted)
+    }
+
+    @Test
+    fun `остаток пикселей копится между событиями и откатывается назад`() {
+        val pan = PanAccumulator()
+        assertEquals("треть дня - день не набрался", 0, pan.add(-10f, 27f))
+        assertEquals(0, pan.add(-10f, 27f))
+        assertEquals("30px из 27 - ровно день", -1, pan.add(-10f, 27f))
+        assertEquals("сразу полтора дня - один день, остаток копится", -1, pan.add(-40f, 27f))
+        assertEquals("лёгкий откат недодвигает окно", 0, pan.add(5f, 27f))
+        assertEquals("откат дошёл до целого дня", 1, pan.add(40f, 27f))
+    }
+
+    @Test
+    fun `нулевой масштаб окна не двигает ничего`() {
+        val pan = PanAccumulator()
+        assertEquals(0, pan.add(-100f, 0f))
+    }
 }

@@ -26,3 +26,28 @@ fun chartRange(endInclusive: LocalDate, period: ChartPeriod): List<LocalDate> =
     }
 
 enum class ChartPeriod { WEEK, MONTH, ALL }
+
+/**
+ * Копит пиксели перетаскивания между событиями: события по несколько пикселей
+ * по отдельности дня не набирают, а вместе - листают окно.
+ */
+class PanAccumulator {
+    private var remainderPx = 0f
+
+    /** Добавляет пиксели жеста со знаком, отдаёт целые дни (0 - день ещё не набрался). */
+    fun add(dragPx: Float, pxPerDay: Float): Int {
+        if (pxPerDay <= 0f) return 0
+        remainderPx += dragPx
+        val days = (remainderPx / pxPerDay).toInt()
+        if (days != 0) remainderPx -= days * pxPerDay
+        return days
+    }
+}
+
+/** Конец окна не уходит в будущее от [today] и не раньше первого дня данных. */
+fun clampWindowEnd(candidate: LocalDate, today: LocalDate, firstDataDate: LocalDate): LocalDate =
+    when {
+        candidate > today -> today
+        candidate < firstDataDate -> firstDataDate
+        else -> candidate
+    }
