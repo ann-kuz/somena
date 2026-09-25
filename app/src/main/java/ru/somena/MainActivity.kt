@@ -15,6 +15,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -44,7 +45,12 @@ import androidx.health.connect.client.records.WeightRecord
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import ru.somena.core.DaySlice
+import ru.somena.core.Profile
+import ru.somena.core.ProfileValidator
+import ru.somena.core.parseOptionalDouble
+import ru.somena.core.parseOptionalInt
 import ru.somena.data.HcImporter
+import ru.somena.data.ProfileStore
 import ru.somena.data.SliceDb
 
 class MainActivity : ComponentActivity() {
@@ -233,16 +239,76 @@ fun HcDebugScreen(m: Modifier) {
 @Composable
 fun MoreScreen(m: Modifier, onRepeatOnboarding: () -> Unit) {
     Column(
-        m.fillMaxSize().padding(16.dp),
+        m.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text("Ещё", style = MaterialTheme.typography.titleLarge)
         OutlinedButton(onClick = onRepeatOnboarding) {
             Text("Онбординг источников")
         }
+        ProfileSection()
         Text(
-            "Заготовка под: чат по данным (нужен ключ proxyapi), вечерний опрос самочувствия, " +
-                "экспорт/импорт файла, профиль (рост, возраст, цель по весу)."
+            "Скоро: чат по данным (нужен ключ proxyapi), вечерний опрос самочувствия, " +
+                "экспорт/импорт файла.",
+            style = MaterialTheme.typography.bodySmall
         )
+    }
+}
+
+@Composable
+private fun ProfileSection() {
+    val context = LocalContext.current
+    val store = remember { ProfileStore(context) }
+    val saved = remember { store.load() }
+    var height by remember { mutableStateOf(saved.heightCm?.toString() ?: "") }
+    var age by remember { mutableStateOf(saved.ageYears?.toString() ?: "") }
+    var goal by remember { mutableStateOf(saved.goalWeightKg?.let { "%,.1f".format(it) } ?: "") }
+    var status by remember { mutableStateOf<String?>(null) }
+
+    val draft = Profile(
+        heightCm = parseOptionalInt(height),
+        ageYears = parseOptionalInt(age),
+        goalWeightKg = parseOptionalDouble(goal),
+    )
+    val errors = ProfileValidator.validate(draft)
+    fun errorFor(field: String): String? = errors.firstOrNull { it.field == field }?.message
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Профиль", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Нужен для осмысленных советов ИИ. Можно оставить пустым.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        OutlinedTextField(
+            value = height,
+            onValueChange = { height = it },
+            label = { Text("Рост, см") },
+            isError = errorFor("heightCm") != null,
+            supportingText = { errorFor("heightCm")?.let { Text(it) } },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = age,
+            onValueChange = { age = it },
+            label = { Text("Возраст, лет") },
+            isError = errorFor("ageYears") != null,
+            supportingText = { errorFor("ageYears")?.let { Text(it) } },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = goal,
+            onValueChange = { goal = it },
+            label = { Text("Цель по весу, кг") },
+            isError = errorFor("goalWeightKg") != null,
+            supportingText = { errorFor("goalWeightKg")?.let { Text(it) } },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Button(onClick = { store.save(draft); status = "Сохранено ✓" }, enabled = errors.isEmpty()) {
+            Text("Сохранить")
+        }
+        status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
     }
 }
