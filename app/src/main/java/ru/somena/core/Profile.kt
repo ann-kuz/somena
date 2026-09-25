@@ -11,9 +11,7 @@ data class Profile(
     val heightCm: Int? = null,
     val ageYears: Int? = null,
     val goalWeightKg: Double? = null,
-) {
-    val isEmpty: Boolean get() = heightCm == null && ageYears == null && goalWeightKg == null
-}
+)
 
 object ProfileValidator {
 
@@ -32,7 +30,15 @@ object ProfileValidator {
     }
 }
 
-/** Разбор числа из русского ввода: «74,5» и «74.5» одинаково допустимы. Пусто = null. */
+/** Не-числовой ввод не должен молча превращаться в «пусто» (находка код-ревью тикета 03). */
+fun numericFieldError(raw: String, integer: Boolean): String? = when {
+    raw.isBlank() -> null
+    integer && parseOptionalInt(raw) == null -> "Введите целое число"
+    !integer && parseOptionalDouble(raw) == null -> "Введите число"
+    else -> null
+}
+
+/** Разбор числа из русского ввода: «74,5» и «74.5» одинаково допустимы. Пусто/мусор = null. */
 fun parseOptionalDouble(raw: String): Double? =
     raw.trim().replace(',', '.').toDoubleOrNull()
 

@@ -47,6 +47,7 @@ import java.time.LocalDate
 import ru.somena.core.DaySlice
 import ru.somena.core.Profile
 import ru.somena.core.ProfileValidator
+import ru.somena.core.numericFieldError
 import ru.somena.core.parseOptionalDouble
 import ru.somena.core.parseOptionalInt
 import ru.somena.data.HcImporter
@@ -270,7 +271,12 @@ private fun ProfileSection() {
         ageYears = parseOptionalInt(age),
         goalWeightKg = parseOptionalDouble(goal),
     )
-    val errors = ProfileValidator.validate(draft)
+    val errors = buildList {
+        addAll(ProfileValidator.validate(draft))
+        numericFieldError(height, integer = true)?.let { add(ProfileValidator.Error("heightCm", it)) }
+        numericFieldError(age, integer = true)?.let { add(ProfileValidator.Error("ageYears", it)) }
+        numericFieldError(goal, integer = false)?.let { add(ProfileValidator.Error("goalWeightKg", it)) }
+    }
     fun errorFor(field: String): String? = errors.firstOrNull { it.field == field }?.message
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
