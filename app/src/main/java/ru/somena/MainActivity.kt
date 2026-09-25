@@ -76,6 +76,7 @@ import ru.somena.ui.Gold
 import ru.somena.ui.MetricCard
 import ru.somena.ui.NebulaBackground
 import ru.somena.ui.NavItem
+import ru.somena.ui.ScreenHeader
 import ru.somena.ui.SomenaNavBar
 import ru.somena.ui.SomenaTheme
 import ru.somena.ui.Sparkline
@@ -110,6 +111,7 @@ val HC_PERMISSIONS = setOf(
 private val NAV_ITEMS = listOf(
     NavItem(Icons.Filled.Home, "Сегодня"),
     NavItem(Icons.Filled.DateRange, "Графики"),
+    NavItem(ru.somena.ui.ChatBubbleIcon, "Чат"),
     NavItem(Icons.Filled.Build, "Отладка HC"),
     NavItem(Icons.Filled.Settings, "Ещё"),
 )
@@ -139,25 +141,13 @@ fun App() {
                     when (tab) {
                         0 -> TodayScreen(Modifier.padding(pad))
                         1 -> ChartsScreen(Modifier.padding(pad))
-                        2 -> HcDebugScreen(Modifier.padding(pad))
+                        2 -> ChatScreen(Modifier.padding(pad))
+                        3 -> HcDebugScreen(Modifier.padding(pad))
                         else -> MoreScreen(Modifier.padding(pad), onRepeatOnboarding = { onboarding = true })
                     }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun ScreenHeader(title: String, subtitle: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(
-            title,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = (-0.5).sp,
-        )
-        Text(subtitle, color = TextMuted, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -366,9 +356,11 @@ fun MoreScreen(m: Modifier, onRepeatOnboarding: () -> Unit) {
         GlassCard(Modifier.fillMaxWidth()) {
             ProfileSection()
         }
+        GlassCard(Modifier.fillMaxWidth()) {
+            ChatSettingsSection()
+        }
         Text(
-            "Скоро: чат по данным (нужен ключ proxyapi), вечерний опрос самочувствия, " +
-                "экспорт/импорт файла.",
+            "Скоро: экспорт/импорт файла, картинка дня для друзей.",
             color = TextMuted,
             style = MaterialTheme.typography.bodySmall,
         )

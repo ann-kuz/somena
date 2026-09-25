@@ -42,7 +42,12 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
+import ru.somena.core.AiMetric
+import ru.somena.core.DayData
 import ru.somena.core.DaySlice
+import ru.somena.core.Wellbeing
+import ru.somena.core.lastDays
+import ru.somena.core.metricSeries
 import ru.somena.core.weightTrend
 import ru.somena.data.SliceDb
 import ru.somena.ui.GlassCard
@@ -67,12 +72,17 @@ fun ChartsScreen(m: Modifier) {
     val context = LocalContext.current
     val db = remember { SliceDb(context) }
     val slices = remember { db.all() }
+    val wellbeing = remember { db.allWellbeing() }
     val byDate = remember(slices) { slices.associateBy { it.date } }
+    val data = remember(slices, wellbeing) {
+        DayData(byDate, wellbeing.associateBy { it.date })
+    }
     val today = LocalDate.now()
     var windowDays by remember { mutableIntStateOf(WEEK_DAYS) }
     var windowEnd by remember { mutableStateOf(today) }
 
-    val firstDataDate = slices.firstOrNull()?.date ?: today
+    val firstDataDate = listOfNotNull(slices.firstOrNull()?.date, wellbeing.firstOrNull()?.date)
+        .minOrNull() ?: today
 
     fun clampEnd(d: LocalDate): LocalDate =
         when {
@@ -82,9 +92,10 @@ fun ChartsScreen(m: Modifier) {
         }
 
     val days: List<LocalDate> = if (windowDays == ALL_DAYS) {
-        slices.map { it.date }
+        // «Всё»: даты срезов и Самочувствия вместе, день без обеих записей не существует.
+        (slices.map { it.date } + wellbeing.map { it.date }).distinct().sorted()
     } else {
-        ((windowDays - 1) downTo 0).map { windowEnd.minusDays(it.toLong()) }
+        lastDays(windowEnd, windowDays)
     }
     fun shift(deltaDays: Int) {
         if (windowDays != ALL_DAYS && deltaDays != 0) {
@@ -129,7 +140,7 @@ fun ChartsScreen(m: Modifier) {
                 })
             }
         }
-        if (slices.isEmpty()) {
+        if (slices.isEmpty() && wellbeing.isEmpty()) {
             Text(
                 "Данных пока нет: загляни на вкладку «Сегодня» и нажми «Обновить».",
                 color = TextMuted,
@@ -153,47 +164,80 @@ fun ChartsScreen(m: Modifier) {
                 LineChart(
                     "Дефицит", days,
                     listOf(
-                        series("Съедено", eaten, MaterialTheme.colorScheme.tertiary),
-                        series("Сожжено", burn, MaterialTheme.colorScheme.primary),
+                        ChartSeries("Съедено", eaten, MaterialTheme.colorScheme.tertiary, "ккал"),
+                        ChartSeries("Сожжено", burn, MaterialTheme.colorScheme.primary, "ккал"),
                     ),
-                    "ккал", ::shift,
+                    onPan = ::shift,
                 )
             }
             ChartCard {
                 LineChart(
                     "Вес и тренд", days,
                     listOf(
-                        series("Вес", weight, MaterialTheme.colorScheme.primary),
-                        series("Тренд", weightTrend(weight), MaterialTheme.colorScheme.secondary, dash = true),
+                        ChartSeries("Вес", weight, MaterialTheme.colorScheme.primary, "кг"),
+                        ChartSeries("Тренд", weightTrend(weight), MaterialTheme.colorScheme.secondary, "кг", dash = true),
                     ),
-                    "кг", ::shift,
+                    onPan = ::shift,
                 )
             }
             ChartCard {
                 LineChart(
                     "БЖУ", days,
                     listOf(
-                        series("Белки", protein, MaterialTheme.colorScheme.primary),
-                        series("Жиры", fat, MaterialTheme.colorScheme.tertiary),
-                        series("Углеводы", carbs, MaterialTheme.colorScheme.secondary),
+                        ChartSeries("Белки", protein, MaterialTheme.colorScheme.primary, "г"),
+                        ChartSeries("Жиры", fat, MaterialTheme.colorScheme.tertiary, "г"),
+                        ChartSeries("Углеводы", carbs, MaterialTheme.colorScheme.secondary, "г"),
                     ),
-                    "г", ::shift,
+                    onPan = ::shift,
                 )
             }
             ChartCard {
-                LineChart("Шаги", days, listOf(series("Шаги", steps, MaterialTheme.colorScheme.tertiary)), "шаг.", ::shift)
+                LineChart(
+                    "Шаги", days,
+                    listOf(ChartSeries("Шаги", steps, MaterialTheme.colorScheme.tertiary, "шаг.")),
+                    onPan = ::shift,
+                )
             }
             ChartCard {
-                LineChart("Сон", days, listOf(series("Сон", sleepH, MaterialTheme.colorScheme.primary)), "ч", ::shift)
+                LineChart(
+                    "Сон", days,
+                    listOf(ChartSeries("Сон", sleepH, MaterialTheme.colorScheme.primary, "ч")),
+                    onPan = ::shift,
+                )
             }
             ChartCard {
-                LineChart("Жир", days, listOf(series("Жир", bodyFat, MaterialTheme.colorScheme.primary)), "%", ::shift)
+                LineChart(
+                    "Самочувствие", days,
+                    listOf(
+                        ChartSeries("Энергия", metricSeries(AiMetric.ENERGY, days, data), MaterialTheme.colorScheme.primary, "из 10"),
+                        ChartSeries("Настроение", metricSeries(AiMetric.MOOD, days, data), MaterialTheme.colorScheme.secondary, "из 10"),
+                        ChartSeries("Качество сна", metricSeries(AiMetric.SLEEP_QUALITY, days, data), TextMuted, "из 10"),
+                    ),
+                    onPan = ::shift,
+                    yMin = Wellbeing.MIN.toDouble(),
+                    yMax = Wellbeing.MAX.toDouble(),
+                )
             }
             ChartCard {
-                LineChart("Кости", days, listOf(series("Кости", bone, MaterialTheme.colorScheme.primary)), "кг", ::shift)
+                LineChart(
+                    "Жир", days,
+                    listOf(ChartSeries("Жир", bodyFat, MaterialTheme.colorScheme.primary, "%")),
+                    onPan = ::shift,
+                )
             }
             ChartCard {
-                LineChart("Обмен", days, listOf(series("Обмен", bmr, MaterialTheme.colorScheme.primary)), "ккал/дн", ::shift)
+                LineChart(
+                    "Кости", days,
+                    listOf(ChartSeries("Кости", bone, MaterialTheme.colorScheme.primary, "кг")),
+                    onPan = ::shift,
+                )
+            }
+            ChartCard {
+                LineChart(
+                    "Обмен", days,
+                    listOf(ChartSeries("Обмен", bmr, MaterialTheme.colorScheme.primary, "ккал/дн")),
+                    onPan = ::shift,
+                )
             }
         }
     }
@@ -204,27 +248,32 @@ private fun ChartCard(content: @Composable () -> Unit) {
     GlassCard(Modifier.fillMaxWidth()) { content() }
 }
 
-private fun series(label: String, values: List<Double?>, color: Color, dash: Boolean = false) =
-    ChartSeries(label, values, color, dash)
-
-data class ChartSeries(val label: String, val values: List<Double?>, val color: Color, val dash: Boolean)
+data class ChartSeries(
+    val label: String,
+    val values: List<Double?>,
+    val color: Color,
+    val unit: String,
+    val dash: Boolean = false,
+)
 
 /**
  * Линейный график с осями (числа слева, даты снизу), перетаскиванием и тапом по точке.
  * При отсутствии данных точка отсутствует, но линия не рвётся — соединяется с ближайшей имеющейся.
+ * [yMin]/[yMax] фиксируют ось: шкалы Самочувствия всегда рисуются 0–10.
  */
 @Composable
 fun LineChart(
     title: String,
     dates: List<LocalDate>,
     seriesList: List<ChartSeries>,
-    unit: String,
     onPan: (Int) -> Unit = {},
+    yMin: Double? = null,
+    yMax: Double? = null,
 ) {
     val n = dates.size
     val allValues = seriesList.flatMap { it.values }.filterNotNull()
-    val lo = allValues.minOrNull() ?: 0.0
-    val hi = allValues.maxOrNull() ?: 1.0
+    val lo = yMin ?: allValues.minOrNull() ?: 0.0
+    val hi = yMax ?: allValues.maxOrNull() ?: 1.0
     val span = (hi - lo).takeIf { it > 0 } ?: 1.0
     val mid = (lo + hi) / 2.0
     val hasData = allValues.isNotEmpty()
@@ -248,7 +297,7 @@ fun LineChart(
         val sel = selected
         if (sel != null) {
             val parts = seriesList.mapNotNull { s ->
-                s.values.getOrNull(sel)?.let { "${s.label} ${fmtNum(it)} $unit" }
+                s.values.getOrNull(sel)?.let { "${s.label} ${fmtNum(it)} ${s.unit}" }
             }
             Text(
                 if (parts.isEmpty()) "${fmtDate(dates[sel])}: данных нет"
@@ -367,12 +416,12 @@ fun LineChart(
         } else if (n == 1) {
             Text(fmtDate(dates[0]), style = MaterialTheme.typography.labelSmall, color = TextMuted, modifier = Modifier.padding(start = 44.dp))
         }
-        Legend(seriesList, unit)
+        Legend(seriesList)
     }
 }
 
 @Composable
-private fun Legend(seriesList: List<ChartSeries>, unit: String) {
+private fun Legend(seriesList: List<ChartSeries>) {
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         seriesList.forEach { s ->
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -386,7 +435,7 @@ private fun Legend(seriesList: List<ChartSeries>, unit: String) {
                         pathEffect = if (s.dash) PathEffect.dashPathEffect(floatArrayOf(8f, 5f)) else null,
                     )
                 }
-                Text(" ${s.label} ($unit)", style = MaterialTheme.typography.bodySmall, color = TextMuted)
+                Text(" ${s.label} (${s.unit})", style = MaterialTheme.typography.bodySmall, color = TextMuted)
             }
         }
     }

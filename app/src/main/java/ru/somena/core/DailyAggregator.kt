@@ -31,17 +31,17 @@ data class BodyEntry(
 
 data class DaySlice(
     val date: LocalDate,
-    val steps: Long?,
-    val sleepMinutes: Long?,
-    val burnedKcal: Double?,
-    val eatenKcal: Double?,
-    val proteinG: Double?,
-    val fatG: Double?,
-    val carbsG: Double?,
-    val weightKg: Double?,
-    val bodyFatPct: Double?,
-    val boneMassKg: Double?,
-    val bmrKcal: Double?,
+    val steps: Long? = null,
+    val sleepMinutes: Long? = null,
+    val burnedKcal: Double? = null,
+    val eatenKcal: Double? = null,
+    val proteinG: Double? = null,
+    val fatG: Double? = null,
+    val carbsG: Double? = null,
+    val weightKg: Double? = null,
+    val bodyFatPct: Double? = null,
+    val boneMassKg: Double? = null,
+    val bmrKcal: Double? = null,
 ) {
     fun mergeFresh(fresh: DaySlice): DaySlice = DaySlice(
         date = date,

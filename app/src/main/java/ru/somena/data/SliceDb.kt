@@ -40,18 +40,35 @@ private fun SliceDto.toDomain() = DaySlice(
     weightKg = weightKg, bodyFatPct = bodyFatPct, boneMassKg = boneMassKg, bmrKcal = bmrKcal,
 )
 
-/** Локальное хранилище Дневных срезов и Самочувствия (ADR-0002: данные живут на телефоне). */
-class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 2) {
+/** Сообщение диалога Чата по данным (тикет 07): роль user/assistant и текст. */
+@Serializable
+data class ChatMessage(val role: String, val content: String, val sentAt: Long) {
+    companion object {
+        const val USER = "user"
+        const val ASSISTANT = "assistant"
+    }
+}
+
+/** Локальное хранилище Дневных срезов, Самочувствия и истории чата (ADR-0002: данные живут на телефоне). */
+class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 3) {
 
     private val json = Json { ignoreUnknownKeys = true }
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(SQL_CREATE_DAY_SLICES)
         db.execSQL(SQL_CREATE_WELLBEING)
+        db.execSQL(SQL_CREATE_CHAT)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) db.execSQL(SQL_CREATE_WELLBEING)
+        if (oldVersion < 3) {
+            // Шкалы Самочувствия стали 0–10: прежние значения 1–5 переносятся удвоением (1→2 … 5→10).
+            db.execSQL(
+                "UPDATE wellbeing SET energy = energy * 2, mood = mood * 2, sleep_quality = sleep_quality * 2"
+            )
+            db.execSQL(SQL_CREATE_CHAT)
+        }
     }
 
     fun upsert(slice: DaySlice) {
@@ -109,6 +126,47 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 2
             )
         }
 
+    /** Всё Самочувствие по возрастанию даты: для графика и контекста Чата по данным. */
+    fun allWellbeing(): List<ru.somena.core.Wellbeing> =
+        readableDatabase.rawQuery(
+            "SELECT date, energy, mood, sleep_quality, note FROM wellbeing ORDER BY date", null
+        ).use { c ->
+            buildList {
+                while (c.moveToNext()) add(
+                    ru.somena.core.Wellbeing(
+                        date = LocalDate.parse(c.getString(0)),
+                        energy = c.getInt(1),
+                        mood = c.getInt(2),
+                        sleepQuality = c.getInt(3),
+                        note = if (c.isNull(4)) null else c.getString(4),
+                    )
+                )
+            }
+        }
+
+    fun addChatMessage(role: String, content: String) {
+        val values = android.content.ContentValues().apply {
+            put("role", role)
+            put("content", content)
+            put("sent_at", System.currentTimeMillis())
+        }
+        writableDatabase.insert("chat_messages", null, values)
+    }
+
+    /** История диалога по возрастанию: то, что показываем и отправляем модели. */
+    fun chatHistory(): List<ChatMessage> =
+        readableDatabase.rawQuery(
+            "SELECT role, content, sent_at FROM chat_messages ORDER BY sent_at, id", null
+        ).use { c ->
+            buildList {
+                while (c.moveToNext()) add(ChatMessage(c.getString(0), c.getString(1), c.getLong(2)))
+            }
+        }
+
+    fun clearChat() {
+        writableDatabase.delete("chat_messages", null, null)
+    }
+
     private companion object {
         const val SQL_CREATE_DAY_SLICES =
             "CREATE TABLE day_slices (" +
@@ -123,5 +181,11 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 2
                 "sleep_quality INTEGER NOT NULL, " +
                 "note TEXT, " +
                 "updated_at INTEGER NOT NULL)"
+        const val SQL_CREATE_CHAT =
+            "CREATE TABLE IF NOT EXISTS chat_messages (" +
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                "role TEXT NOT NULL, " +
+                "content TEXT NOT NULL, " +
+                "sent_at INTEGER NOT NULL)"
     }
 }

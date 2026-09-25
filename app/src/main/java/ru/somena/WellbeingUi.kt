@@ -74,9 +74,9 @@ fun WellbeingEditorDialog(db: SliceDb, initialDate: LocalDate, onDismiss: () -> 
     val context = androidx.compose.ui.platform.LocalContext.current
     var date by remember { mutableStateOf(initialDate) }
     val existing = remember(date) { db.getWellbeing(date) }
-    var energy by remember(date) { mutableStateOf((existing?.energy ?: 3).toFloat()) }
-    var mood by remember(date) { mutableStateOf((existing?.mood ?: 3).toFloat()) }
-    var sleep by remember(date) { mutableStateOf((existing?.sleepQuality ?: 3).toFloat()) }
+    var energy by remember(date) { mutableStateOf((existing?.energy ?: 5).toFloat()) }
+    var mood by remember(date) { mutableStateOf((existing?.mood ?: 5).toFloat()) }
+    var sleep by remember(date) { mutableStateOf((existing?.sleepQuality ?: 5).toFloat()) }
     var note by remember(date) { mutableStateOf(existing?.note ?: "") }
     var remind by remember { mutableStateOf(WellbeingReminder.isEnabled(context)) }
 

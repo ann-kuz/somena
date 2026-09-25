@@ -31,6 +31,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -113,21 +114,21 @@ fun MetricCard(
     }
 }
 
-/** Ряд шкалы Самочувствия: подпись и пять точек-градиентов. */
+/** Ряд шкалы Самочувствия: подпись и десять точек-градиентов (шкала 0–10). */
 @Composable
 fun ScaleDots(label: String, value: Int) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = TextMuted)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            (1..5).forEach { i ->
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            (1..10).forEach { i ->
                 val filled = i <= value
                 Box(
                     Modifier
                         .then(
-                            if (filled) Modifier.shadow(5.dp, CircleShape, spotColor = Violet.copy(alpha = 0.8f))
+                            if (filled) Modifier.shadow(4.dp, CircleShape, spotColor = Violet.copy(alpha = 0.8f))
                             else Modifier
                         )
-                        .size(9.dp)
+                        .size(6.dp)
                         .clip(CircleShape)
                         .background(
                             if (filled) AccentBrush
@@ -137,6 +138,46 @@ fun ScaleDots(label: String, value: Int) {
             }
         }
     }
+}
+
+/** Заголовок экрана: крупное имя и приглушённый подзаголовок. */
+@Composable
+fun ScreenHeader(title: String, subtitle: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            title,
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = (-0.5).sp,
+        )
+        Text(subtitle, color = TextMuted, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+/**
+ * Неоновое стекло для интерактивных и акцентных поверхностей: полупрозрачный градиент
+ * фиолет→синева, светящийся бордер, мягкое свечение. Выключенное (active = false)
+ * гаснет. Новые элементы собираются из него, а не повторяют рецепт руками.
+ */
+fun Modifier.neonSurface(active: Boolean, shape: Shape): Modifier {
+    val fill =
+        if (active) Brush.linearGradient(listOf(Violet.copy(alpha = 0.30f), Indigo.copy(alpha = 0.16f)))
+        else Brush.linearGradient(listOf(Color.White.copy(alpha = 0.05f), Color.White.copy(alpha = 0.05f)))
+    val stroke =
+        if (active) androidx.compose.foundation.BorderStroke(
+            1.dp,
+            Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.45f), Violet.copy(alpha = 0.35f))),
+        )
+        else androidx.compose.foundation.BorderStroke(1.dp, CardBorder)
+    return this
+        .shadow(
+            if (active) 16.dp else 0.dp, shape,
+            ambientColor = Violet.copy(alpha = 0.45f),
+            spotColor = Violet.copy(alpha = 0.9f),
+        )
+        .clip(shape)
+        .background(fill)
+        .border(stroke, shape)
 }
 
 /** Мини-график последних дней для главной карточки. */

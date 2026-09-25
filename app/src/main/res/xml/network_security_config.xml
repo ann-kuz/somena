@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Бэкенд-прокси пока по HTTP без домена (README backend); открытый текст разрешён
+     только ему, остальной трафик — как требует платформа. С переездом на HTTPS
+     конфигурацию убрать. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">77.239.99.15</domain>
+    </domain-config>
+</network-security-config>
