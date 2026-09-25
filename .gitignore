@@ -7,3 +7,5 @@ local.properties
 # Секреты и окружение бэкенда
 backend/.env
 backend/venv/
+backend/__pycache__/
+__pycache__/
