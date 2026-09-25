@@ -5,8 +5,9 @@
 
 ## Состав
 
-- `app.py` — FastAPI-сервис: `GET /health` (без авторизации) и `POST /v1/chat`
-  (Bearer-токен приложения).
+- `app.py` — FastAPI-сервис: `GET /health` (без авторизации), `POST /v1/chat`
+  (Bearer-токен приложения) и `GET /apk/somena.apk` — раздача приложения
+  из `backend/apk/` (кладёт туда `scripts/build-apk.sh`, без авторизации: в APK секретов нет).
 - `.env` — секреты (в git не попадает): ключ proxyapi, токен приложения, имя модели.
 - `.env.example` — шаблон без секретов.
 

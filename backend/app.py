@@ -12,6 +12,7 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 load_dotenv(Path(__file__).parent / ".env")
@@ -20,6 +21,8 @@ PROXYAPI_BASE = os.environ.get("PROXYAPI_BASE", "https://api.proxyapi.ru/openai/
 PROXYAPI_KEY = os.environ.get("PROXYAPI_KEY", "")
 MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4.1-mini")
 APP_TOKEN = os.environ.get("APP_TOKEN", "")
+# Единая точка раздачи APK: сюда его кладёт scripts/build-apk.sh (см. README «Скачать приложение»).
+APK_PATH = Path(os.environ.get("APK_PATH", str(Path(__file__).parent / "apk" / "somena.apk")))
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 log = logging.getLogger("somena-ai")
@@ -45,6 +48,18 @@ def health() -> dict:
         "model": MODEL_NAME,
         "configured": bool(PROXYAPI_KEY and APP_TOKEN),
     }
+
+
+@app.get("/apk/somena.apk")
+def apk() -> FileResponse:
+    """Раздача приложения: одна постоянная ссылка для владелицы и друзей (без секретов внутри)."""
+    if not APK_PATH.is_file():
+        raise HTTPException(status_code=404, detail="APK ещё не собран: запусти scripts/build-apk.sh на сервере")
+    return FileResponse(
+        APK_PATH,
+        media_type="application/vnd.android.package-archive",
+        filename="somena.apk",
+    )
 
 
 @app.post("/v1/chat")
