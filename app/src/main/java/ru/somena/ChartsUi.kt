@@ -38,6 +38,7 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 import ru.somena.core.DaySlice
 import ru.somena.core.weightTrend
 import ru.somena.data.SliceDb
@@ -77,7 +78,7 @@ fun ChartsScreen(m: Modifier) {
     val days: List<LocalDate> = if (windowDays == ALL_DAYS) {
         slices.map { it.date }
     } else {
-        ((windowDays - 1) downTo 0).map { windowEnd.minusDays(it) }
+        ((windowDays - 1) downTo 0).map { windowEnd.minusDays(it.toLong()) }
     }
     fun shift(deltaDays: Int) {
         if (windowDays != ALL_DAYS && deltaDays != 0) {
