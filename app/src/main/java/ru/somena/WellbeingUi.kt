@@ -59,6 +59,21 @@ fun WellbeingEditorDialog(db: SliceDb, initialDate: LocalDate, onDismiss: () -> 
     var note by remember(date) { mutableStateOf(existing?.note ?: "") }
     var remind by remember { mutableStateOf(WellbeingReminder.isEnabled(context)) }
 
+    // На Android 13+ разрешение на уведомления запрашивается в момент включения галочки.
+    val notifPermission = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { }
+
+    fun onRemindChanged(enabled: Boolean) {
+        remind = enabled
+        if (enabled && android.os.Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            notifPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = MaterialTheme.shapes.large) {
             Column(
@@ -70,7 +85,7 @@ fun WellbeingEditorDialog(db: SliceDb, initialDate: LocalDate, onDismiss: () -> 
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    OutlinedButton(onClick = { date = date.minusDays(1) }, enabled = date > WellbeingEditorMinDate) {
+                    OutlinedButton(onClick = { date = date.minusDays(1) }, enabled = date > LocalDate.now().minusYears(2)) {
                         Text("<")
                     }
                     Text(date.toString(), modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
@@ -90,7 +105,7 @@ fun WellbeingEditorDialog(db: SliceDb, initialDate: LocalDate, onDismiss: () -> 
                     maxLines = 3,
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = remind, onCheckedChange = { remind = it })
+                    Checkbox(checked = remind, onCheckedChange = { onRemindChanged(it) })
                     Text("Напоминать вечером, если день не отмечен", style = MaterialTheme.typography.bodySmall)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -113,8 +128,6 @@ fun WellbeingEditorDialog(db: SliceDb, initialDate: LocalDate, onDismiss: () -> 
         }
     }
 }
-
-private val WellbeingEditorMinDate: LocalDate = LocalDate.of(2026, 1, 1)
 
 @Composable
 private fun SliderRow(label: String, value: Float, onChange: (Float) -> Unit) {

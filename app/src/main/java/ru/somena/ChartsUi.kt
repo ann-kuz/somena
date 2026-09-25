@@ -45,7 +45,7 @@ fun ChartsScreen(m: Modifier) {
     val today = LocalDate.now()
 
     val days: List<Pair<LocalDate, DaySlice?>> = when (period) {
-        ChartPeriod.ALL -> slices.map { it.date to (it as DaySlice?) }
+        ChartPeriod.ALL -> slices.map { Pair<LocalDate, DaySlice?>(it.date, it) }
         else -> chartRange(today, period).map { it to byDate[it] }
     }
     fun values(f: (DaySlice) -> Double?): List<Double?> = days.map { it.second?.let(f) }
@@ -55,6 +55,12 @@ fun ChartsScreen(m: Modifier) {
     val burn = values { it.burnedKcal }
     val eaten = values { it.eatenKcal }
     val weight = values { it.weightKg }
+    val protein = values { it.proteinG }
+    val fat = values { it.fatG }
+    val carbs = values { it.carbsG }
+    val bodyFat = values { it.bodyFatPct }
+    val bone = values { it.boneMassKg }
+    val bmr = values { it.bmrKcal }
 
     Column(
         m.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
@@ -88,6 +94,18 @@ fun ChartsScreen(m: Modifier) {
                 ),
                 "кг",
             )
+            LineChart(
+                "БЖУ",
+                listOf(
+                    series("Белки", protein, MaterialTheme.colorScheme.primary),
+                    series("Жиры", fat, MaterialTheme.colorScheme.secondary, dash = true),
+                    series("Углеводы", carbs, MaterialTheme.colorScheme.tertiary),
+                ),
+                "г",
+            )
+            LineChart("Жир", listOf(series("Жир", bodyFat, MaterialTheme.colorScheme.primary)), "%")
+            LineChart("Кости", listOf(series("Кости", bone, MaterialTheme.colorScheme.primary)), "кг")
+            LineChart("Обмен", listOf(series("Обмен", bmr, MaterialTheme.colorScheme.primary)), "ккал/дн")
             val first = days.first().first.format(DateTimeFormatter.ofPattern("dd.MM"))
             val last = days.last().first.format(DateTimeFormatter.ofPattern("dd.MM"))
             Text("Период: $first – $last. Разрыв линии = «данных нет».", style = MaterialTheme.typography.bodySmall)
