@@ -11,15 +11,18 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import ru.somena.core.IMPORT_SYSTEM_PROMPT
 
 /** Адрес и токен запросов к Бэкенду: чистые данные, тестируются без Android. */
 data class ChatEndpoint(val url: String, val token: String)
 
 /**
- * Клиент Бэкенда-прокси (тикет 07): POST /v1/chat с историей диалога и системным промптом.
- * Контекст данных идёт первым user-сообщением: у Бэкенда жёсткий лимит на system в 4000
- * символов, а срез за 30 дней в него не помещается.
- * О каждом запросе пишет две строки (запрос и исход) в [log] — это журнал на вкладке
+ * Клиент Бэкенда-прокси (тикет 07, вложения - спека 0004): POST /v1/chat с историей
+ * диалога, системным промптом и Ступенью модели. Контекст данных идёт первым user-
+ * сообщением: у Бэкенда жёсткий лимит на system в 4000 символов, а срез за 30 дней
+ * в него не помещается. askImport отправляет таблицу Вложения в поле attachment
+ * (свой, более широкий лимит) и всегда на Быстрой Ступени.
+ * О каждом запросе пишет две строки (запрос и исход) в [log] - это журнал на вкладке
  * «Отладка HC»; токен в журнал не попадает никогда.
  */
 class ChatClient(
@@ -29,75 +32,88 @@ class ChatClient(
 
     suspend fun ask(history: List<ChatMessage>, system: String, context: String, step: String): Result<String> =
         withContext(Dispatchers.IO) {
-            val startedAt = System.currentTimeMillis()
-            log("→ POST ${endpoint.url}/v1/chat (сообщений в истории: ${history.size}, ступень: $step)")
-            try {
-                val conn = (URL("${endpoint.url}/v1/chat").openConnection() as HttpURLConnection).apply {
-                    requestMethod = "POST"
-                    connectTimeout = 10_000
-                    readTimeout = 90_000
-                    doOutput = true
-                    setRequestProperty("Authorization", "Bearer ${endpoint.token}")
-                    setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                }
-                conn.outputStream.use {
-                    it.write(json.encodeToString(request(history, system, context, step)).toByteArray())
-                }
-                fun spent() = "${System.currentTimeMillis() - startedAt} мс"
-                when (conn.responseCode) {
-                    200 -> {
-                        val body = runCatching {
-                            val wire = json.decodeFromString<WireReply>(conn.inputStream.bufferedReader().readText())
-                            wire.reply to wire.model
-                        }.getOrNull()
-                        val (reply, model) = body ?: ("" to null)
-                        if (reply.isNullOrBlank()) fail(
-                            "Бэкенд вернул пустой ответ: попробуй ещё раз.",
-                            "HTTP 200 за ${spent()}, пустой ответ",
-                        )
-                        else {
-                            log("← HTTP 200 за ${spent()}, ответ ${reply.length} симв." +
-                                (model?.let { ", модель $it" } ?: ""))
-                            Result.success(reply)
-                        }
-                    }
-                    401 -> fail(
-                        "Токен приложения неверный. Нужна строка APP_TOKEN из backend/.env на сервере " +
-                            "(это не ключ proxyapi): проверь вкладку «Ещё» и попробуй снова.",
-                        "HTTP 401 (неверный токен) за ${spent()}",
-                    )
-                    400 -> fail(
-                        backendDetail(conn) ?: "Бэкенд отклонил запрос (HTTP 400): обнови приложение и Бэкенд.",
-                        "HTTP 400 за ${spent()}",
-                    )
-                    502, 503 -> fail(
-                        "ИИ сейчас недоступен: попробуй ещё раз позже.",
-                        "HTTP ${conn.responseCode} за ${spent()}",
-                    )
-                    else -> fail(
-                        "Бэкенд ответил ошибкой (HTTP ${conn.responseCode}). Попробуй позже.",
-                        "HTTP ${conn.responseCode} за ${spent()}",
-                    )
-                }
-            } catch (e: SSLException) {
-                fail(
-                    "Адрес, похоже, начинается с https, а сервер работает по http: " +
-                        "убери букву s в адресе Бэкенда на вкладке «Ещё».",
-                    e,
-                )
-            } catch (e: UnknownHostException) {
-                fail("Адрес Бэкенда не разрешается: проверь его на вкладке «Ещё».", e)
-            } catch (e: java.net.ConnectException) {
-                fail(
-                    "Бэкенд отклонил соединение: проверь адрес Бэкенда на вкладке «Ещё».",
-                    e,
-                )
-            } catch (e: SocketTimeoutException) {
-                fail("Бэкенд не отвечает: проверь адрес и сеть, попробуй ещё раз.", e)
-            } catch (e: Exception) {
-                fail("Чат не удался: ${e.message ?: "ошибка сети"}.", e)
-            }
+            exchange(request(history, system, context, step), describe = {
+                "сообщений в истории: ${history.size}, ступень: $step"
+            })
         }
+
+    /** Разбор таблицы: ответ - строгий JSON, его валидирует core (TableImport). */
+    suspend fun askImport(attachment: String): Result<String> = withContext(Dispatchers.IO) {
+        exchange(requestImport(attachment), describe = {
+            "разбор таблицы, ${attachment.length} симв., ступень: fast"
+        })
+    }
+
+    private fun exchange(req: WireRequest, describe: () -> String): Result<String> {
+        val startedAt = System.currentTimeMillis()
+        log("→ POST ${endpoint.url}/v1/chat (${describe()})")
+        return try {
+            val conn = (URL("${endpoint.url}/v1/chat").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = 10_000
+                readTimeout = 90_000
+                doOutput = true
+                setRequestProperty("Authorization", "Bearer ${endpoint.token}")
+                setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            }
+            conn.outputStream.use {
+                it.write(json.encodeToString(req).toByteArray())
+            }
+            fun spent() = "${System.currentTimeMillis() - startedAt} мс"
+            when (conn.responseCode) {
+                200 -> {
+                    val body = runCatching {
+                        val wire = json.decodeFromString<WireReply>(conn.inputStream.bufferedReader().readText())
+                        wire.reply to wire.model
+                    }.getOrNull()
+                    val (reply, model) = body ?: ("" to null)
+                    if (reply.isNullOrBlank()) fail(
+                        "Бэкенд вернул пустой ответ: попробуй ещё раз.",
+                        "HTTP 200 за ${spent()}, пустой ответ",
+                    )
+                    else {
+                        log("← HTTP 200 за ${spent()}, ответ ${reply.length} симв." +
+                            (model?.let { ", модель $it" } ?: ""))
+                        Result.success(reply)
+                    }
+                }
+                401 -> fail(
+                    "Токен приложения неверный. Нужна строка APP_TOKEN из backend/.env на сервере " +
+                        "(это не ключ proxyapi): проверь вкладку «Ещё» и попробуй снова.",
+                    "HTTP 401 (неверный токен) за ${spent()}",
+                )
+                400 -> fail(
+                    backendDetail(conn) ?: "Бэкенд отклонил запрос (HTTP 400): обнови приложение и Бэкенд.",
+                    "HTTP 400 за ${spent()}",
+                )
+                502, 503 -> fail(
+                    "ИИ сейчас недоступен: попробуй ещё раз позже.",
+                    "HTTP ${conn.responseCode} за ${spent()}",
+                )
+                else -> fail(
+                    "Бэкенд ответил ошибкой (HTTP ${conn.responseCode}). Попробуй позже.",
+                    "HTTP ${conn.responseCode} за ${spent()}",
+                )
+            }
+        } catch (e: SSLException) {
+            fail(
+                "Адрес, похоже, начинается с https, а сервер работает по http: " +
+                    "убери букву s в адресе Бэкенда на вкладке «Ещё».",
+                e,
+            )
+        } catch (e: UnknownHostException) {
+            fail("Адрес Бэкенда не разрешается: проверь его на вкладке «Ещё».", e)
+        } catch (e: java.net.ConnectException) {
+            fail(
+                "Бэкенд отклонил соединение: проверь адрес Бэкенда на вкладке «Ещё».",
+                e,
+            )
+        } catch (e: SocketTimeoutException) {
+            fail("Бэкенд не отвечает: проверь адрес и сеть, попробуй ещё раз.", e)
+        } catch (e: Exception) {
+            fail("Чат не удался: ${e.message ?: "ошибка сети"}.", e)
+        }
+    }
 
     /** Одно место для пары «строка журнала + сообщение пользователю». */
     private fun fail(uiText: String, logLine: String): Result<String> {
@@ -123,6 +139,15 @@ class ChatClient(
         return WireRequest(messages = messages, system = system, maxTokens = 3000, step = step)
     }
 
+    private fun requestImport(attachment: String): WireRequest = WireRequest(
+        messages = listOf(WireMessage(ChatMessage.USER, IMPORT_QUESTION)),
+        system = IMPORT_SYSTEM_PROMPT,
+        // JSON разбора длинной таблицы - большой ответ: лимит почти на максимуме Бэкенда.
+        maxTokens = 16000,
+        step = STEP_FAST,
+        attachment = attachment.take(ATTACHMENT_LIMIT),
+    )
+
     /** Читаемый текст ошибки из тела Бэкенда: {"detail": "..."}; без тела - null. */
     private fun backendDetail(conn: HttpURLConnection): String? = runCatching {
         val body = conn.errorStream?.bufferedReader()?.readText() ?: return null
@@ -136,6 +161,9 @@ class ChatClient(
         const val HISTORY_LIMIT = 12
         const val MAX_CONTENT = 20000
         const val CONTEXT_MARK = "[Данные пользователя на момент вопроса]"
+        const val STEP_FAST = "fast"
+        const val IMPORT_QUESTION = "Разбери приложенную таблицу и верни JSON."
+        const val ATTACHMENT_LIMIT = 60000
     }
 }
 
@@ -148,6 +176,7 @@ private data class WireRequest(
     val system: String,
     @SerialName("max_tokens") val maxTokens: Int,
     val step: String,
+    val attachment: String? = null,
 )
 
 @Serializable

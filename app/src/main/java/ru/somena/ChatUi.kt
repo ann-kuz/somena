@@ -1,5 +1,7 @@
 package ru.somena
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -7,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
@@ -14,9 +17,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.Icon
@@ -34,27 +39,38 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
 import ru.somena.core.AiChartSpec
 import ru.somena.core.AiMetric
 import ru.somena.core.CHAT_SYSTEM_PROMPT
 import ru.somena.core.DayData
+import ru.somena.core.ImportValues
+import ru.somena.core.MAX_ATTACHMENT_BYTES
+import ru.somena.core.MAX_ATTACHMENT_CHARS
+import ru.somena.core.ImportPreview
 import ru.somena.core.WELLBEING_METRICS
 import ru.somena.core.Wellbeing
 import ru.somena.core.buildChatContext
+import ru.somena.core.decodeTableText
+import ru.somena.core.describe
 import ru.somena.core.lastDays
 import ru.somena.core.metricSeries
 import ru.somena.core.parseAiCharts
+import ru.somena.core.parseImportReply
+import ru.somena.core.toSlice
 import ru.somena.data.ChatClient
 import ru.somena.data.ChatLog
 import ru.somena.data.ChatMessage
 import ru.somena.data.ChatSettings
 import ru.somena.data.ProfileStore
 import ru.somena.data.SliceDb
+import ru.somena.ui.AttachFileIcon
 import ru.somena.ui.GhostButton
 import ru.somena.ui.GlassCard
 import ru.somena.ui.GlowButton
@@ -95,20 +111,107 @@ fun ChatScreen(m: Modifier) {
     val client = remember {
         ChatClient(settings.endpoint()) { line -> ChatLog.append(context, line) }
     }
-    // Данные для контекста вопроса и графиков ИИ: свежие на входе на экран.
-    val data = remember { DayData(db.all().associateBy { it.date }, db.allWellbeing().associateBy { it.date }) }
+    // Данные для контекста вопроса и графиков ИИ: перечитываются после Разбора таблицы.
+    var data by remember {
+        mutableStateOf(DayData(db.all().associateBy { it.date }, db.allWellbeing().associateBy { it.date }))
+    }
     val cycleEntries = remember { db.allCycleDays() }
     var messages by remember { mutableStateOf(db.chatHistory()) }
     var input by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var step by remember { mutableStateOf(settings.modelStep) }
+    // Вложение (спека 0004): имя файла и его текст; Предпросмотр до записи - обязателен.
+    var attachment by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var importPreview by remember { mutableStateOf<ImportPreview?>(null) }
+    var importFileName by remember { mutableStateOf<String?>(null) }
+    var importUserText by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            val name = fileNameOf(context, uri)
+            val bytes = runCatching {
+                context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
+            }.getOrNull()
+            when {
+                bytes == null -> error = "Не удалось прочитать файл: выбери его заново."
+                bytes.size > MAX_ATTACHMENT_BYTES -> error =
+                    "Файл больше 2 МБ: сохрани таблицу без лишних листов или разбей на части."
+                else -> {
+                    val text = decodeTableText(bytes)
+                    if (text.length > MAX_ATTACHMENT_CHARS) {
+                        error = "Таблица слишком длинная (${text.length} симв.): разбей файл на части, например по полгода."
+                    } else {
+                        error = null
+                        attachment = name to text
+                    }
+                }
+            }
+        }
+    }
+
+    fun startImport(question: String) {
+        val (name, tableText) = attachment ?: return
+        busy = true
+        input = ""
+        scope.launch {
+            client.askImport(tableText).fold(
+                onSuccess = { raw ->
+                    val preview = parseImportReply(raw, data.slicesByDate)
+                    if (preview == null) {
+                        error = "ИИ не смог разобрать таблицу. Нужен файл с колонками дат и показателей. " +
+                            "Если таблица длинная, разбей её на части."
+                    } else {
+                        importFileName = name
+                        importUserText = question
+                        importPreview = preview
+                    }
+                },
+                onFailure = { e -> error = e.message ?: "Разбор не удался." },
+            )
+            busy = false
+        }
+    }
+
+    fun confirmImport() {
+        val preview = importPreview ?: return
+        val name = importFileName ?: return
+        for (entry in preview.entries) {
+            db.upsert(entry.toSlice(db.get(entry.date)))
+        }
+        val note = buildString {
+            append("Разобрала таблицу «$name»: записала ${preview.entries.size} дн. ")
+            append("(новых ${preview.entries.size - preview.replacedCount}, замен ${preview.replacedCount}).")
+            if (preview.rejected.isNotEmpty()) append(" Строк не разобрано: ${preview.rejected.size}.")
+        }
+        val withText = importUserText?.takeIf { it.isNotBlank() }?.let { ":\n$it" } ?: ""
+        db.addChatMessage(ChatMessage.USER, "Приложила таблицу «$name»$withText")
+        db.addChatMessage(ChatMessage.ASSISTANT, note)
+        attachment = null
+        importPreview = null
+        importFileName = null
+        importUserText = null
+        data = DayData(db.all().associateBy { it.date }, db.allWellbeing().associateBy { it.date })
+        messages = db.chatHistory()
+    }
+
+    fun clearImport() {
+        attachment = null
+        importPreview = null
+        importFileName = null
+        importUserText = null
+    }
 
     fun send(question: String) {
         val text = question.trim()
-        if (text.isEmpty() || busy || !settings.isConfigured) return
+        if (busy || !settings.isConfigured || importPreview != null) return
+        if (text.isEmpty() && attachment == null) return
         error = null
+        if (attachment != null) {
+            startImport(text.ifBlank { "Разбери таблицу." })
+            return
+        }
         input = ""
         db.addChatMessage(ChatMessage.USER, text)
         messages = db.chatHistory()
@@ -133,8 +236,8 @@ fun ChatScreen(m: Modifier) {
         }
     }
 
-    // Новое сообщение или «Думаю…» — держим конец диалога на виду.
-    LaunchedEffect(messages.size, busy) {
+    // Новое сообщение, «Думаю…» или Предпросмотр - держим конец диалога на виду.
+    LaunchedEffect(messages.size, busy, importPreview) {
         val last = listState.layoutInfo.totalItemsCount - 1
         if (last >= 0) listState.animateScrollToItem(last)
     }
@@ -201,6 +304,9 @@ fun ChatScreen(m: Modifier) {
                     }
                 }
             }
+            importPreview?.let { preview ->
+                item { ImportPreviewCard(preview, onConfirm = ::confirmImport, onCancel = ::clearImport) }
+            }
         }
         error?.let {
             SelectionContainer {
@@ -211,17 +317,50 @@ fun ChatScreen(m: Modifier) {
                 )
             }
         }
+        attachment?.let { (name, _) ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(
+                    AttachFileIcon,
+                    contentDescription = null,
+                    tint = TextMuted,
+                    modifier = Modifier.size(16.dp),
+                )
+                Text(
+                    name,
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "Убрать",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable(enabled = !busy) { attachment = null },
+                )
+            }
+        }
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            AttachButton(
+                enabled = settings.isConfigured && !busy && importPreview == null,
+                onClick = {
+                    picker.launch(
+                        arrayOf("text/csv", "text/comma-separated-values", "text/tab-separated-values", "text/plain")
+                    )
+                },
+            )
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
-                placeholder = { Text("Спроси о своих данных…") },
-                enabled = settings.isConfigured && !busy,
+                placeholder = { Text(if (attachment == null) "Спроси о своих данных…" else "Что внести из таблицы?") },
+                enabled = settings.isConfigured && !busy && importPreview == null,
                 maxLines = 4,
                 modifier = Modifier.weight(1f),
             )
             SendButton(
-                enabled = settings.isConfigured && !busy && input.isNotBlank(),
+                enabled = settings.isConfigured && !busy && importPreview == null &&
+                    (input.isNotBlank() || attachment != null),
                 onClick = { send(input) },
             )
         }
@@ -278,6 +417,78 @@ fun AiChartCard(spec: AiChartSpec, anchor: LocalDate, data: DayData) {
         yMax = if (wbOnly) Wellbeing.MAX.toDouble() else null,
     )
 }
+
+/** Карточка Предпросмотра (спека 0004): ничего не записано, пока не нажато «Записать». */
+@Composable
+private fun ImportPreviewCard(preview: ImportPreview, onConfirm: () -> Unit, onCancel: () -> Unit) {
+    GlassCard(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Предпросмотр: разобрано дней ${preview.entries.size}", style = MaterialTheme.typography.titleSmall)
+            Text(
+                buildString {
+                    append("Новых: ${preview.entries.size - preview.replacedCount}, замен: ${preview.replacedCount}")
+                    if (preview.rejected.isNotEmpty()) append(", не разобрано: ${preview.rejected.size}")
+                },
+                color = TextMuted,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Column(
+                Modifier
+                    .heightIn(max = 280.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                val fmt = DateTimeFormatter.ofPattern("dd.MM.yyyy")
+                preview.entries.forEach { entry ->
+                    val was = if (entry.old == ImportValues()) "" else " (было: ${entry.old.describe()})"
+                    Text("${entry.date.format(fmt)}: ${entry.values.describe()}$was", style = MaterialTheme.typography.bodyMedium)
+                }
+                preview.rejected.forEach { row ->
+                    Text(
+                        "Не разобрано: ${row.raw.take(60)} - ${row.reason}",
+                        color = TextMuted,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                GlowButton(
+                    "Записать",
+                    onClick = onConfirm,
+                    enabled = preview.entries.isNotEmpty(),
+                    modifier = Modifier.weight(1f),
+                )
+                GhostButton("Отмена", onClick = onCancel, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+/** Круглая кнопка-скрепка: то же неоновое стекло, что у отправки. */
+@Composable
+private fun AttachButton(enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(56.dp)
+            .neonSurface(active = enabled, shape = CircleShape)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            AttachFileIcon,
+            contentDescription = "Прикрепить таблицу",
+            tint = if (enabled) MaterialTheme.colorScheme.onBackground else TextMuted,
+            modifier = Modifier.size(20.dp),
+        )
+    }
+}
+
+/** Имя выбранного файла из системного пикера; без него - нейтральное имя. */
+private fun fileNameOf(context: android.content.Context, uri: android.net.Uri): String =
+    context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+        ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+        ?.takeIf { it.isNotBlank() }
+        ?: "таблица.csv"
 
 /** Круглая неоновая кнопка отправки: то же неоновое стекло, в форме круга под иконку. */
 @Composable

@@ -24,8 +24,8 @@ class ChatClientTest {
 
     private fun client(url: String) = ChatClient(ChatEndpoint(url, "токен")) { lines.add(it) }
 
-    /** Минимальный HTTP-стаб: отвечает заданным кодом и JSON-телом на любой POST. */
-    private fun stubServer(code: Int, json: String): ServerSocket =
+    /** Минимальный HTTP-стаб: отвечает заданным кодом и JSON-телом на любой POST, тело запроса ловится. */
+    private fun stubServer(code: Int, json: String, bodies: MutableList<String>? = null): ServerSocket =
         ServerSocket(0, 8, InetAddress.getByName("127.0.0.1")).apply {
             thread(isDaemon = true) {
                 while (!isClosed) {
@@ -34,12 +34,12 @@ class ChatClientTest {
                     } catch (e: Exception) {
                         break
                     }
-                    thread(isDaemon = true) { socket.serve(code, json) }
+                    thread(isDaemon = true) { socket.serve(code, json, bodies) }
                 }
             }
         }
 
-    private fun Socket.serve(code: Int, json: String) {
+    private fun Socket.serve(code: Int, json: String, bodies: MutableList<String>?) {
         use { sock ->
             val reader = BufferedReader(InputStreamReader(sock.getInputStream(), Charsets.ISO_8859_1))
             var contentLength = 0
@@ -50,7 +50,14 @@ class ChatClientTest {
                     contentLength = line.substringAfter(':').trim().toInt()
                 }
             }
-            repeat(contentLength) { reader.read() } // тело дочитываем, чтобы клиент не получил RST
+            val raw = CharArray(contentLength) { ' ' }
+            var read = 0
+            while (read < contentLength) {
+                val n = reader.read(raw, read, contentLength - read)
+                if (n < 0) break
+                read += n
+            }
+            bodies?.add(String(raw)) // тело дочитываем, чтобы клиент не получил RST
             val reason = mapOf(200 to "OK", 401 to "Unauthorized")[code] ?: "Status"
             val body = json.toByteArray(Charsets.UTF_8)
             sock.getOutputStream().apply {
@@ -69,15 +76,39 @@ class ChatClientTest {
     @Test
     fun `успешный ответ разбирается в reply`() {
         val s = stubServer(200, "{\"reply\": \"Вес стоит из-за воды.\"}")
-        val r = runBlocking { client(s.url()).ask(history, "sys", "контекст") }
+        val r = runBlocking { client(s.url()).ask(history, "sys", "контекст", "fast") }
         assertEquals("Вес стоит из-за воды.", r.getOrNull())
+        s.close()
+    }
+
+    @Test
+    fun `выбранная ступень уходит в запросе`() {
+        val bodies = mutableListOf<String>()
+        val s = stubServer(200, "{\"reply\": \"ок\"}", bodies)
+        runBlocking { client(s.url()).ask(history, "sys", "контекст", "max") }
+        assertTrue("тело: ${bodies.firstOrNull()}", bodies.single().contains("\"step\":\"max\""))
+        s.close()
+    }
+
+    @Test
+    fun `вложение уходит отдельным полем на быстрой ступени с большим лимитом токенов`() {
+        val bodies = mutableListOf<String>()
+        val s = stubServer(200, "{\"reply\": \"{\\\"days\\\":[]}\"}", bodies)
+        val r = runBlocking { client(s.url()).askImport("Дата;Вес\n05.01.2025;62.4") }
+        assertTrue(r.isSuccess)
+        val body = bodies.single()
+        assertTrue("тело: $body", body.contains("\"attachment\""))
+        // Стаб ловит тело в ISO-8859-1, кириллица там mojibake; проверяем ASCII-фрагмент значения.
+        assertTrue("тело: $body", body.contains(";62.4"))
+        assertTrue("тело: $body", body.contains("\"step\":\"fast\""))
+        assertTrue("тело: $body", body.contains("\"max_tokens\":16000"))
         s.close()
     }
 
     @Test
     fun `401 от бэкенда дает внятную ошибку про APP_TOKEN а не про связь`() {
         val s = stubServer(401, "{\"detail\":\"Неверный токен приложения\"}")
-        val r = runBlocking { client(s.url()).ask(history, "sys", "контекст") }
+        val r = runBlocking { client(s.url()).ask(history, "sys", "контекст", "fast") }
         val msg = r.exceptionOrNull()?.message ?: ""
         assertTrue("сообщение: $msg", msg.contains("APP_TOKEN"))
         assertTrue("сообщение: $msg", !msg.contains("интернет"))
@@ -90,7 +121,7 @@ class ChatClientTest {
         val probe = stubServer(200, "{}")
         val url = probe.url()
         probe.close()
-        val r = runBlocking { client(url).ask(history, "sys", "контекст") }
+        val r = runBlocking { client(url).ask(history, "sys", "контекст", "fast") }
         val msg = r.exceptionOrNull()?.message ?: ""
         assertTrue("сообщение: $msg", msg.contains("отклонил соединение"))
         assertTrue("сообщение: $msg", !msg.contains("интернет"))
@@ -100,7 +131,7 @@ class ChatClientTest {
     fun `каждый запрос пишет в журнал строку запроса и строку исхода`() {
         val s = stubServer(200, "{\"reply\": \"ок\"}")
         lines.clear()
-        runBlocking { client(s.url()).ask(history, "sys", "контекст") }
+        runBlocking { client(s.url()).ask(history, "sys", "контекст", "fast") }
         assertTrue(lines.first().startsWith("→ POST http://"))
         assertTrue(lines.last().startsWith("← HTTP 200"))
         // Значение токена в журнал не попадает никогда (здесь токен = «токен»).

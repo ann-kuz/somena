@@ -44,6 +44,8 @@ class ChatRequest(BaseModel):
     system: str | None = Field(default=None, max_length=4000)
     max_tokens: int = Field(default=2000, ge=1, le=16000)
     step: str | None = Field(default=None)
+    # Вложение (спека 0004): текст таблицы отдельным полем, лимит шире обычных сообщений.
+    attachment: str | None = Field(default=None, max_length=60000)
 
 
 @app.get("/health")
@@ -79,10 +81,19 @@ async def chat(req: ChatRequest, authorization: str = Header(default="")) -> dic
     if model is None:
         raise HTTPException(status_code=400, detail=f"Неизвестная ступень: {req.step}")
 
+    messages = [m.model_dump() for m in req.messages]
+    if req.attachment:
+        # Таблица встаёт непосредственно перед вопросом: как контекст данных в обычном чате.
+        attachment = {"role": "user", "content": "[Приложенная таблица]\n" + req.attachment}
+        if messages and messages[-1]["role"] == "user":
+            messages = messages[:-1] + [attachment, messages[-1]]
+        else:
+            messages.append(attachment)
+
     payload = {
         "model": model,
         "messages": ([{"role": "system", "content": req.system}] if req.system else [])
-        + [m.model_dump() for m in req.messages],
+        + messages,
         "max_completion_tokens": req.max_tokens,
     }
     async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
