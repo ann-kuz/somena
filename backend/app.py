@@ -6,6 +6,7 @@
 
 import logging
 import os
+import hmac
 from pathlib import Path
 
 import httpx
@@ -27,12 +28,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 class ChatMessage(BaseModel):
     role: str = Field(pattern="^(user|assistant)$")
-    content: str
+    content: str = Field(max_length=20000)
 
 
 class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(min_length=1)
-    system: str | None = None
+    system: str | None = Field(default=None, max_length=4000)
     max_tokens: int = Field(default=2000, ge=1, le=16000)
 
 
@@ -50,7 +51,7 @@ def health() -> dict:
 async def chat(req: ChatRequest, authorization: str = Header(default="")) -> dict:
     if not APP_TOKEN or not PROXYAPI_KEY:
         raise HTTPException(status_code=503, detail="Сервис не настроен: нет ключей в .env")
-    if authorization != f"Bearer {APP_TOKEN}":
+    if not hmac.compare_digest(authorization, f"Bearer {APP_TOKEN}"):
         raise HTTPException(status_code=401, detail="Неверный токен приложения")
 
     payload = {
@@ -59,7 +60,7 @@ async def chat(req: ChatRequest, authorization: str = Header(default="")) -> dic
         + [m.model_dump() for m in req.messages],
         "max_completion_tokens": req.max_tokens,
     }
-    async with httpx.AsyncClient(timeout=120) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
         try:
             resp = await client.post(
                 f"{PROXYAPI_BASE}/chat/completions",
