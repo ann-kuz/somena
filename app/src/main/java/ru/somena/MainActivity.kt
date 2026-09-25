@@ -14,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -53,7 +54,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private val HC_PERMISSIONS = setOf(
+val HC_PERMISSIONS = setOf(
     HealthPermission.getReadPermission(StepsRecord::class),
     HealthPermission.getReadPermission(SleepSessionRecord::class),
     HealthPermission.getReadPermission(HeartRateRecord::class),
@@ -69,6 +70,17 @@ private val TABS = listOf("Сегодня", "Отладка HC", "Ещё")
 
 @Composable
 fun App() {
+    val context = LocalContext.current
+    var onboarding by remember { mutableStateOf(!onboardingCompleted(context)) }
+
+    if (onboarding) {
+        OnboardingScreen(onDone = {
+            setOnboardingCompleted(context)
+            onboarding = false
+        })
+        return
+    }
+
     var tab by remember { mutableIntStateOf(0) }
     Scaffold(
         bottomBar = {
@@ -87,7 +99,7 @@ fun App() {
         when (tab) {
             0 -> TodayScreen(Modifier.padding(pad))
             1 -> HcDebugScreen(Modifier.padding(pad))
-            else -> MoreScreen(Modifier.padding(pad))
+            else -> MoreScreen(Modifier.padding(pad), onRepeatOnboarding = { onboarding = true })
         }
     }
 }
@@ -219,12 +231,15 @@ fun HcDebugScreen(m: Modifier) {
 }
 
 @Composable
-fun MoreScreen(m: Modifier) {
+fun MoreScreen(m: Modifier, onRepeatOnboarding: () -> Unit) {
     Column(
         m.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text("Ещё", style = MaterialTheme.typography.titleLarge)
+        OutlinedButton(onClick = onRepeatOnboarding) {
+            Text("Онбординг источников")
+        }
         Text(
             "Заготовка под: чат по данным (нужен ключ proxyapi), вечерний опрос самочувствия, " +
                 "экспорт/импорт файла, профиль (рост, возраст, цель по весу)."
