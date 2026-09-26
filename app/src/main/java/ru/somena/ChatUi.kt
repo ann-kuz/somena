@@ -173,7 +173,7 @@ fun ChatScreen(m: Modifier) {
         busy = true
         input = ""
         scope.launch {
-            client.askImport(tableText).fold(
+            client.askImport(tableText, question).fold(
                 onSuccess = { raw ->
                     val preview = parseImportReply(raw, data.slicesByDate, data.wellbeingByDate)
                     if (preview == null) {

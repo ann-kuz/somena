@@ -51,8 +51,13 @@ class ChatClient(
             })
         }
 
-    /** Разбор таблицы: ответ - строгий JSON, его валидирует core (TableImport). */
-    suspend fun askImport(attachment: String): Result<String> = withContext(Dispatchers.IO) {
+    /**
+     * Разбор таблицы: ответ - строгий JSON, его валидирует core (TableImport).
+     * Вопрос Пользователя доходит до модели (спека 0007): уточняет, какие столбцы
+     * какими показателями являются; контракт «строгий JSON» живёт только в системном
+     * промпте, поэтому вольный текст его не ломает. Пустой текст - фиксированная фраза.
+     */
+    suspend fun askImport(attachment: String, question: String = ""): Result<String> = withContext(Dispatchers.IO) {
         // Спека 0004: длиннее лимита - отказ, никакой молчаливой обрезки.
         if (attachment.length > MAX_ATTACHMENT_CHARS) {
             fail(
@@ -60,7 +65,7 @@ class ChatClient(
                 "вложение ${attachment.length} симв. длиннее лимита",
             )
         } else {
-            exchange(requestImport(attachment), importReadTimeoutMs, describe = {
+            exchange(requestImport(attachment, question), importReadTimeoutMs, describe = {
                 "разбор таблицы, ${attachment.length} симв., ступень: fast"
             })
         }
@@ -177,8 +182,12 @@ class ChatClient(
         return WireRequest(messages = messages, system = system, maxTokens = 3000, step = step)
     }
 
-    private fun requestImport(attachment: String): WireRequest = WireRequest(
-        messages = listOf(WireMessage(ChatMessage.USER, IMPORT_QUESTION)),
+    private fun requestImport(attachment: String, question: String): WireRequest = WireRequest(
+        // Вопрос Пользователя - пользовательское сообщение разбора; обрезка общим
+        // лимитом сообщений, как в обычном чате (спека 0007).
+        messages = listOf(
+            WireMessage(ChatMessage.USER, question.take(MAX_CONTENT).ifBlank { IMPORT_QUESTION })
+        ),
         system = IMPORT_SYSTEM_PROMPT,
         // JSON разбора длинной таблицы - большой ответ: лимит почти на максимуме Бэкенда.
         maxTokens = 16000,

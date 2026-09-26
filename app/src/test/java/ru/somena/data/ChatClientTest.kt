@@ -24,6 +24,13 @@ class ChatClientTest {
 
     private fun client(url: String) = ChatClient(ChatEndpoint(url, "токен"), log = { lines.add(it) })
 
+    /** Консервированный ответ разбора: валидный JSON с пустым массивом дней. */
+    private fun importStub(bodies: MutableList<String>) =
+        stubServer(200, "{\"reply\": \"{\\\"days\\\":[]}\"}", bodies)
+
+    /** Как кириллица видна в теле, пойманном стабом (ISO-8859-1 вместо UTF-8). */
+    private fun utf8AsIso(s: String) = String(s.toByteArray(Charsets.UTF_8), Charsets.ISO_8859_1)
+
     /** Минимальный HTTP-стаб: отвечает заданным кодом и JSON-телом на любой POST, тело запроса ловится. */
     private fun stubServer(
         code: Int,
@@ -99,7 +106,7 @@ class ChatClientTest {
     @Test
     fun `вложение уходит отдельным полем на быстрой ступени с большим лимитом токенов`() {
         val bodies = mutableListOf<String>()
-        val s = stubServer(200, "{\"reply\": \"{\\\"days\\\":[]}\"}", bodies)
+        val s = importStub(bodies)
         val r = runBlocking { client(s.url()).askImport("Дата;Вес\n05.01.2025;62.4") }
         assertTrue(r.isSuccess)
         val body = bodies.single()
@@ -160,6 +167,33 @@ class ChatClientTest {
             assertTrue("чат: ${lines.lastOrNull()}", slow.ask(history, "sys", "контекст", "fast").isFailure)
             assertTrue("разбор: ${lines.lastOrNull()}", slow.askImport("Дата;Вес\n05.01.2025;62.4").isSuccess)
         }
+        s.close()
+    }
+
+    @Test
+    fun `вопрос Пользователя уходит в Разборе таблицы вместе с Вложением`() {
+        // Спека 0007, инцидент «съедено вместо сожжённых»: текст вопроса должен доходить
+        // до модели, иначе та угадывает показатель неоднозначной колонки.
+        val bodies = mutableListOf<String>()
+        val s = importStub(bodies)
+        val r = runBlocking {
+            client(s.url()).askImport("Дата;Вес\n05.01.2025;62.4", "Внеси сожжённые калории (не съеденные!) из 2 столбца")
+        }
+        assertTrue(r.isSuccess)
+        // Фрагмент уникален вопросу Пользователя: в системном промпте «сожжённые» нет.
+        assertTrue("тело: ${bodies.single()}", bodies.single().contains(utf8AsIso("сожжённые")))
+        s.close()
+    }
+
+    @Test
+    fun `пустой вопрос Разбора таблицы подменяется фиксированной фразой`() {
+        val bodies = mutableListOf<String>()
+        val s = importStub(bodies)
+        val r = runBlocking { client(s.url()).askImport("Дата;Вес\n05.01.2025;62.4", "") }
+        assertTrue(r.isSuccess)
+        // «приложенную» есть только в запасной фразе вопроса: в системном промпте её нет,
+        // так что тест ловит именно подмену, а не слово «JSON», живущее и в промпте.
+        assertTrue("тело: ${bodies.single()}", bodies.single().contains(utf8AsIso("приложенную")))
         s.close()
     }
 }
