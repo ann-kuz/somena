@@ -83,7 +83,7 @@ class MetricSeriesTest {
     )
     private val slices = mapOf(d1 to slice)
     private val wellbeing = mapOf(
-        d1 to Wellbeing(d1, energy = 7, mood = 8, sleepQuality = 6, note = "норм"),
+        d1 to listOf(Wellbeing(d1, energy = 7, mood = 8, sleepQuality = 6, note = "норм")),
     )
 
     @Test
@@ -91,6 +91,19 @@ class MetricSeriesTest {
         assertEquals(listOf(8432.0, null), metricSeries(AiMetric.STEPS, dates, DayData(slices, wellbeing)))
         assertEquals(listOf(7.0, null), metricSeries(AiMetric.ENERGY, dates, DayData(slices, wellbeing)))
         assertEquals(listOf(8.0, null), metricSeries(AiMetric.MOOD, dates, DayData(slices, wellbeing)))
+    }
+
+    @Test
+    fun `две отметки Самочувствия дают значение дня по последней`() {
+        val two = mapOf(
+            d1 to listOf(
+                Wellbeing(d1, energy = 7, mood = 8, sleepQuality = 6),
+                Wellbeing(d1, energy = 4, mood = 5, sleepQuality = 9, slot = Wellbeing.SLOT_SECOND),
+            )
+        )
+        assertEquals(listOf(4.0, null), metricSeries(AiMetric.ENERGY, dates, DayData(wellbeingByDate = two)))
+        assertEquals(listOf(5.0, null), metricSeries(AiMetric.MOOD, dates, DayData(wellbeingByDate = two)))
+        assertEquals(listOf(9.0, null), metricSeries(AiMetric.SLEEP_QUALITY, dates, DayData(wellbeingByDate = two)))
     }
 
     @Test

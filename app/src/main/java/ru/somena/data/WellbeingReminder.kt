@@ -71,7 +71,7 @@ class ReminderWorker(private val appContext: Context, params: WorkerParameters) 
 
     override suspend fun doWork(): Result = coroutineScope {
         val db = SliceDb(appContext)
-        if (db.getWellbeing(LocalDate.now()) != null) {
+        if (db.getLatestWellbeing(LocalDate.now()) != null) {
             return@coroutineScope Result.success() // день уже отмечен — молчим
         }
         if (Build.VERSION.SDK_INT >= 33 &&

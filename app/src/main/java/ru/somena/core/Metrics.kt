@@ -34,10 +34,11 @@ val WELLBEING_METRICS = setOf(AiMetric.ENERGY, AiMetric.MOOD, AiMetric.SLEEP_QUA
 /**
  * Данные по дням в одном типе: срезы и Самочувствие по дате. Ходят вместе везде,
  * где метрики встречаются с календарём: графики, графики ИИ, контекст Чата по данным.
+ * Самочувствие хранится списком: отметок в день бывает две, значение дня - последняя.
  */
 data class DayData(
     val slicesByDate: Map<LocalDate, DaySlice> = emptyMap(),
-    val wellbeingByDate: Map<LocalDate, Wellbeing> = emptyMap(),
+    val wellbeingByDate: Map<LocalDate, List<Wellbeing>> = emptyMap(),
 )
 
 /**
@@ -50,7 +51,7 @@ fun metricSeries(
     data: DayData = DayData(),
 ): List<Double?> = dates.map { d ->
     val s = data.slicesByDate[d]
-    val w = data.wellbeingByDate[d]
+    val w = data.wellbeingByDate[d]?.latestOfDay()
     when (metric) {
         AiMetric.STEPS -> s?.steps?.toDouble()
         AiMetric.SLEEP -> s?.sleepMinutes?.let { it / 60.0 }

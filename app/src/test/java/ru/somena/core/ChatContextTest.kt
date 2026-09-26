@@ -26,7 +26,7 @@ class ChatContextTest {
 
     private fun context(
         slices: Map<LocalDate, DaySlice> = mapOf(yesterday to slice),
-        wellbeing: Map<LocalDate, Wellbeing> = mapOf(yesterday to this.wellbeing),
+        wellbeing: Map<LocalDate, List<Wellbeing>> = mapOf(yesterday to listOf(this.wellbeing)),
         profile: Profile? = null,
         cycle: List<CycleDay> = emptyList(),
     ) = buildChatContext(today, daysBack = 3, data = DayData(slices, wellbeing), profile = profile, cycle = cycle)
@@ -39,6 +39,7 @@ class ChatContextTest {
         assertTrue(text.contains("сожжено 2100 ккал"))
         assertTrue(text.contains("съедено 1800 ккал"))
         assertTrue(text.contains("Б 90 / Ж 70 / У 180 г"))
+        // Дефицит: разница сожжённых и съеденных калорий (спека 0005).
         assertTrue(text.contains("дефицит 300 ккал"))
         assertTrue(text.contains("вес 62.4 кг"))
         assertTrue(text.contains("жир 28.1%"))
@@ -51,6 +52,14 @@ class ChatContextTest {
         assertTrue(text.contains("настроение 8/10"))
         assertTrue(text.contains("сон 6/10"))
         assertTrue(text.contains("заметка: «устала»"))
+    }
+
+    @Test
+    fun `две отметки Самочувствия попадают в контекст обе`() {
+        val evening = wellbeing.copy(slot = Wellbeing.SLOT_SECOND, energy = 4, mood = 5, note = "полегче")
+        val text = context(wellbeing = mapOf(yesterday to listOf(wellbeing, evening)))
+        assertTrue(text.contains("самочувствие (первая и вторая отметки): энергия 7 и 4 из 10, настроение 8 и 5 из 10, сон 6 и 6 из 10"))
+        assertTrue(text.contains("заметки: «устала», «полегче»"))
     }
 
     @Test

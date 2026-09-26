@@ -50,7 +50,7 @@ data class ChatMessage(val role: String, val content: String, val sentAt: Long) 
 }
 
 /** Локальное хранилище Дневных срезов, Самочувствия, Записей цикла и истории чата (ADR-0002: данные живут на телефоне). */
-class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 4) {
+class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 5) {
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -71,6 +71,17 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 4
             db.execSQL(SQL_CREATE_CHAT)
         }
         if (oldVersion < 4) db.execSQL(SQL_CREATE_CYCLE_DAYS)
+        if (oldVersion < 5) {
+            // Самочувствие дважды в день: ключ (дата, слот), прежние записи становятся первыми.
+            db.execSQL("ALTER TABLE wellbeing RENAME TO wellbeing_old")
+            db.execSQL(SQL_CREATE_WELLBEING)
+            db.execSQL(
+                "INSERT INTO wellbeing (date, slot, energy, mood, sleep_quality, note, updated_at) " +
+                    "SELECT date, ${ru.somena.core.Wellbeing.SLOT_FIRST}, energy, mood, sleep_quality, note, updated_at " +
+                    "FROM wellbeing_old"
+            )
+            db.execSQL("DROP TABLE wellbeing_old")
+        }
     }
 
     fun upsert(slice: DaySlice) {
@@ -105,6 +116,7 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 4
     fun upsert(w: ru.somena.core.Wellbeing) {
         val values = android.content.ContentValues().apply {
             put("date", w.date.format(ISO_LOCAL_DATE))
+            put("slot", w.slot)
             put("energy", w.energy)
             put("mood", w.mood)
             put("sleep_quality", w.sleepQuality)
@@ -114,37 +126,56 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 4
         writableDatabase.insertWithOnConflict("wellbeing", null, values, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
-    fun getWellbeing(date: LocalDate): ru.somena.core.Wellbeing? =
+    /** Последняя отметка дня: значение дня для напоминания и «Сегодня». */
+    fun getLatestWellbeing(date: LocalDate): ru.somena.core.Wellbeing? =
         readableDatabase.rawQuery(
-            "SELECT energy, mood, sleep_quality, note FROM wellbeing WHERE date = ?",
+            "SELECT slot, energy, mood, sleep_quality, note FROM wellbeing " +
+                "WHERE date = ? ORDER BY slot DESC LIMIT 1",
             arrayOf(date.format(ISO_LOCAL_DATE))
-        ).use { c ->
-            if (!c.moveToFirst()) null else ru.somena.core.Wellbeing(
-                date = date,
-                energy = c.getInt(0),
-                mood = c.getInt(1),
-                sleepQuality = c.getInt(2),
-                note = if (c.isNull(3)) null else c.getString(3),
-            )
-        }
+        ).use { c -> if (c.moveToFirst()) readWellbeing(c, date) else null }
 
-    /** Всё Самочувствие по возрастанию даты: для графика и контекста Чата по данным. */
+    /** Отметка конкретного слота дня: для редактора и Разбора таблицы. */
+    fun getWellbeing(date: LocalDate, slot: Int): ru.somena.core.Wellbeing? =
+        readableDatabase.rawQuery(
+            "SELECT slot, energy, mood, sleep_quality, note FROM wellbeing WHERE date = ? AND slot = ?",
+            arrayOf(date.format(ISO_LOCAL_DATE), slot.toString())
+        ).use { c -> if (c.moveToFirst()) readWellbeing(c, date) else null }
+
+    /** Отметки одного дня по порядку: для плашки Самочувствия на «Сегодня». */
+    fun dayWellbeing(date: LocalDate): List<ru.somena.core.Wellbeing> =
+        readableDatabase.rawQuery(
+            "SELECT slot, energy, mood, sleep_quality, note FROM wellbeing WHERE date = ? ORDER BY slot",
+            arrayOf(date.format(ISO_LOCAL_DATE))
+        ).use { c -> buildList { while (c.moveToNext()) add(readWellbeing(c, date)) } }
+
+    /** Всё Самочувствие по возрастанию даты и слота: для графика и контекста Чата по данным. */
     fun allWellbeing(): List<ru.somena.core.Wellbeing> =
         readableDatabase.rawQuery(
-            "SELECT date, energy, mood, sleep_quality, note FROM wellbeing ORDER BY date", null
+            "SELECT slot, energy, mood, sleep_quality, note, date FROM wellbeing ORDER BY date, slot", null
         ).use { c ->
             buildList {
                 while (c.moveToNext()) add(
                     ru.somena.core.Wellbeing(
-                        date = LocalDate.parse(c.getString(0)),
+                        date = LocalDate.parse(c.getString(5)),
                         energy = c.getInt(1),
                         mood = c.getInt(2),
                         sleepQuality = c.getInt(3),
                         note = if (c.isNull(4)) null else c.getString(4),
+                        slot = c.getInt(0),
                     )
                 )
             }
         }
+
+    private fun readWellbeing(c: android.database.Cursor, date: LocalDate): ru.somena.core.Wellbeing =
+        ru.somena.core.Wellbeing(
+            date = date,
+            energy = c.getInt(1),
+            mood = c.getInt(2),
+            sleepQuality = c.getInt(3),
+            note = if (c.isNull(4)) null else c.getString(4),
+            slot = c.getInt(0),
+        )
 
     // ---- Записи цикла (спека 0003, ADR-0005: только локально) ----
 
@@ -225,12 +256,14 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 4
                 "updated_at INTEGER NOT NULL)"
         const val SQL_CREATE_WELLBEING =
             "CREATE TABLE IF NOT EXISTS wellbeing (" +
-                "date TEXT PRIMARY KEY NOT NULL, " +
+                "date TEXT NOT NULL, " +
+                "slot INTEGER NOT NULL, " +
                 "energy INTEGER NOT NULL, " +
                 "mood INTEGER NOT NULL, " +
                 "sleep_quality INTEGER NOT NULL, " +
                 "note TEXT, " +
-                "updated_at INTEGER NOT NULL)"
+                "updated_at INTEGER NOT NULL, " +
+                "PRIMARY KEY(date, slot))"
         const val SQL_CREATE_CHAT =
             "CREATE TABLE IF NOT EXISTS chat_messages (" +
                 "id INTEGER PRIMARY KEY AUTOINCREMENT, " +

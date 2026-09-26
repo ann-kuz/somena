@@ -27,11 +27,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -68,7 +66,7 @@ fun CardLabel(text: String, accent: Color = Violet) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
         Box(
             Modifier
-                .shadow(5.dp, CircleShape, spotColor = accent.copy(alpha = 0.7f))
+                .neonHalo(accent, cornerRadius = 24.dp, glow = 3.dp, alpha = 0.5f)
                 .size(7.dp)
                 .clip(CircleShape)
                 .background(accent)
@@ -115,32 +113,6 @@ fun MetricCard(
     }
 }
 
-/** Ряд шкалы Самочувствия: подпись и десять точек-градиентов (шкала 0–10). */
-@Composable
-fun ScaleDots(label: String, value: Int) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = TextMuted)
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            (1..10).forEach { i ->
-                val filled = i <= value
-                Box(
-                    Modifier
-                        .then(
-                            if (filled) Modifier.shadow(4.dp, CircleShape, spotColor = Violet.copy(alpha = 0.8f))
-                            else Modifier
-                        )
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (filled) AccentBrush
-                            else Brush.linearGradient(listOf(Color.White.copy(alpha = 0.10f), Color.White.copy(alpha = 0.10f)))
-                        )
-                )
-            }
-        }
-    }
-}
-
 /** Заголовок экрана: крупное имя и приглушённый подзаголовок. */
 @Composable
 fun ScreenHeader(title: String, subtitle: String) {
@@ -157,10 +129,12 @@ fun ScreenHeader(title: String, subtitle: String) {
 
 /**
  * Неоновое стекло для интерактивных и акцентных поверхностей: полупрозрачный градиент
- * фиолет→синева, светящийся бордер, мягкое свечение. Выключенное (active = false)
- * гаснет. Новые элементы собираются из него, а не повторяют рецепт руками.
+ * фиолет→синева, светящийся бордер, рисованное свечение (neonHalo). Выключенное
+ * (active = false) гаснет. Радиус больше половины меньшей стороны даёт круг или пилюлю.
+ * Новые элементы собираются из него, а не повторяют рецепт руками.
  */
-fun Modifier.neonSurface(active: Boolean, shape: Shape): Modifier {
+fun Modifier.neonSurface(active: Boolean, cornerRadius: Dp, glow: Dp = 10.dp): Modifier {
+    val shape = RoundedCornerShape(cornerRadius)
     val fill =
         if (active) Brush.linearGradient(listOf(Violet.copy(alpha = 0.30f), Indigo.copy(alpha = 0.16f)))
         else Brush.linearGradient(listOf(Color.White.copy(alpha = 0.05f), Color.White.copy(alpha = 0.05f)))
@@ -171,11 +145,7 @@ fun Modifier.neonSurface(active: Boolean, shape: Shape): Modifier {
         )
         else androidx.compose.foundation.BorderStroke(1.dp, CardBorder)
     return this
-        .shadow(
-            if (active) 16.dp else 0.dp, shape,
-            ambientColor = Violet.copy(alpha = 0.45f),
-            spotColor = Violet.copy(alpha = 0.9f),
-        )
+        .neonHalo(Violet, cornerRadius = cornerRadius, glow = if (active) glow else 0.dp)
         .clip(shape)
         .background(fill)
         .border(stroke, shape)
@@ -209,7 +179,7 @@ fun Sparkline(values: List<Double?>, modifier: Modifier = Modifier, color: Color
     }
 }
 
-/** Главная кнопка: неоновое стекло — полупрозрачный фиолет, светящийся бордер, мягкое свечение. */
+/** Главная кнопка: неоновое стекло — полупрозрачный фиолет, светящийся бордер, рисованное свечение. */
 @Composable
 fun GlowButton(
     text: String,
@@ -232,11 +202,7 @@ fun GlowButton(
     Box(
         modifier
             .heightIn(min = 52.dp)
-            .shadow(
-                if (enabled) 20.dp else 0.dp, shape,
-                ambientColor = Violet.copy(alpha = 0.45f),
-                spotColor = Violet.copy(alpha = 0.9f),
-            )
+            .neonHalo(Violet, cornerRadius = 26.dp, glow = if (enabled) 16.dp else 0.dp, alpha = 0.20f)
             .clip(shape)
             .background(fill)
             .border(border, shape)
@@ -306,11 +272,7 @@ fun PeriodChip(
     Box(
         modifier
             .heightIn(min = 40.dp)
-            .shadow(
-                if (selected) 10.dp else 0.dp, CircleShape,
-                ambientColor = Violet.copy(alpha = 0.35f),
-                spotColor = Violet.copy(alpha = 0.7f),
-            )
+            .neonHalo(Violet, cornerRadius = 24.dp, glow = if (selected) 8.dp else 0.dp, alpha = 0.18f)
             .clip(CircleShape)
             .background(
                 if (selected) Brush.linearGradient(listOf(Violet.copy(alpha = 0.28f), Indigo.copy(alpha = 0.16f)))
@@ -343,7 +305,7 @@ fun PeriodChip(
 fun StepBadge(n: Int) {
     Box(
         Modifier
-            .shadow(8.dp, CircleShape, spotColor = Violet.copy(alpha = 0.6f))
+            .neonHalo(Violet, cornerRadius = 24.dp, glow = 5.dp, alpha = 0.4f)
             .size(30.dp)
             .clip(CircleShape)
             .background(AccentBrush),

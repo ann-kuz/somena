@@ -29,7 +29,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -77,7 +76,7 @@ fun ChartsScreen(m: Modifier) {
     val wellbeing = remember { db.allWellbeing() }
     val byDate = remember(slices) { slices.associateBy { it.date } }
     val data = remember(slices, wellbeing) {
-        DayData(byDate, wellbeing.associateBy { it.date })
+        DayData(byDate, wellbeing.groupBy { it.date })
     }
     val today = LocalDate.now()
     var windowDays by remember { mutableIntStateOf(WEEK_DAYS) }
@@ -182,7 +181,7 @@ fun ChartsScreen(m: Modifier) {
                     "Вес и тренд", days,
                     listOf(
                         ChartSeries("Вес", weight, MaterialTheme.colorScheme.primary, "кг"),
-                        ChartSeries("Тренд", weightTrend(weight), MaterialTheme.colorScheme.secondary, "кг", dash = true),
+                        ChartSeries("Тренд", weightTrend(weight), MaterialTheme.colorScheme.secondary, "кг"),
                     ),
                     onPan = ::shift,
                 )
@@ -260,7 +259,6 @@ data class ChartSeries(
     val values: List<Double?>,
     val color: Color,
     val unit: String,
-    val dash: Boolean = false,
 )
 
 /**
@@ -356,7 +354,6 @@ fun LineChart(
                     if (!hasData) return@Canvas
 
                     seriesList.forEach { s ->
-                        val effect = if (s.dash) PathEffect.dashPathEffect(floatArrayOf(12f, 8f)) else null
                         val path = Path()
                         var started = false
                         var firstIdx = -1
@@ -374,8 +371,8 @@ fun LineChart(
                                 lastIdx = i
                             }
                         }
-                        // градиентная заливка под сплошной линией — «неоновый» след
-                        if (!s.dash && firstIdx >= 0) {
+                        // градиентная заливка под линией — «неоновый» след
+                        if (firstIdx >= 0) {
                             val area = Path().apply {
                                 addPath(path)
                                 lineTo(x(lastIdx, size.width), size.height)
@@ -394,9 +391,9 @@ fun LineChart(
                         drawPath(
                             path,
                             color = s.color.copy(alpha = 0.25f),
-                            style = Stroke(width = 10f, pathEffect = effect, cap = StrokeCap.Round),
+                            style = Stroke(width = 10f, cap = StrokeCap.Round),
                         )
-                        drawPath(path, color = s.color, style = Stroke(width = 4f, pathEffect = effect, cap = StrokeCap.Round))
+                        drawPath(path, color = s.color, style = Stroke(width = 4f, cap = StrokeCap.Round))
                     }
                     // выделенная точка со свечением
                     sel?.let { idx ->
@@ -441,7 +438,6 @@ private fun Legend(seriesList: List<ChartSeries>) {
                         androidx.compose.ui.geometry.Offset(size.width, size.height / 2),
                         strokeWidth = 4f,
                         cap = StrokeCap.Round,
-                        pathEffect = if (s.dash) PathEffect.dashPathEffect(floatArrayOf(8f, 5f)) else null,
                     )
                 }
                 Text(" ${s.label} (${s.unit})", style = MaterialTheme.typography.bodySmall, color = TextMuted)

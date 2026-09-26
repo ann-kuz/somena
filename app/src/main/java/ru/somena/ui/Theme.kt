@@ -10,15 +10,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 
 // Палитра «ночная туманность»: почти чёрный фон, фиолетово-синее свечение, золотые акценты.
+// Синий сдвинут к голубому (был #6D8DFF): на графиках он соседствует с фиолетовым,
+// и старый оттенок различался с ним с трудом.
 val BgBase = Color(0xFF0A0912)
 val Violet = Color(0xFF8B7CFF)
-val Indigo = Color(0xFF6D8DFF)
+val Indigo = Color(0xFF46AEFF)
 val Gold = Color(0xFFFFC94D)
 val Rose = Color(0xFFFF6B9E)
 val TextMuted = Color(0xFFA8A4C4)
@@ -26,6 +33,33 @@ val CardBorder = Color.White.copy(alpha = 0.08f)
 
 /** Главный градиент акцентов — фиолет → синева, как свечение на референсах. */
 val AccentBrush = Brush.linearGradient(listOf(Violet, Indigo))
+
+/**
+ * Ореол неона: три ступени полупрозрачного свечения вокруг поверхности, внутренние ярче.
+ * Рисуется вручную, а не через Modifier.shadow: на части прошивок тот рисует тёмные
+ * прямоугольники вместо мягкой тени. Радиус сверх половины меньшей стороны сжимается,
+ * так что пилюли и круги получают круглый ореол.
+ */
+fun Modifier.neonHalo(
+    color: Color = Violet,
+    cornerRadius: Dp,
+    glow: Dp = 12.dp,
+    alpha: Float = 0.16f,
+): Modifier = drawBehind {
+    val steps = 3
+    val grow = glow.toPx()
+    val halfMin = minOf(size.width, size.height) / 2f
+    val baseR = cornerRadius.toPx().coerceAtMost(halfMin)
+    for (j in steps downTo 1) {
+        val e = grow * j / steps
+        drawRoundRect(
+            color = color.copy(alpha = alpha * (steps - j + 1) / steps),
+            topLeft = Offset(-e, -e),
+            size = Size(size.width + 2 * e, size.height + 2 * e),
+            cornerRadius = CornerRadius((baseR + e).coerceAtMost(halfMin + e)),
+        )
+    }
+}
 
 private val DarkScheme = darkColorScheme(
     primary = Violet,

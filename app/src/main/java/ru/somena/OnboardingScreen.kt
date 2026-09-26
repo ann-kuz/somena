@@ -27,7 +27,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -43,6 +42,7 @@ import ru.somena.ui.GlowButton
 import ru.somena.ui.StepBadge
 import ru.somena.ui.TextMuted
 import ru.somena.ui.Violet
+import ru.somena.ui.neonHalo
 
 /**
  * Онбординг Источников (тикет 02): без тупиков — «Готово» доступно всегда,
@@ -202,7 +202,7 @@ private fun StatusDot(writing: Boolean) {
     if (writing) {
         Box(
             Modifier
-                .shadow(5.dp, CircleShape, spotColor = Violet.copy(alpha = 0.7f))
+                .neonHalo(Violet, cornerRadius = 24.dp, glow = 3.dp, alpha = 0.5f)
                 .size(8.dp)
                 .clip(CircleShape)
                 .background(AccentBrush)

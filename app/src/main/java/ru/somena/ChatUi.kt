@@ -18,9 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -38,9 +36,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import android.widget.Toast
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -117,11 +119,15 @@ fun ChatScreen(m: Modifier) {
         ChatClient(settings.endpoint(), log = { line -> ChatLog.append(context, line) })
     }
     // Данные для контекста вопроса и графиков ИИ: перечитываются после Разбора таблицы.
+    // Самочувствие группируется по дате: отметок в день бывает две.
     var data by remember {
-        mutableStateOf(DayData(db.all().associateBy { it.date }, db.allWellbeing().associateBy { it.date }))
+        mutableStateOf(DayData(db.all().associateBy { it.date }, db.allWellbeing().groupBy { it.date }))
     }
+    // Разбор таблицы пишет первую отметку дня, поэтому сравнивает её с прежней первой.
+    fun firstWellbeing(): Map<LocalDate, Wellbeing> =
+        db.allWellbeing().filter { it.slot == Wellbeing.SLOT_FIRST }.associateBy { it.date }
     fun reloadData() {
-        data = DayData(db.all().associateBy { it.date }, db.allWellbeing().associateBy { it.date })
+        data = DayData(db.all().associateBy { it.date }, db.allWellbeing().groupBy { it.date })
     }
     val cycleEntries = remember { db.allCycleDays() }
     var messages by remember { mutableStateOf(db.chatHistory()) }
@@ -175,7 +181,7 @@ fun ChatScreen(m: Modifier) {
         scope.launch {
             client.askImport(tableText, question).fold(
                 onSuccess = { raw ->
-                    val preview = parseImportReply(raw, data.slicesByDate, data.wellbeingByDate)
+                    val preview = parseImportReply(raw, data.slicesByDate, firstWellbeing())
                     if (preview == null) {
                         error = "ИИ не смог разобрать таблицу. Нужны колонки с датами и показателями. " +
                             "Если таблица длинная, разбей её на части."
@@ -198,7 +204,7 @@ fun ChatScreen(m: Modifier) {
             db.upsert(entry.toSlice(db.get(entry.date)))
         }
         for (entry in preview.wellbeing) {
-            db.upsert(entry.toWellbeing(db.getWellbeing(entry.date)))
+            db.upsert(entry.toWellbeing(db.getWellbeing(entry.date, Wellbeing.SLOT_FIRST)))
         }
         val note = buildString {
             val parts = buildList {
@@ -288,14 +294,12 @@ fun ChatScreen(m: Modifier) {
         }
         if (!settings.isConfigured) {
             GlassCard(Modifier.fillMaxWidth()) {
-                SelectionContainer {
-                    Text(
-                        "Чат не настроен: введи токен приложения на вкладке «Ещё». " +
-                            "Остальное приложение работает и без него.",
-                        color = TextMuted,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
+                Text(
+                    "Чат не настроен: введи токен приложения на вкладке «Ещё». " +
+                        "Остальное приложение работает и без него.",
+                    color = TextMuted,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
             }
         }
         LazyColumn(
@@ -306,14 +310,12 @@ fun ChatScreen(m: Modifier) {
             if (messages.isEmpty() && !busy) {
                 item {
                     GlassCard(Modifier.fillMaxWidth()) {
-                        SelectionContainer {
-                            Text(
-                                "Спроси что угодно о своих данных: ИИ видит дневные срезы за 30 дней, " +
-                                    "Самочувствие и профиль. Попроси показать график, например: «покажи вес за месяц».",
-                                color = TextMuted,
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                        }
+                        Text(
+                            "Спроси что угодно о своих данных: ИИ видит дневные срезы за 30 дней, " +
+                                "Самочувствие и профиль. Попроси показать график, например: «покажи вес за месяц».",
+                            color = TextMuted,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                     }
                 }
                 items(SUGGESTIONS) { q ->
@@ -337,13 +339,11 @@ fun ChatScreen(m: Modifier) {
             }
         }
         error?.let {
-            SelectionContainer {
-                Text(
-                    it,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
+            Text(
+                it,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
         attachment?.let { (name, _) ->
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -402,17 +402,21 @@ fun ChatScreen(m: Modifier) {
     }
 }
 
+/** Длинное нажатие на ответ копирует его текст: без выделения текста, которое на
+ *  части прошивок рисует тёмные прямоугольники поверх пузырей. */
 @Composable
 private fun MessageBubble(msg: ChatMessage, data: DayData) {
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
     if (msg.role == ChatMessage.USER) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Column(
                 Modifier
                     .fillMaxWidth(0.85f)
-                    .neonSurface(active = true, shape = RoundedCornerShape(20.dp))
+                    .neonSurface(active = true, cornerRadius = 20.dp)
                     .padding(12.dp),
             ) {
-                SelectionContainer { Text(msg.content, style = MaterialTheme.typography.bodyMedium) }
+                Text(msg.content, style = MaterialTheme.typography.bodyMedium)
             }
         }
     } else {
@@ -421,11 +425,22 @@ private fun MessageBubble(msg: ChatMessage, data: DayData) {
         val anchor = remember(msg.sentAt) {
             Instant.ofEpochMilli(msg.sentAt).atZone(ZoneId.systemDefault()).toLocalDate()
         }
+        fun copyAnswer() {
+            if (text.isBlank()) return
+            clipboard.setText(AnnotatedString(text))
+            Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
-            GlassCard(Modifier.fillMaxWidth(0.94f)) {
+            GlassCard(
+                Modifier
+                    .fillMaxWidth(0.94f)
+                    .pointerInput(msg.content) {
+                        detectTapGestures(onLongPress = { copyAnswer() })
+                    }
+            ) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (text.isNotBlank()) {
-                        SelectionContainer { Text(text, style = MaterialTheme.typography.bodyMedium) }
+                        Text(text, style = MaterialTheme.typography.bodyMedium)
                     }
                     specs.forEach { spec -> AiChartCard(spec, anchor, data) }
                 }
@@ -518,7 +533,7 @@ private fun AttachButton(enabled: Boolean, onClick: () -> Unit) {
     Box(
         Modifier
             .size(56.dp)
-            .neonSurface(active = enabled, shape = CircleShape)
+            .neonSurface(active = enabled, cornerRadius = 100.dp)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -544,7 +559,7 @@ private fun SendButton(enabled: Boolean, onClick: () -> Unit) {
     Box(
         Modifier
             .size(56.dp)
-            .neonSurface(active = enabled, shape = CircleShape)
+            .neonSurface(active = enabled, cornerRadius = 100.dp)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -607,9 +622,7 @@ fun ChatSettingsSection() {
             modifier = Modifier.fillMaxWidth(),
         )
         status?.let {
-            SelectionContainer {
-                Text(it, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
-            }
+            Text(it, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

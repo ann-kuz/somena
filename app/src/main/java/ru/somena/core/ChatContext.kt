@@ -42,7 +42,7 @@ fun buildChatContext(
     for (d in dates) {
         val line = dayLine(
             data.slicesByDate[d],
-            data.wellbeingByDate[d],
+            data.wellbeingByDate[d].orEmpty(),
             cycleByDate[d],
             cyclePhase(periods, prediction, d),
         )
@@ -61,7 +61,7 @@ fun buildChatContext(
 }
 
 /** Строка одного дня; null значит «данных нет вообще». */
-private fun dayLine(s: DaySlice?, w: Wellbeing?, cyc: CycleDay?, phase: CyclePhase): String? {
+private fun dayLine(s: DaySlice?, ws: List<Wellbeing>, cyc: CycleDay?, phase: CyclePhase): String? {
     val parts = mutableListOf<String>()
     if (s != null) {
         s.steps?.let { parts += "шаги $it" }
@@ -81,9 +81,18 @@ private fun dayLine(s: DaySlice?, w: Wellbeing?, cyc: CycleDay?, phase: CyclePha
         s.boneMassKg?.let { parts += "кости ${fmtNum(it)} кг" }
         s.bmrKcal?.let { parts += "обмен ${fmtNum(it)} ккал/дн" }
     }
-    if (w != null) {
-        parts += "самочувствие: энергия ${w.energy}/10, настроение ${w.mood}/10, сон ${w.sleepQuality}/10"
-        w.note?.takeIf { it.isNotBlank() }?.let { parts += "заметка: «$it»" }
+    if (ws.isNotEmpty()) {
+        val first = ws.minByOrNull { it.slot }!!
+        val second = ws.firstOrNull { it.slot > first.slot }
+        if (second == null) {
+            parts += "самочувствие: энергия ${first.energy}/10, настроение ${first.mood}/10, сон ${first.sleepQuality}/10"
+            first.note?.takeIf { it.isNotBlank() }?.let { parts += "заметка: «$it»" }
+        } else {
+            parts += "самочувствие (первая и вторая отметки): энергия ${first.energy} и ${second.energy} из 10, " +
+                "настроение ${first.mood} и ${second.mood} из 10, сон ${first.sleepQuality} и ${second.sleepQuality} из 10"
+            val notes = listOf(first, second).mapNotNull { it.note?.takeIf { n -> n.isNotBlank() } }
+            if (notes.isNotEmpty()) parts += "заметки: " + notes.joinToString(", ") { "«$it»" }
+        }
     }
     cyc?.let { c ->
         if (c.menstruation) {

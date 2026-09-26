@@ -181,7 +181,7 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
     var slice by remember { mutableStateOf<DaySlice?>(null) }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
-    var wellbeing by remember { mutableStateOf(db.getWellbeing(LocalDate.now())) }
+    var wellbeing by remember { mutableStateOf(db.dayWellbeing(LocalDate.now())) }
     var showWellbeingEditor by remember { mutableStateOf(false) }
     val weekSteps = remember(db) { db.all().takeLast(7).map { it.steps?.toDouble() } }
 
@@ -198,7 +198,7 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
                 "Импорт не удался: ${e.message}"
             }
             slice = db.get(LocalDate.now())
-            wellbeing = db.getWellbeing(LocalDate.now())
+            wellbeing = db.dayWellbeing(LocalDate.now())
             busy = false
         }
     }
@@ -206,10 +206,19 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
     LaunchedEffect(Unit) { refresh() }
 
     if (showWellbeingEditor) {
-        WellbeingEditorDialog(db = db, initialDate = LocalDate.now(), onDismiss = {
-            showWellbeingEditor = false
-            wellbeing = db.getWellbeing(LocalDate.now())
-        })
+        WellbeingEditorDialog(
+            db = db,
+            initialDate = LocalDate.now(),
+            initialSlot = if (wellbeing.any { it.slot == ru.somena.core.Wellbeing.SLOT_FIRST }) {
+                ru.somena.core.Wellbeing.SLOT_SECOND
+            } else {
+                ru.somena.core.Wellbeing.SLOT_FIRST
+            },
+            onDismiss = {
+                showWellbeingEditor = false
+                wellbeing = db.dayWellbeing(LocalDate.now())
+            },
+        )
     }
 
     Column(
