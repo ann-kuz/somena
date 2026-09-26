@@ -63,6 +63,23 @@ class ChatContextTest {
     }
 
     @Test
+    fun `дефицит в контексте прибавляет ручной обмен из профиля`() {
+        val text = context(profile = Profile(bmrKcal = 1200.0))
+        assertTrue(text.contains("дефицит 1500 ккал"))
+        assertTrue(text.contains("обмен 1200 ккал/дн"))
+    }
+
+    @Test
+    fun `обмен с весов сильнее ручного в дефиците`() {
+        val text = context(
+            slices = mapOf(yesterday to slice.copy(bmrKcal = 1300.0)),
+            profile = Profile(bmrKcal = 1200.0),
+        )
+        assertTrue(text.contains("дефицит 1600 ккал"))
+        assertTrue(text.contains("обмен 1300 ккал/дн"))
+    }
+
+    @Test
     fun `дни без данных перечисляются отдельно и не превращаются в нули`() {
         val text = context(slices = emptyMap(), wellbeing = emptyMap())
         assertTrue(text.contains("Дней без данных: 3"))

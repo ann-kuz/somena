@@ -463,6 +463,7 @@ private fun ProfileSection() {
         mutableStateOf(saved.birthDate?.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.uuuu")) ?: "")
     }
     var goal by remember { mutableStateOf(saved.goalWeightKg?.let { "%,.1f".format(it) } ?: "") }
+    var bmr by remember { mutableStateOf(saved.bmrKcal?.let { "%,.0f".format(it) } ?: "") }
     var status by remember { mutableStateOf<String?>(null) }
 
     val today = LocalDate.now()
@@ -470,12 +471,14 @@ private fun ProfileSection() {
         heightCm = parseOptionalInt(height),
         birthDateIso = parseBirthDate(birth)?.toString(),
         goalWeightKg = parseOptionalDouble(goal),
+        bmrKcal = parseOptionalDouble(bmr),
     )
     val errors = buildList {
         addAll(ProfileValidator.validate(draft, today))
         numericFieldError(height, integer = true)?.let { add(ProfileValidator.Error("heightCm", it)) }
         birthDateFieldError(birth, today)?.let { add(ProfileValidator.Error("birthDate", it)) }
         numericFieldError(goal, integer = false)?.let { add(ProfileValidator.Error("goalWeightKg", it)) }
+        numericFieldError(bmr, integer = false)?.let { add(ProfileValidator.Error("bmrKcal", it)) }
     }
     fun errorFor(field: String): String? = errors.firstOrNull { it.field == field }?.message
 
@@ -519,6 +522,20 @@ private fun ProfileSection() {
             supportingText = { errorFor("goalWeightKg")?.let { Text(it) } },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = bmr,
+            onValueChange = { bmr = it },
+            label = { Text("Обмен веществ, ккал/дн") },
+            isError = errorFor("bmrKcal") != null,
+            supportingText = { errorFor("bmrKcal")?.let { Text(it) } },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            "Прибавляется к Дефициту, пока умные весы не передают свой.",
+            color = TextMuted,
+            style = MaterialTheme.typography.bodySmall,
         )
         GlowButton(
             "Сохранить",

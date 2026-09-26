@@ -114,6 +114,8 @@ fun ChatScreen(m: Modifier) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val db = remember { SliceDb(context) }
+    // Ручной обмен из Профиля: запас для Дефицита, пока весы не передают свой.
+    val profileBmr = remember { ProfileStore(context).load().bmrKcal }
     val settings = remember { ChatSettings(context) }
     val client = remember {
         ChatClient(settings.endpoint(), log = { line -> ChatLog.append(context, line) })
@@ -323,7 +325,7 @@ fun ChatScreen(m: Modifier) {
                 }
             }
             items(messages) { msg ->
-                MessageBubble(msg, data)
+                MessageBubble(msg, data, profileBmr)
             }
             if (busy) {
                 item {
@@ -405,7 +407,7 @@ fun ChatScreen(m: Modifier) {
 /** Длинное нажатие на ответ копирует его текст: без выделения текста, которое на
  *  части прошивок рисует тёмные прямоугольники поверх пузырей. */
 @Composable
-private fun MessageBubble(msg: ChatMessage, data: DayData) {
+private fun MessageBubble(msg: ChatMessage, data: DayData, profileBmr: Double?) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     if (msg.role == ChatMessage.USER) {
@@ -442,7 +444,7 @@ private fun MessageBubble(msg: ChatMessage, data: DayData) {
                     if (text.isNotBlank()) {
                         Text(text, style = MaterialTheme.typography.bodyMedium)
                     }
-                    specs.forEach { spec -> AiChartCard(spec, anchor, data) }
+                    specs.forEach { spec -> AiChartCard(spec, anchor, data, profileBmr) }
                 }
             }
         }
@@ -451,12 +453,12 @@ private fun MessageBubble(msg: ChatMessage, data: DayData) {
 
 /** График, построенный моделью: метрики и окно из ответа, линии — из локальных данных. */
 @Composable
-fun AiChartCard(spec: AiChartSpec, anchor: LocalDate, data: DayData) {
+fun AiChartCard(spec: AiChartSpec, anchor: LocalDate, data: DayData, profileBmr: Double? = null) {
     val dates = lastDays(anchor, spec.windowDays)
     val metrics = spec.metrics.mapNotNull { AiMetric.byKey(it) }
     if (metrics.isEmpty()) return
     val seriesList = metrics.map { m ->
-        ChartSeries(m.label, metricSeries(m, dates, data), aiMetricColor(m), m.unit)
+        ChartSeries(m.label, metricSeries(m, dates, data, profileBmr), aiMetricColor(m), m.unit)
     }
     val wbOnly = metrics.all { it in WELLBEING_METRICS }
     LineChart(

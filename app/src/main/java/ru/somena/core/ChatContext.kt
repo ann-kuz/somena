@@ -39,14 +39,18 @@ fun buildChatContext(
 
     val dayLines = mutableListOf<String>()
     val emptyDates = mutableListOf<String>()
+    // Обмен для Дефицита: ручное значение из Профиля, пока весы не дали своего.
+    var carriedBmr = profile?.bmrKcal
     for (d in dates) {
         val line = dayLine(
             data.slicesByDate[d],
             data.wellbeingByDate[d].orEmpty(),
             cycleByDate[d],
             cyclePhase(periods, prediction, d),
+            carriedBmr,
         )
         if (line == null) emptyDates += d.format(fmt) else dayLines += "${d.format(fmt)}: $line"
+        data.slicesByDate[d]?.bmrKcal?.let { carriedBmr = it }
     }
 
     return buildString {
@@ -60,8 +64,8 @@ fun buildChatContext(
     }
 }
 
-/** Строка одного дня; null значит «данных нет вообще». */
-private fun dayLine(s: DaySlice?, ws: List<Wellbeing>, cyc: CycleDay?, phase: CyclePhase): String? {
+/** Строка одного дня; null значит «данных нет вообще». [priorBmr] - обмен с прошлых дней. */
+private fun dayLine(s: DaySlice?, ws: List<Wellbeing>, cyc: CycleDay?, phase: CyclePhase, priorBmr: Double?): String? {
     val parts = mutableListOf<String>()
     if (s != null) {
         s.steps?.let { parts += "шаги $it" }
@@ -74,7 +78,8 @@ private fun dayLine(s: DaySlice?, ws: List<Wellbeing>, cyc: CycleDay?, phase: Cy
             }
         }
         if (s.burnedKcal != null && s.eatenKcal != null) {
-            parts += "дефицит ${fmtNum(s.burnedKcal - s.eatenKcal)} ккал"
+            val bmr = s.bmrKcal ?: priorBmr
+            parts += "дефицит ${fmtNum(s.burnedKcal - s.eatenKcal + (bmr ?: 0.0))} ккал"
         }
         s.weightKg?.let { parts += "вес ${fmtNum(it)} кг" }
         s.bodyFatPct?.let { parts += "жир ${fmtNum(it)}%" }
@@ -148,13 +153,16 @@ private fun painWord(pain: Int) = when (pain) {
 }
 
 private fun profileLine(p: Profile?, today: LocalDate): String {
-    if (p == null || (p.heightCm == null && p.birthDate == null && p.goalWeightKg == null)) {
+    if (p == null ||
+        (p.heightCm == null && p.birthDate == null && p.goalWeightKg == null && p.bmrKcal == null)
+    ) {
         return "не заполнен"
     }
     val parts = mutableListOf<String>()
     p.heightCm?.let { parts += "рост $it см" }
     p.ageYears(today)?.let { parts += "полных лет $it" }
     p.goalWeightKg?.let { parts += "цель по весу ${fmtNum(it)} кг" }
+    p.bmrKcal?.let { parts += "обмен ${fmtNum(it)} ккал/дн (если весы не дали своего)" }
     return parts.joinToString(", ")
 }
 

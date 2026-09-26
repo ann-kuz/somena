@@ -10,12 +10,14 @@ import java.time.format.ResolverStyle
  * Профиль Пользователя (тикет 03): контекст для будущего Чата по данным.
  * Все поля необязательны — пустой Профиль не блокирует остальные экраны.
  * Храним дату рождения, а не возраст: возраст вычисляется на дату вопроса.
+ * Обмен веществ - запасной для Дефицита: главный источник - умные весы.
  */
 @Serializable
 data class Profile(
     val heightCm: Int? = null,
     val birthDateIso: String? = null,
     val goalWeightKg: Double? = null,
+    val bmrKcal: Double? = null,
 ) {
     fun ageYears(today: LocalDate): Int? = birthDate
         ?.let { Period.between(it, today).years.takeIf { y -> y >= 0 } }
@@ -37,6 +39,9 @@ object ProfileValidator {
         }
         profile.goalWeightKg?.let {
             if (it !in 30.0..300.0) add(Error("goalWeightKg", "Цель по весу: разумно 30-300 кг"))
+        }
+        profile.bmrKcal?.let {
+            if (it !in 800.0..4000.0) add(Error("bmrKcal", "Обмен: разумно 800-4000 ккал/дн"))
         }
     }
 }

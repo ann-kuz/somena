@@ -50,6 +50,7 @@ import ru.somena.core.clampWindowEnd
 import ru.somena.core.metricSeries
 import ru.somena.core.PanAccumulator
 import ru.somena.core.weightTrend
+import ru.somena.data.ProfileStore
 import ru.somena.data.SliceDb
 import ru.somena.ui.GlassCard
 import ru.somena.ui.PeriodChip
@@ -72,6 +73,8 @@ private fun fmtDate(d: LocalDate): String = d.format(DateTimeFormatter.ofPattern
 fun ChartsScreen(m: Modifier) {
     val context = LocalContext.current
     val db = remember { SliceDb(context) }
+    // Ручной обмен из Профиля: запас для Дефицита, пока весы не передают свой.
+    val profileBmr = remember { ProfileStore(context).load().bmrKcal }
     val slices = remember { db.all() }
     val wellbeing = remember { db.allWellbeing() }
     val byDate = remember(slices) { slices.associateBy { it.date } }
@@ -159,11 +162,12 @@ fun ChartsScreen(m: Modifier) {
                     "Дефицит", days,
                     listOf(
                         ChartSeries(
-                            "Дефицит", metricSeries(AiMetric.DEFICIT, days, data),
+                            "Дефицит", metricSeries(AiMetric.DEFICIT, days, data, profileBmr),
                             MaterialTheme.colorScheme.primary, "ккал"
                         ),
                     ),
                     onPan = ::shift,
+                    caption = "Сожжено + обмен - съедено",
                 )
             }
             ChartCard {
@@ -274,6 +278,7 @@ fun LineChart(
     onPan: (Int) -> Unit = {},
     yMin: Double? = null,
     yMax: Double? = null,
+    caption: String? = null,
 ) {
     val n = dates.size
     val allValues = seriesList.flatMap { it.values }.filterNotNull()
@@ -299,6 +304,9 @@ fun LineChart(
 
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(title, style = MaterialTheme.typography.titleSmall)
+        caption?.let {
+            Text(it, style = MaterialTheme.typography.labelSmall, color = TextMuted)
+        }
         val sel = selected
         if (sel != null) {
             val parts = seriesList.mapNotNull { s ->
