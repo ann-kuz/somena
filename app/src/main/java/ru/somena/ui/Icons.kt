@@ -36,22 +36,42 @@ val AttachFileIcon: ImageVector by lazy {
             verticalLineTo(5.0f)
             curveToRelative(0.0f, -1.38f, 1.12f, -2.5f, 2.5f, -2.5f)
             reflectiveCurveToRelative(2.5f, 1.12f, 2.5f, 2.5f)
-            verticalLineToRelative(10.5f)
+            verticalLineTo(15.5f)
             curveToRelative(0.0f, 0.55f, -0.45f, 1.0f, -1.0f, 1.0f)
             reflectiveCurveToRelative(-1.0f, -0.45f, -1.0f, -1.0f)
             verticalLineTo(6.0f)
             horizontalLineTo(10.0f)
-            verticalLineToRelative(9.5f)
+            verticalLineTo(15.5f)
             curveToRelative(0.0f, 1.38f, 1.12f, 2.5f, 2.5f, 2.5f)
             reflectiveCurveToRelative(2.5f, -1.12f, 2.5f, -2.5f)
             verticalLineTo(5.0f)
             curveToRelative(0.0f, -2.21f, -1.79f, -4.0f, -4.0f, -4.0f)
-            reflectiveCurveTo(7.0f, 2.79f, 7.0f, 5.0f)
-            verticalLineToRelative(12.5f)
+            reflectiveCurveToRelative(-4.0f, 1.79f, -4.0f, 4.0f)
+            verticalLineTo(17.5f)
             curveToRelative(0.0f, 3.04f, 2.46f, 5.5f, 5.5f, 5.5f)
             reflectiveCurveToRelative(5.5f, -2.46f, 5.5f, -5.5f)
             verticalLineTo(6.0f)
             horizontalLineToRelative(-1.5f)
+            close()
+        }
+    }
+}
+
+/** Папка Хранилища Медкарты (спека 0010): в core-наборе папки нет, а extended не тянем. */
+val FolderIcon: ImageVector by lazy {
+    materialIcon(name = "Filled.Folder") {
+        materialPath {
+            moveTo(10.0f, 4.0f)
+            horizontalLineTo(4.0f)
+            curveToRelative(-1.1f, 0.0f, -2.0f, 0.9f, -2.0f, 2.0f)
+            verticalLineToRelative(12.0f)
+            curveToRelative(0.0f, 1.1f, 0.9f, 2.0f, 2.0f, 2.0f)
+            horizontalLineTo(20.0f)
+            curveToRelative(1.1f, 0.0f, 2.0f, -0.9f, 2.0f, -2.0f)
+            verticalLineTo(8.0f)
+            curveToRelative(0.0f, -1.1f, -0.9f, -2.0f, -2.0f, -2.0f)
+            horizontalLineTo(12.0f)
+            lineTo(10.0f, 4.0f)
             close()
         }
     }
