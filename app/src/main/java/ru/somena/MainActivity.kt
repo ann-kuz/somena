@@ -18,8 +18,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
@@ -115,7 +115,7 @@ private val NAV_ITEMS = listOf(
     NavItem(Icons.Filled.Home, "Сегодня"),
     NavItem(Icons.Filled.DateRange, "Графики"),
     NavItem(ru.somena.ui.ChatBubbleIcon, "Чат"),
-    NavItem(Icons.Filled.Build, "Отладка HC"),
+    NavItem(Icons.Filled.Favorite, "Медкарта"),
     NavItem(Icons.Filled.Settings, "Ещё"),
 )
 
@@ -125,6 +125,8 @@ fun App() {
     var onboarding by remember { mutableStateOf(!onboardingCompleted(context)) }
     var tab by remember { mutableIntStateOf(0) }
     var showCycle by remember { mutableStateOf(false) }
+    // Отладка HC переехала с нижней панели в «Ещё» (спека 0010): открывается полноэкранно.
+    var showHcDebug by remember { mutableStateOf(false) }
     // Счётчик правок цикла: карточка на «Сегодня» перечитывает базу, когда он растёт.
     var cycleRevision by remember { mutableIntStateOf(0) }
 
@@ -153,8 +155,21 @@ fun App() {
                         )
                         1 -> ChartsScreen(Modifier.padding(pad))
                         2 -> ChatScreen(Modifier.padding(pad))
-                        3 -> HcDebugScreen(Modifier.padding(pad))
-                        else -> MoreScreen(Modifier.padding(pad), onRepeatOnboarding = { onboarding = true })
+                        3 -> MedCardScreen(Modifier.padding(pad))
+                        else -> MoreScreen(
+                            Modifier.padding(pad),
+                            onRepeatOnboarding = { onboarding = true },
+                            onOpenHcDebug = { showHcDebug = true },
+                        )
+                    }
+                }
+                if (showHcDebug) {
+                    Box(Modifier.fillMaxSize().background(ru.somena.ui.BgBase)) {
+                        NebulaBackground()
+                        HcDebugScreen(
+                            Modifier.fillMaxSize(),
+                            onBack = { showHcDebug = false },
+                        )
                     }
                 }
                 if (showCycle) {
@@ -314,7 +329,7 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
 private val dateHeaderFormat = DateTimeFormatter.ofPattern("d MMMM, EEEE", Locale("ru", "RU"))
 
 @Composable
-fun HcDebugScreen(m: Modifier) {
+fun HcDebugScreen(m: Modifier, onBack: (() -> Unit)? = null) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var result by remember { mutableStateOf<String?>(null) }
@@ -347,6 +362,9 @@ fun HcDebugScreen(m: Modifier) {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         ScreenHeader("Отладка Health Connect", "Статус хаба, записи Источников и журнал чата")
+        if (onBack != null) {
+            GhostButton("Назад", onBack, Modifier.fillMaxWidth())
+        }
         GlassCard(Modifier.fillMaxWidth()) {
             SelectionContainer {
                 Text(HealthProbe.statusText(context), style = MaterialTheme.typography.bodyMedium)
@@ -430,7 +448,7 @@ fun HcDebugScreen(m: Modifier) {
 }
 
 @Composable
-fun MoreScreen(m: Modifier, onRepeatOnboarding: () -> Unit) {
+fun MoreScreen(m: Modifier, onRepeatOnboarding: () -> Unit, onOpenHcDebug: () -> Unit) {
     Column(
         m.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -438,6 +456,7 @@ fun MoreScreen(m: Modifier, onRepeatOnboarding: () -> Unit) {
         ScreenHeader("Ещё", "Профиль и настройки приложения")
         GlassCard(Modifier.fillMaxWidth()) {
             GhostButton("Онбординг источников", onRepeatOnboarding, Modifier.fillMaxWidth())
+            GhostButton("Отладка Health Connect", onOpenHcDebug, Modifier.fillMaxWidth())
         }
         GlassCard(Modifier.fillMaxWidth()) {
             ProfileSection()

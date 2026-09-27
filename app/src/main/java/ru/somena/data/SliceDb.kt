@@ -8,7 +8,10 @@ import java.time.format.DateTimeFormatter.ISO_LOCAL_DATE
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import ru.somena.core.AnalyteRow
 import ru.somena.core.DaySlice
+import ru.somena.core.MedKind
+import ru.somena.core.MedRecord
 
 @Serializable
 private data class SliceDto(
@@ -49,8 +52,68 @@ data class ChatMessage(val role: String, val content: String, val sentAt: Long) 
     }
 }
 
-/** Локальное хранилище Дневных срезов, Самочувствия, Записей цикла и истории чата (ADR-0002: данные живут на телефоне). */
-class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 5) {
+/** Носимое содержимое записи Медкарта (спека 0010): поля по виду записи. */
+@Serializable
+private data class MedPayloadDto(
+    val examType: String? = null,
+    val conclusion: String? = null,
+    val specialty: String? = null,
+    val diagnoses: List<String> = emptyList(),
+    val recommendations: String? = null,
+    val items: List<MedItemDto> = emptyList(),
+)
+
+@Serializable
+private data class MedItemDto(
+    val name: String,
+    val value: Double,
+    val unit: String? = null,
+    val refLow: Double? = null,
+    val refHigh: Double? = null,
+)
+
+private fun MedRecord.toMedPayload() = MedPayloadDto(
+    examType = examType?.takeIf { it.isNotBlank() },
+    conclusion = conclusion?.takeIf { it.isNotBlank() },
+    specialty = specialty?.takeIf { it.isNotBlank() },
+    diagnoses = diagnoses,
+    recommendations = recommendations?.takeIf { it.isNotBlank() },
+    items = items.map {
+        MedItemDto(it.name, it.value, it.unit?.takeIf { s -> s.isNotBlank() }, it.refLow, it.refHigh)
+    },
+)
+
+private fun medPayloadToRecord(
+    id: Long,
+    kind: String,
+    date: String,
+    fileUri: String?,
+    fileName: String?,
+    createdAt: Long,
+    payload: MedPayloadDto,
+): MedRecord = MedRecord(
+    id = id,
+    kind = when (kind) {
+        "exam" -> MedKind.EXAM
+        "protocol" -> MedKind.PROTOCOL
+        else -> MedKind.ANALYSIS
+    },
+    date = LocalDate.parse(date),
+    createdAt = createdAt,
+    fileUri = fileUri,
+    fileName = fileName,
+    items = payload.items.map {
+        AnalyteRow(it.name, it.value, it.unit, it.refLow, it.refHigh)
+    },
+    examType = payload.examType,
+    conclusion = payload.conclusion,
+    specialty = payload.specialty,
+    diagnoses = payload.diagnoses,
+    recommendations = payload.recommendations,
+)
+
+/** Локальное хранилище Дневных срезов, Самочувствия, Записей цикла, истории чата и Медкарты (ADR-0002: данные живут на телефоне). */
+class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 6) {
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -59,6 +122,7 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 5
         db.execSQL(SQL_CREATE_WELLBEING)
         db.execSQL(SQL_CREATE_CHAT)
         db.execSQL(SQL_CREATE_CYCLE_DAYS)
+        db.execSQL(SQL_CREATE_MED_RECORDS)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -82,6 +146,7 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 5
             )
             db.execSQL("DROP TABLE wellbeing_old")
         }
+        if (oldVersion < 6) db.execSQL(SQL_CREATE_MED_RECORDS)
     }
 
     fun upsert(slice: DaySlice) {
@@ -248,6 +313,65 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 5
         writableDatabase.delete("chat_messages", null, null)
     }
 
+    // ---- Записи Медкарты (спека 0010, ADR-0008) ----
+
+    fun insertMed(r: MedRecord): Long {
+        val values = medValues(r)
+        return writableDatabase.insert("med_records", null, values)
+    }
+
+    fun updateMed(r: MedRecord) {
+        writableDatabase.update("med_records", medValues(r), "id = ?", arrayOf(r.id.toString()))
+    }
+
+    /** Удаление записи никогда не трогает файл Хранилища (ADR-0008). */
+    fun deleteMed(id: Long) {
+        writableDatabase.delete("med_records", "id = ?", arrayOf(id.toString()))
+    }
+
+    /** Все записи Медкарты по убыванию даты: список Медкарты и контекст Чата. */
+    fun allMed(): List<MedRecord> =
+        readableDatabase.rawQuery(
+            "SELECT id, kind, date, file_uri, file_name, data, created_at FROM med_records ORDER BY date DESC, id DESC",
+            null,
+        ).use { c -> buildList { while (c.moveToNext()) add(readMedRecord(c)) } }
+
+    fun medById(id: Long): MedRecord? =
+        readableDatabase.rawQuery(
+            "SELECT id, kind, date, file_uri, file_name, data, created_at FROM med_records WHERE id = ?",
+            arrayOf(id.toString()),
+        ).use { c -> if (c.moveToFirst()) readMedRecord(c) else null }
+
+    /** Запись, ссылающаяся на файл Хранилища: бейдж «разобран» и Предпросмотр замены. */
+    fun medByFileUri(uri: String): MedRecord? =
+        readableDatabase.rawQuery(
+            "SELECT id, kind, date, file_uri, file_name, data, created_at FROM med_records WHERE file_uri = ? LIMIT 1",
+            arrayOf(uri),
+        ).use { c -> if (c.moveToFirst()) readMedRecord(c) else null }
+
+    private fun medValues(r: MedRecord): android.content.ContentValues = android.content.ContentValues().apply {
+        put("kind", when (r.kind) {
+            MedKind.EXAM -> "exam"
+            MedKind.PROTOCOL -> "protocol"
+            else -> "analysis"
+        })
+        put("date", r.date.format(ISO_LOCAL_DATE))
+        put("file_uri", r.fileUri)
+        put("file_name", r.fileName)
+        put("data", json.encodeToString(r.toMedPayload()))
+        put("created_at", r.createdAt.takeIf { it > 0 } ?: System.currentTimeMillis())
+    }
+
+    private fun readMedRecord(c: android.database.Cursor): MedRecord = medPayloadToRecord(
+        id = c.getLong(0),
+        kind = c.getString(1),
+        date = c.getString(2),
+        fileUri = if (c.isNull(3)) null else c.getString(3),
+        fileName = if (c.isNull(4)) null else c.getString(4),
+        createdAt = c.getLong(6),
+        payload = json.decodeFromString<MedPayloadDto>(c.getString(5)),
+    )
+
     private companion object {
         const val SQL_CREATE_DAY_SLICES =
             "CREATE TABLE day_slices (" +
@@ -277,5 +401,14 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 5
                 "flow INTEGER NOT NULL, " +
                 "pain INTEGER NOT NULL, " +
                 "updated_at INTEGER NOT NULL)"
+        const val SQL_CREATE_MED_RECORDS =
+            "CREATE TABLE IF NOT EXISTS med_records (" +
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                "kind TEXT NOT NULL, " +
+                "date TEXT NOT NULL, " +
+                "file_uri TEXT, " +
+                "file_name TEXT, " +
+                "data TEXT NOT NULL, " +
+                "created_at INTEGER NOT NULL)"
     }
 }
