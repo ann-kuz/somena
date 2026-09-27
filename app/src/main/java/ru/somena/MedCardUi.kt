@@ -26,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,19 +34,34 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import android.net.Uri
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import ru.somena.core.AnalyteRow
+import ru.somena.core.MAX_ATTACHMENT_CHARS
 import ru.somena.core.MedFileIndex
+import ru.somena.core.MedImportResult
 import ru.somena.core.MedKind
 import ru.somena.core.MedRecord
 import ru.somena.core.MedValidator
 import ru.somena.core.fmt
 import ru.somena.core.numericFieldError
 import ru.somena.core.parseLooseDate
+import ru.somena.core.parseMedReply
 import ru.somena.core.parseOptionalDouble
+import ru.somena.core.pdfTextIsDense
+import ru.somena.data.ChatClient
+import ru.somena.data.ChatLog
+import ru.somena.data.ChatMessage
+import ru.somena.data.ChatSettings
 import ru.somena.data.MedStorage
+import ru.somena.data.PdfPages
+import ru.somena.data.PdfText
 import ru.somena.data.SliceDb
+import ru.somena.data.STEP_FAST
+import ru.somena.data.STEP_MAX
 import ru.somena.data.StorageFile
 import ru.somena.ui.BgBase
 import ru.somena.ui.CardLabel
@@ -200,10 +216,23 @@ fun MedRecordCard(record: MedRecord, missingOriginal: Boolean, onClick: () -> Un
     }
 }
 
+/** Предпросмотр Разбора файла из Хранилища: черновик, заменяемая запись и исходный файл. */
+private data class FileImportState(
+    val file: StorageFile,
+    val replaceOf: MedRecord?,
+    val result: MedImportResult,
+)
+
+/** Ступень Разбора файла: подписи как в Чате (спека 0004). */
+private val FILE_STEP_LABELS = listOf(STEP_FAST to "Быстрая", STEP_MAX to "Максимальная")
+
 /**
- * Файловый список Хранилища (спека 0010, тикет 02): выбор папки, бейджи «разобран»,
- * открытие внешним просмотрщиком, привязка файла к записи. Приложение файлы только
- * читает - удаление и переименование остаются за Пользователем снаружи.
+ * Файловый список Хранилища (спека 0010, тикеты 02 и 05): выбор папки, бейджи «разобран»,
+ * открытие внешним просмотрщиком, привязка файла к записи и Разбор выбранного файла -
+ * тем путём, который положен его типу: плотный текст pdf - текстом, скан и картинка -
+ * зрением (ADR-0009). Переразбор заменяет запись файла через тот же Предпросмотр;
+ * ничего не разбирается без явного выбора Пользователя. Приложение файлы только читает -
+ * удаление и переименование остаются за Пользователем снаружи.
  */
 @Composable
 fun MedFilesScreen(
@@ -214,17 +243,103 @@ fun MedFilesScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val db = remember { SliceDb(context) }
     val storage = remember { MedStorage(context) }
+    val settings = remember { ChatSettings(context) }
+    val client = remember {
+        ChatClient(settings.endpoint(), log = { line -> ChatLog.append(context, line) })
+    }
     val index = remember(records, files) { MedFileIndex(records, files.map { it.uri }.toSet()) }
     var selected by remember { mutableStateOf<StorageFile?>(null) }
     var bindingFile by remember { mutableStateOf<StorageFile?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var medStep by remember { mutableStateOf(STEP_FAST) }
+    var fileImport by remember { mutableStateOf<FileImportState?>(null) }
 
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             storage.setFolder(uri)
             onChanged()
         }
+    }
+
+    fun startFileImport(file: StorageFile) {
+        if (busy || fileImport != null) return
+        if (!settings.isConfigured) {
+            error = "Разбор требует настроенного Чата: адрес Бэкенда и токен - на вкладке «Ещё»."
+            return
+        }
+        busy = true
+        error = null
+        selected = null
+        scope.launch(Dispatchers.IO) {
+            val uri = Uri.parse(file.uri)
+            val isPdf = file.mime == "application/pdf" || file.name.endsWith(".pdf", ignoreCase = true)
+            val text = if (isPdf) PdfText.extract(context, uri) else null
+            val fits = text != null && text.length <= MAX_ATTACHMENT_CHARS
+            // Двухступенчатость ADR-0009: плотный слой - текстом, скудный, длинный или
+            // картинка - зрением (страницы pdf или сжатый файл).
+            val dense = fits && pdfTextIsDense(text!!)
+            val images = when {
+                dense -> emptyList()
+                isPdf -> PdfPages.renderAsJpegBase64(context, uri)
+                else -> storage.readBytes(uri)?.let { PdfPages.imageAsJpegBase64(it) }?.let { listOf(it) }
+            }
+            if (!dense && images.isNullOrEmpty()) {
+                error = if (isPdf && fits == false && text != null && text.length > MAX_ATTACHMENT_CHARS) {
+                    "Документ слишком длинный (${text.length} симв.) и не уместился страницами."
+                } else {
+                    "Не получилось прочитать файл: выбери его заново."
+                }
+            } else {
+                client.askDocumentImport(
+                    attachment = if (dense) text else null,
+                    images = images.orEmpty(),
+                    question = "",
+                    step = medStep,
+                ).fold(
+                    onSuccess = { raw ->
+                        // Заменяемая запись не считается дублём: переразбор - законный путь.
+                        val existing = db.allMed().filterNot { it.fileUri == file.uri }
+                        val result = parseMedReply(raw, LocalDate.now(), existing)
+                        if (result == null) {
+                            error = "ИИ не смог разобрать документ. Попробуй Максимальную ступень."
+                        } else {
+                            fileImport = FileImportState(file, index.recordOf(file.uri), result)
+                        }
+                    },
+                    onFailure = { e -> error = e.message ?: "Разбор не удался." },
+                )
+            }
+            busy = false
+        }
+    }
+
+    /** «Записать» Разбора файла: файл уже в Хранилище, копия не нужна; замена честная. */
+    fun confirmFileImport(record: MedRecord) {
+        val state = fileImport ?: return
+        val saved = record.copy(
+            id = state.replaceOf?.id ?: 0L,
+            createdAt = state.replaceOf?.createdAt ?: System.currentTimeMillis(),
+            fileUri = state.file.uri,
+            fileName = state.file.name,
+        )
+        if (saved.id == 0L) db.insertMed(saved) else db.updateMed(saved)
+        val note = buildString {
+            append(
+                if (saved.id == 0L) "Записала ${saved.chatSummary()}."
+                else "Обновила ${saved.chatSummary()}."
+            )
+            if (state.result.rejected.isNotEmpty()) {
+                append(" Не разобрано фрагментов: ${state.result.rejected.size}.")
+            }
+        }
+        db.addChatMessage(ChatMessage.USER, "Разобрала файл «${state.file.name}» из Хранилища")
+        db.addChatMessage(ChatMessage.ASSISTANT, note)
+        fileImport = null
+        onChanged()
     }
 
     Column(
@@ -250,6 +365,23 @@ fun MedFilesScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
         } else {
+            // Ступень Разбора файла из списка: по умолчанию Быстрая (спека 0010).
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Разбор:",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextMuted,
+                )
+                FILE_STEP_LABELS.forEach { (key, label) ->
+                    PeriodChip(label, selected = medStep == key, onClick = { medStep = key })
+                }
+                if (busy) {
+                    Text("Разбираю…", color = TextMuted, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            error?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
             if (files.isEmpty()) {
                 GlassCard(Modifier.fillMaxWidth()) {
                     Text(
@@ -288,7 +420,7 @@ fun MedFilesScreen(
                             if (bindingFile?.uri == file.uri) {
                                 if (records.isEmpty()) {
                                     Text(
-                                        "Записей пока нет: заведи хотя бы одну на вкладке Медкарты.",
+                                        "Записей пока нет: нажми «Разобрать» - запись появится сама.",
                                         color = TextMuted,
                                         style = MaterialTheme.typography.bodySmall,
                                     )
@@ -310,14 +442,27 @@ fun MedFilesScreen(
                                 }
                             } else {
                                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    GlowButton(
+                                        "Разобрать",
+                                        onClick = { startFileImport(file) },
+                                        enabled = settings.isConfigured && !busy,
+                                        modifier = Modifier.weight(1f),
+                                    )
                                     GhostButton(
                                         "Открыть",
                                         onClick = { storage.openFile(file) },
                                         modifier = Modifier.weight(1f),
                                     )
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                     GhostButton(
                                         "Привязать к записи",
                                         onClick = { bindingFile = file },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    GhostButton(
+                                        "Закрыть",
+                                        onClick = { selected = null },
                                         modifier = Modifier.weight(1f),
                                     )
                                 }
@@ -336,6 +481,47 @@ fun MedFilesScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+    }
+
+    // Предпросмотр Разбора файла (тикет 05): замена честно названа, запись - по «Записать».
+    fileImport?.let { state ->
+        MedRecordEditor(
+            initial = state.result.draft,
+            title = "Разбор файла «${state.file.name}»",
+            saveLabel = if (state.replaceOf != null) "Заменить запись" else "Записать",
+            onSave = ::confirmFileImport,
+            onDismiss = { fileImport = null },
+            banner = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    state.replaceOf?.let { old ->
+                        Text(
+                            "Заменит ${old.kind.label} от ${old.date.format(MED_LIST_DATE)} " +
+                                "(${old.describe()}): первый Разбор вышел кривым - второй поправит.",
+                            color = TextMuted,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    state.result.dateProblem?.let {
+                        Text("Дата: $it", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                    state.result.duplicateOf?.let { dup ->
+                        Text(
+                            "Уже есть ${dup.kind.label} от ${dup.date.format(MED_LIST_DATE)}: " +
+                                "если это тот же документ, после записи будет дубль - лишний удали на вкладке Медкарты.",
+                            color = TextMuted,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    if (state.result.rejected.isNotEmpty()) {
+                        Text(
+                            "Не разобрано фрагментов: ${state.result.rejected.size}",
+                            color = TextMuted,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            },
+        )
     }
 }
 
