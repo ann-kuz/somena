@@ -43,6 +43,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import android.widget.Toast
+import android.net.Uri
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -58,6 +59,9 @@ import ru.somena.core.ImportValues
 import ru.somena.core.ImportWellbeing
 import ru.somena.core.MAX_ATTACHMENT_BYTES
 import ru.somena.core.MAX_ATTACHMENT_CHARS
+import ru.somena.core.MED_IMPORT_SYSTEM_PROMPT
+import ru.somena.core.MedImportResult
+import ru.somena.core.MedRecord
 import ru.somena.core.WELLBEING_METRICS
 import ru.somena.core.Wellbeing
 import ru.somena.core.buildChatContext
@@ -67,12 +71,16 @@ import ru.somena.core.lastDays
 import ru.somena.core.metricSeries
 import ru.somena.core.parseAiCharts
 import ru.somena.core.parseImportReply
+import ru.somena.core.parseMedReply
+import ru.somena.core.pdfTextIsDense
 import ru.somena.core.toSlice
 import ru.somena.core.toWellbeing
 import ru.somena.data.ChatClient
 import ru.somena.data.ChatLog
 import ru.somena.data.ChatMessage
 import ru.somena.data.ChatSettings
+import ru.somena.data.MedStorage
+import ru.somena.data.PdfText
 import ru.somena.data.ProfileStore
 import ru.somena.data.SliceDb
 import ru.somena.data.STEP_FAST
@@ -107,6 +115,30 @@ fun aiMetricColor(m: AiMetric): Color = when (m) {
     AiMetric.SLEEP_QUALITY -> TextMuted
     else -> Violet
 }
+
+/** Вложение до отправки: таблица или медицинский документ (спека 0010). */
+private sealed interface PendingAttachment {
+    val name: String
+
+    data class Table(override val name: String, val text: String) : PendingAttachment
+
+    /** Документ с плотным текстовым слоем (ADR-0009, первая ступень); uri - для копии в Хранилище. */
+    data class MedDoc(
+        override val name: String,
+        val text: String,
+        val uri: String,
+        val mime: String?,
+    ) : PendingAttachment
+}
+
+/** Предпросмотр Разбора документа: черновик записи и исходные данные файла. */
+private data class MedImportState(
+    val name: String,
+    val uri: String,
+    val mime: String?,
+    val userText: String,
+    val result: MedImportResult,
+)
 
 /** Экран «Чат по данным» (тикет 07): свободный вопрос, ответ ИИ, графики от модели, история. */
 @Composable
@@ -144,21 +176,44 @@ fun ChatScreen(m: Modifier) {
             client.steps()?.let { stepModels = it }
         }
     }
-    // Вложение (спека 0004): имя файла и его текст; Предпросмотр до записи - обязателен.
-    var attachment by remember { mutableStateOf<Pair<String, String>?>(null) }
+    // Вложение (спека 0004): таблица или медицинский документ; Предпросмотр до записи - обязателен.
+    var attachment by remember { mutableStateOf<PendingAttachment?>(null) }
     var importPreview by remember { mutableStateOf<ImportPreview?>(null) }
     var importFileName by remember { mutableStateOf<String?>(null) }
     var importUserText by remember { mutableStateOf<String?>(null) }
+    // Разбор документа (спека 0010): Ступень выбирается при запуске, по умолчанию Быстрая.
+    var medStep by remember { mutableStateOf(STEP_FAST) }
+    var medImport by remember { mutableStateOf<MedImportState?>(null) }
     val listState = rememberLazyListState()
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
             val name = fileNameOf(context, uri)
+            val mime = runCatching { context.contentResolver.getType(uri) }.getOrNull()
+            val isPdf = mime == "application/pdf" || name.endsWith(".pdf", ignoreCase = true)
             val bytes = runCatching {
                 context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
             }.getOrNull()
             when {
-                bytes == null -> error = "Не удалось прочитать таблицу: выбери её заново."
+                bytes == null -> error = "Не удалось прочитать файл: выбери его заново."
+                isPdf -> {
+                    // ADR-0009, первая ступень: плотный текстовый слой уходит текстом.
+                    val text = PdfText.extract(context, uri)
+                    when {
+                        text == null -> error =
+                            "Не получилось открыть pdf: файл повреждён или недоступен."
+                        text.length > MAX_ATTACHMENT_CHARS -> error =
+                            "Документ слишком длинная (${text.length} симв.): пришли его картинками или по частям."
+                        !pdfTextIsDense(text) -> error =
+                            "В pdf нет текстового слоя - это скан. Разбор сканов картинками " +
+                                "появится в следующем обновлении, а пока пересними бланк или " +
+                                "выбери файл с текстом."
+                        else -> {
+                            error = null
+                            attachment = PendingAttachment.MedDoc(name, text, uri.toString(), mime)
+                        }
+                    }
+                }
                 bytes.size > MAX_ATTACHMENT_BYTES -> error =
                     "Таблица больше 2 МБ: убери лишние листы или разбей на части."
                 else -> {
@@ -169,7 +224,7 @@ fun ChatScreen(m: Modifier) {
                         error = "Таблица слишком длинная (${text.length} симв.): разбей её на части, например по полгода."
                     } else {
                         error = null
-                        attachment = name to text
+                        attachment = PendingAttachment.Table(name, text)
                     }
                 }
             }
@@ -177,7 +232,7 @@ fun ChatScreen(m: Modifier) {
     }
 
     fun startImport(question: String) {
-        val (name, tableText) = attachment ?: return
+        val (name, tableText) = attachment as? PendingAttachment.Table ?: return
         busy = true
         input = ""
         scope.launch {
@@ -197,6 +252,56 @@ fun ChatScreen(m: Modifier) {
             )
             busy = false
         }
+    }
+
+    fun startMedImport(question: String) {
+        val doc = attachment as? PendingAttachment.MedDoc ?: return
+        busy = true
+        input = ""
+        scope.launch {
+            client.askDocumentImport(attachment = doc.text, question = question, step = medStep).fold(
+                onSuccess = { raw ->
+                    val result = parseMedReply(raw, LocalDate.now(), db.allMed())
+                    if (result == null) {
+                        error = "ИИ не смог разобрать документ. Попробуй Максимальную ступень " +
+                            "или пришли документ картинками."
+                    } else {
+                        medImport = MedImportState(doc.name, doc.uri, doc.mime, question, result)
+                        attachment = null
+                    }
+                },
+                onFailure = { e -> error = e.message ?: "Разбор не удался." },
+            )
+            busy = false
+        }
+    }
+
+    /** «Записать» Предпросмотра документа: копия оригинала в Хранилище, запись и итог в истории чата. */
+    fun confirmMedImport(record: MedRecord) {
+        val state = medImport ?: return
+        val stored = runCatching {
+            MedStorage(context).copyIntoStorage(Uri.parse(state.uri), state.name, state.mime)
+        }.getOrNull()
+        val saved = record.copy(
+            fileUri = stored?.uri,
+            fileName = stored?.name,
+            createdAt = System.currentTimeMillis(),
+        )
+        db.insertMed(saved)
+        val note = buildString {
+            append("Записала ${saved.chatSummary()}.")
+            if (state.result.rejected.isNotEmpty()) {
+                append(" Не разобрано фрагментов: ${state.result.rejected.size}.")
+            }
+            if (stored == null) {
+                append(" Оригинал не сохранён: Хранилище не выбрано - файл можно привязать позже.")
+            }
+        }
+        val withText = state.userText.takeIf { it.isNotBlank() }?.let { ":\n$it" } ?: ""
+        db.addChatMessage(ChatMessage.USER, "Приложила документ «${state.name}»$withText")
+        db.addChatMessage(ChatMessage.ASSISTANT, note)
+        medImport = null
+        messages = db.chatHistory()
     }
 
     fun confirmImport() {
@@ -241,34 +346,36 @@ fun ChatScreen(m: Modifier) {
 
     fun send(question: String) {
         val text = question.trim()
-        if (busy || !settings.isConfigured || importPreview != null) return
+        if (busy || !settings.isConfigured || importPreview != null || medImport != null) return
         if (text.isEmpty() && attachment == null) return
         error = null
-        if (attachment != null) {
-            startImport(text.ifBlank { "Разбери таблицу." })
-            return
-        }
-        input = ""
-        db.addChatMessage(ChatMessage.USER, text)
-        messages = db.chatHistory()
-        busy = true
-        scope.launch {
-            client.ask(
-                history = db.chatHistory(),
-                system = CHAT_SYSTEM_PROMPT,
-                context = buildChatContext(
-                    today = LocalDate.now(),
-                    data = data,
-                    profile = ProfileStore(context).load(),
-                    cycle = cycleEntries,
-                ),
-                step = step,
-            ).fold(
-                onSuccess = { reply -> db.addChatMessage(ChatMessage.ASSISTANT, reply) },
-                onFailure = { e -> error = e.message ?: "Чат не удался." },
-            )
-            busy = false
-            messages = db.chatHistory()
+        when (attachment) {
+            is PendingAttachment.Table -> startImport(text.ifBlank { "Разбери таблицу." })
+            is PendingAttachment.MedDoc -> startMedImport(text.ifBlank { "Разбери документ." })
+            null -> {
+                input = ""
+                db.addChatMessage(ChatMessage.USER, text)
+                messages = db.chatHistory()
+                busy = true
+                scope.launch {
+                    client.ask(
+                        history = db.chatHistory(),
+                        system = CHAT_SYSTEM_PROMPT,
+                        context = buildChatContext(
+                            today = LocalDate.now(),
+                            data = data,
+                            profile = ProfileStore(context).load(),
+                            cycle = cycleEntries,
+                        ),
+                        step = step,
+                    ).fold(
+                        onSuccess = { reply -> db.addChatMessage(ChatMessage.ASSISTANT, reply) },
+                        onFailure = { e -> error = e.message ?: "Чат не удался." },
+                    )
+                    busy = false
+                    messages = db.chatHistory()
+                }
+            }
         }
     }
 
@@ -347,28 +454,44 @@ fun ChatScreen(m: Modifier) {
                 style = MaterialTheme.typography.bodySmall,
             )
         }
-        attachment?.let { (name, _) ->
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(
-                    AttachFileIcon,
-                    contentDescription = null,
-                    tint = TextMuted,
-                    modifier = Modifier.size(16.dp),
-                )
-                Text(
-                    name,
-                    Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextMuted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    "Убрать",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clickable(enabled = !busy) { attachment = null },
-                )
+        attachment?.let { att ->
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(
+                        AttachFileIcon,
+                        contentDescription = null,
+                        tint = TextMuted,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(
+                        att.name,
+                        Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        "Убрать",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clickable(enabled = !busy) { attachment = null },
+                    )
+                }
+                if (att is PendingAttachment.MedDoc) {
+                    // Ступень Разбора документа: по умолчанию Быстрая, сложный бланк - Максимальная.
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "Разбор:",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextMuted,
+                            modifier = Modifier.padding(top = 10.dp),
+                        )
+                        STEP_LABELS.forEach { (key, label) ->
+                            PeriodChip(label, selected = medStep == key, onClick = { medStep = key })
+                        }
+                    }
+                }
             }
         }
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -383,6 +506,7 @@ fun ChatScreen(m: Modifier) {
                             "text/plain",
                             "application/csv",
                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            "application/pdf",
                         )
                     )
                 },
@@ -390,7 +514,15 @@ fun ChatScreen(m: Modifier) {
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
-                placeholder = { Text(if (attachment == null) "Спроси о своих данных…" else "Что внести из таблицы?") },
+                placeholder = {
+                    Text(
+                        when (attachment) {
+                            is PendingAttachment.MedDoc -> "Что учесть при разборе документа?"
+                            is PendingAttachment.Table -> "Что внести из таблицы?"
+                            null -> "Спроси о своих данных…"
+                        }
+                    )
+                },
                 enabled = settings.isConfigured && !busy && importPreview == null,
                 maxLines = 4,
                 modifier = Modifier.weight(1f),
@@ -401,6 +533,47 @@ fun ChatScreen(m: Modifier) {
                 onClick = { send(input) },
             )
         }
+    }
+
+    // Предпросмотр Разбора документа (спека 0010): редактор записи с баннером предупреждений;
+    // запись - только по явному «Записать».
+    medImport?.let { state ->
+        MedRecordEditor(
+            initial = state.result.draft,
+            title = "Разбор документа «${state.name}»",
+            saveLabel = "Записать",
+            onSave = ::confirmMedImport,
+            onDismiss = { medImport = null },
+            banner = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    state.result.dateProblem?.let {
+                        Text("Дата: $it", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                    state.result.duplicateOf?.let { dup ->
+                        Text(
+                            "Уже есть ${dup.kind.label} от ${dup.date.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))}: " +
+                                "если это тот же документ, после записи будет дубль - лишний удали на вкладке Медкарты.",
+                            color = TextMuted,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    if (state.result.rejected.isNotEmpty()) {
+                        Text(
+                            "Не разобрано фрагментов: ${state.result.rejected.size}",
+                            color = TextMuted,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        state.result.rejected.take(5).forEach { row ->
+                            Text(
+                                "«${row.raw.take(50)}» - ${row.reason}",
+                                color = TextMuted,
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        }
+                    }
+                }
+            },
+        )
     }
 }
 
@@ -541,7 +714,7 @@ private fun AttachButton(enabled: Boolean, onClick: () -> Unit) {
     ) {
         Icon(
             AttachFileIcon,
-            contentDescription = "Приложить таблицу",
+            contentDescription = "Приложить таблицу или документ",
             tint = if (enabled) MaterialTheme.colorScheme.onBackground else TextMuted,
             modifier = Modifier.size(20.dp),
         )

@@ -13,6 +13,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import ru.somena.core.IMPORT_SYSTEM_PROMPT
 import ru.somena.core.MAX_ATTACHMENT_CHARS
+import ru.somena.core.MED_IMPORT_SYSTEM_PROMPT
 
 /** Ступени (спека 0004): одно место на весь пакет data. */
 const val STEP_FAST = "fast"
@@ -67,6 +68,30 @@ class ChatClient(
         } else {
             exchange(requestImport(attachment, question), importReadTimeoutMs, describe = {
                 "разбор таблицы, ${attachment.length} симв., ступень: fast"
+            })
+        }
+    }
+
+    /**
+     * Разбор документа в запись Медкарты (спека 0010): текст - по каналу вложения,
+     * картинки (base64 без префиксов) - отдельным полем, Бэкенд соберёт из них
+     * multimodal-сообщения (ADR-0009). Ступень выбирает Пользователь, по умолчанию
+     * Быстрая. Ответ - строгий JSON, его валидирует core (MedImport).
+     */
+    suspend fun askDocumentImport(
+        attachment: String?,
+        images: List<String> = emptyList(),
+        question: String = "",
+        step: String = STEP_FAST,
+    ): Result<String> = withContext(Dispatchers.IO) {
+        if (attachment != null && attachment.length > MAX_ATTACHMENT_CHARS) {
+            fail(
+                "Документ слишком длинный (${attachment.length} симв.): пришли его картинками или частями.",
+                "вложение документа ${attachment.length} симв. длиннее лимита",
+            )
+        } else {
+            exchange(requestDocumentImport(attachment, images, question, step), importReadTimeoutMs, describe = {
+                "разбор документа, вложение ${attachment?.length ?: 0} симв., картинок ${images.size}, ступень: $step"
             })
         }
     }
@@ -195,6 +220,22 @@ class ChatClient(
         attachment = attachment,
     )
 
+    private fun requestDocumentImport(
+        attachment: String?,
+        images: List<String>,
+        question: String,
+        step: String,
+    ): WireRequest = WireRequest(
+        messages = listOf(
+            WireMessage(ChatMessage.USER, question.take(MAX_CONTENT).ifBlank { DOCUMENT_IMPORT_QUESTION })
+        ),
+        system = MED_IMPORT_SYSTEM_PROMPT,
+        maxTokens = 16000,
+        step = step,
+        attachment = attachment,
+        images = images.takeIf { it.isNotEmpty() },
+    )
+
     /** Читаемый текст ошибки из тела Бэкенда: {"detail": "..."}; без тела - null. */
     private fun backendDetail(conn: HttpURLConnection): String? = runCatching {
         val body = conn.errorStream?.bufferedReader()?.readText() ?: return null
@@ -209,6 +250,7 @@ class ChatClient(
         const val MAX_CONTENT = 20000
         const val CONTEXT_MARK = "[Данные пользователя на момент вопроса]"
         const val IMPORT_QUESTION = "Разбери приложенную таблицу и верни JSON."
+        const val DOCUMENT_IMPORT_QUESTION = "Разбери приложенный медицинский документ и верни JSON."
     }
 }
 
@@ -222,6 +264,8 @@ private data class WireRequest(
     @SerialName("max_tokens") val maxTokens: Int,
     val step: String,
     val attachment: String? = null,
+    /** Картинки Разбора документа (спека 0010, ADR-0009): base64 без префиксов. */
+    val images: List<String>? = null,
 )
 
 @Serializable

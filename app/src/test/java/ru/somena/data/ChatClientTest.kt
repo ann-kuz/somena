@@ -196,4 +196,50 @@ class ChatClientTest {
         assertTrue("тело: ${bodies.single()}", bodies.single().contains(utf8AsIso("приложенную")))
         s.close()
     }
+
+    @Test
+    fun `разбор документа идет текстом вложения на выбранной ступени`() {
+        // Спека 0010: текст pdf уходит каналом вложения, картинки пусты - поля images в
+        // запросе нет вовсе, Ступень передаётся выбранная.
+        val bodies = mutableListOf<String>()
+        val s = stubServer(200, "{\"reply\": \"{\\\"kind\\\":\\\"analysis\\\"}\"}", bodies)
+        val r = runBlocking {
+            client(s.url()).askDocumentImport(
+                attachment = "Гемоглобин 134 г/л",
+                question = "Разбери анализ",
+                step = "max",
+            )
+        }
+        assertTrue(r.isSuccess)
+        val body = bodies.single()
+        assertTrue("тело: $body", body.contains("\"attachment\""))
+        // Пустых картинок нет вовсе (null-поля клиент кодирует, но пустым списком не врёт).
+        assertTrue("тело: $body", !body.contains("\"images\":["))
+        assertTrue("тело: $body", body.contains("\"step\":\"max\""))
+        assertTrue("тело: $body", body.contains("\"max_tokens\":16000"))
+        // Системный промпт - именно разбора документа: «разборщик медицинских» есть только в нём.
+        assertTrue("тело: $body", body.contains(utf8AsIso("разборщик медицинских")))
+        s.close()
+    }
+
+    @Test
+    fun `картинки разбора документа уходят отдельным полем а вложения нет`() {
+        val bodies = mutableListOf<String>()
+        val s = stubServer(200, "{\"reply\": \"ок\"}", bodies)
+        val r = runBlocking {
+            client(s.url()).askDocumentImport(
+                attachment = null,
+                images = listOf("aGVsbG8=", "eHl6eg=="),
+                question = "",
+                step = "fast",
+            )
+        }
+        assertTrue(r.isSuccess)
+        val body = bodies.single()
+        assertTrue("тело: $body", body.contains("\"images\":[\"aGVsbG8=\",\"eHl6eg==\"]"))
+        assertTrue("тело: $body", !body.contains("\"attachment\":\""))
+        // Пустой вопрос подменяется фиксированной фразой разбора документа.
+        assertTrue("тело: $body", body.contains(utf8AsIso("приложенный")))
+        s.close()
+    }
 }

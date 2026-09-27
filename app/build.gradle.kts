@@ -45,5 +45,8 @@ dependencies {
     implementation("androidx.health.connect:connect-client:1.1.0")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    // Текстовый слой pdf для Разбора документа (спека 0010, ADR-0009): первая ступень,
+    // зрение - запас на сканы без текста.
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     testImplementation("junit:junit:4.13.2")
 }
