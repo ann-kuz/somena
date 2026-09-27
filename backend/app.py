@@ -54,6 +54,13 @@ class ChatRequest(BaseModel):
     step: str | None = Field(default=None)
     # Вложение (спека 0004): текст таблицы отдельным полем, лимит шире обычных сообщений.
     attachment: str | None = Field(default=None, max_length=60000)
+    # Картинки Разбора документа (спека 0010, ADR-0009): base64 без префиксов,
+    # приложение сжимает в JPEG на телефоне. Лимит отдельный от текстового вложения.
+    images: list[str] | None = Field(default=None, max_length=10)
+
+
+# Одна картинка base64: ~4.3 МБ исходника. Больше - просим переслать меньшей.
+MAX_IMAGE_B64_CHARS = 6_000_000
 
 
 @app.get("/health")
@@ -97,6 +104,29 @@ async def chat(req: ChatRequest, authorization: str = Header(default="")) -> dic
             messages = messages[:-1] + [attachment, messages[-1]]
         else:
             messages.append(attachment)
+    if req.images:
+        oversized = next((i for i, img in enumerate(req.images) if len(img) > MAX_IMAGE_B64_CHARS), None)
+        if oversized is not None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Картинка №{oversized + 1} слишком большая: пришли меньшей",
+            )
+        # Картинки встают прямо в последнее пользовательское сообщение: вопрос
+        # и изображения рядом (спека 0010, ADR-0009 - зрение).
+        image_parts = [
+            {
+                "type": "image_url",
+                "image_url": {"url": img if img.startswith("data:") else f"data:image/jpeg;base64,{img}"},
+            }
+            for img in req.images
+        ]
+        if messages and messages[-1]["role"] == "user":
+            messages[-1] = {
+                "role": "user",
+                "content": [{"type": "text", "text": messages[-1]["content"]}] + image_parts,
+            }
+        else:
+            messages.append({"role": "user", "content": image_parts})
 
     payload = {
         "model": model,

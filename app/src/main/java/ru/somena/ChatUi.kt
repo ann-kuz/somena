@@ -80,6 +80,7 @@ import ru.somena.data.ChatLog
 import ru.somena.data.ChatMessage
 import ru.somena.data.ChatSettings
 import ru.somena.data.MedStorage
+import ru.somena.data.PdfPages
 import ru.somena.data.PdfText
 import ru.somena.data.ProfileStore
 import ru.somena.data.SliceDb
@@ -122,10 +123,11 @@ private sealed interface PendingAttachment {
 
     data class Table(override val name: String, val text: String) : PendingAttachment
 
-    /** Документ с плотным текстовым слоем (ADR-0009, первая ступень); uri - для копии в Хранилище. */
+    /** Медицинский документ (ADR-0009): плотный текст - текстом, скан или фото - картинками. */
     data class MedDoc(
         override val name: String,
-        val text: String,
+        val text: String?,
+        val images: List<String>,
         val uri: String,
         val mime: String?,
     ) : PendingAttachment
@@ -187,30 +189,51 @@ fun ChatScreen(m: Modifier) {
     val listState = rememberLazyListState()
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) scope.launch {
+        if (uri != null) scope.launch(Dispatchers.IO) {
             val name = fileNameOf(context, uri)
             val mime = runCatching { context.contentResolver.getType(uri) }.getOrNull()
             val isPdf = mime == "application/pdf" || name.endsWith(".pdf", ignoreCase = true)
+            val isImage = mime?.startsWith("image/") == true ||
+                listOf("png", "jpg", "jpeg", "webp", "heic").any { name.endsWith(it, ignoreCase = true) }
             val bytes = runCatching {
                 context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
             }.getOrNull()
+            fun attach(doc: PendingAttachment.MedDoc) {
+                error = null
+                attachment = doc
+            }
+            fun attachTable(name: String, text: String) {
+                error = null
+                attachment = PendingAttachment.Table(name, text)
+            }
             when {
                 bytes == null -> error = "Не удалось прочитать файл: выбери его заново."
+                isImage -> {
+                    // Фото и скриншоты - всегда зрением (ADR-0009), со сжатием на телефоне.
+                    val image = PdfPages.imageAsJpegBase64(bytes)
+                    if (image == null) {
+                        error = "Не получилось прочитать картинку: выбери её заново."
+                    } else {
+                        attach(PendingAttachment.MedDoc(name, null, listOf(image), uri.toString(), mime))
+                    }
+                }
                 isPdf -> {
-                    // ADR-0009, первая ступень: плотный текстовый слой уходит текстом.
                     val text = PdfText.extract(context, uri)
                     when {
                         text == null -> error =
                             "Не получилось открыть pdf: файл повреждён или недоступен."
                         text.length > MAX_ATTACHMENT_CHARS -> error =
-                            "Документ слишком длинная (${text.length} симв.): пришли его картинками или по частям."
-                        !pdfTextIsDense(text) -> error =
-                            "В pdf нет текстового слоя - это скан. Разбор сканов картинками " +
-                                "появится в следующем обновлении, а пока пересними бланк или " +
-                                "выбери файл с текстом."
+                            "Документ слишком длинный (${text.length} симв.): пришли его по частям."
+                        // Плотный текстовый слой - первая ступень: точнее зрения и дешевле.
+                        pdfTextIsDense(text) -> attach(PendingAttachment.MedDoc(name, text, emptyList(), uri.toString(), mime))
                         else -> {
-                            error = null
-                            attachment = PendingAttachment.MedDoc(name, text, uri.toString(), mime)
+                            // Скан без текста - зрение: страницы картинками, не больше 10.
+                            val pages = PdfPages.renderAsJpegBase64(context, uri)
+                            if (pages.isNullOrEmpty()) {
+                                error = "Не получилось открыть pdf: файл повреждён или недоступен."
+                            } else {
+                                attach(PendingAttachment.MedDoc(name, null, pages, uri.toString(), mime))
+                            }
                         }
                     }
                 }
@@ -223,8 +246,7 @@ fun ChatScreen(m: Modifier) {
                     } else if (text.length > MAX_ATTACHMENT_CHARS) {
                         error = "Таблица слишком длинная (${text.length} симв.): разбей её на части, например по полгода."
                     } else {
-                        error = null
-                        attachment = PendingAttachment.Table(name, text)
+                        attachTable(name, text)
                     }
                 }
             }
@@ -259,7 +281,12 @@ fun ChatScreen(m: Modifier) {
         busy = true
         input = ""
         scope.launch {
-            client.askDocumentImport(attachment = doc.text, question = question, step = medStep).fold(
+            client.askDocumentImport(
+                attachment = doc.text,
+                images = doc.images,
+                question = question,
+                step = medStep,
+            ).fold(
                 onSuccess = { raw ->
                     val result = parseMedReply(raw, LocalDate.now(), db.allMed())
                     if (result == null) {
@@ -507,6 +534,7 @@ fun ChatScreen(m: Modifier) {
                             "application/csv",
                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             "application/pdf",
+                            "image/*",
                         )
                     )
                 },

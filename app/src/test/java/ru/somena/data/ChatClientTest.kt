@@ -166,6 +166,11 @@ class ChatClientTest {
         runBlocking {
             assertTrue("чат: ${lines.lastOrNull()}", slow.ask(history, "sys", "контекст", "fast").isFailure)
             assertTrue("разбор: ${lines.lastOrNull()}", slow.askImport("Дата;Вес\n05.01.2025;62.4").isSuccess)
+            // Разбор документа - тот же долгий ответ провайдера: ждёт как разбор таблицы.
+            assertTrue(
+                "разбор документа: ${lines.lastOrNull()}",
+                slow.askDocumentImport(attachment = "Гемоглобин 134", question = "").isSuccess,
+            )
         }
         s.close()
     }
