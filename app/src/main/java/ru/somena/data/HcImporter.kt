@@ -18,15 +18,17 @@ import ru.somena.core.BurnEntry
 import ru.somena.core.BodyEntry
 import ru.somena.core.DaySlice
 import ru.somena.core.DailyAggregator
+import ru.somena.core.ImportWindow
 import ru.somena.core.MealEntry
 import ru.somena.core.SleepEntry
 import ru.somena.core.StepEntry
 
 /**
  * Читает записи Health Connect за окно и пересчитывает Дневные срезы.
- * Окно всегда включает последний сохранённый день целиком — обновление того же дня
- * и дозапись задним числом в уже сохранённые дни работают. Пересчитанный день
- * сливается с сохранённым (свежие поля сильнее), поэтому дубликатов не бывает.
+ * Окно: неделя долечивания (ImportWindow) - дозапись задним числом в любую неделю
+ * подхватывается при следующем импорте; после долгого перерыва - весь непрочитанный
+ * промежуток. Пересчитанный день сливается с сохранённым (свежие поля сильнее),
+ * поэтому дубликатов не бывает.
  */
 class HcImporter(
     private val db: SliceDb,
@@ -38,9 +40,7 @@ class HcImporter(
         }
         val client = HealthConnectClient.getOrCreate(context)
         val now = Instant.now()
-        val windowStart = db.lastStoredDate()?.atStartOfDay(zone)?.toInstant()
-            ?: now.minus(java.time.Duration.ofDays(windowDays))
-        val range = TimeRangeFilter.between(windowStart, now)
+        val range = TimeRangeFilter.between(ImportWindow.start(now, zone, db.lastStoredDate(), windowDays), now)
 
         val steps = client.readRecords(ReadRecordsRequest(StepsRecord::class, range)).records.map {
             StepEntry(it.startTime, it.endTime, it.count, it.metadata.dataOrigin.packageName)

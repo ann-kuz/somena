@@ -70,6 +70,7 @@ import ru.somena.core.describe
 import ru.somena.core.lastDays
 import ru.somena.core.metricSeries
 import ru.somena.core.parseAiCharts
+import ru.somena.core.parseAiDataEntries
 import ru.somena.core.parseImportReply
 import ru.somena.core.parseMedReply
 import ru.somena.core.toSlice
@@ -100,7 +101,7 @@ import ru.somena.ui.neonSurface
 private val SUGGESTIONS = listOf(
     "Почему вес встал?",
     "Что изменить на этой неделе?",
-    "Как сон влияет на самочувствие?",
+    "Запиши сожжённые 2100 ккал за 26.09",
 )
 
 /** Ступень (спека 0004): Пользователь видит имена; названия моделей приходят из /health
@@ -187,6 +188,8 @@ fun ChatScreen(m: Modifier) {
     var importPreview by remember { mutableStateOf<ImportPreview?>(null) }
     var importFileName by remember { mutableStateOf<String?>(null) }
     var importUserText by remember { mutableStateOf<String?>(null) }
+    // Источник Предпросмотра: таблица вложения или блок «данные» в ответе ИИ - итог записи разный.
+    var importFromChat by remember { mutableStateOf(false) }
     // Разбор документа (спека 0010): Ступень выбирается при запуске, по умолчанию Быстрая.
     var medStep by remember { mutableStateOf(STEP_FAST) }
     var medImport by remember { mutableStateOf<MedImportState?>(null) }
@@ -316,33 +319,52 @@ fun ChatScreen(m: Modifier) {
 
     fun confirmImport() {
         val preview = importPreview ?: return
-        val name = importFileName ?: return
+        if (!importFromChat && importFileName == null) return
         for (entry in preview.entries) {
             db.upsert(entry.toSlice(db.get(entry.date)))
         }
         for (entry in preview.wellbeing) {
             db.upsert(entry.toWellbeing(db.getWellbeing(entry.date, Wellbeing.SLOT_FIRST)))
         }
-        val note = buildString {
-            val parts = buildList {
-                if (preview.entries.isNotEmpty()) {
-                    add("записала ${preview.entries.size} дн. " +
-                        "(новых ${preview.entries.size - preview.replacedCount}, замен ${preview.replacedCount})")
+        val note = if (importFromChat) {
+            buildString {
+                val parts = buildList {
+                    if (preview.entries.isNotEmpty()) {
+                        add("показатели на ${preview.entries.size} дн. " +
+                            "(новых ${preview.entries.size - preview.replacedCount}, замен ${preview.replacedCount})")
+                    }
+                    if (preview.wellbeing.isNotEmpty()) {
+                        add("самочувствие на ${preview.wellbeing.size} дн. (замен ${preview.wellbeingReplacedCount})")
+                    }
                 }
-                if (preview.wellbeing.isNotEmpty()) {
-                    add("самочувствия ${preview.wellbeing.size} дн. (замен ${preview.wellbeingReplacedCount})")
-                }
+                append("Записала из ответа: ${parts.joinToString(", ")}.")
+                if (preview.rejected.isNotEmpty()) append(" Строк не разобрано: ${preview.rejected.size}.")
             }
-            append("Разобрала таблицу «$name»: ${parts.joinToString(", ")}.")
-            if (preview.rejected.isNotEmpty()) append(" Строк не разобрано: ${preview.rejected.size}.")
+        } else {
+            buildString {
+                val parts = buildList {
+                    if (preview.entries.isNotEmpty()) {
+                        add("записала ${preview.entries.size} дн. " +
+                            "(новых ${preview.entries.size - preview.replacedCount}, замен ${preview.replacedCount})")
+                    }
+                    if (preview.wellbeing.isNotEmpty()) {
+                        add("самочувствия ${preview.wellbeing.size} дн. (замен ${preview.wellbeingReplacedCount})")
+                    }
+                }
+                append("Разобрала таблицу «${importFileName ?: ""}»: ${parts.joinToString(", ")}.")
+                if (preview.rejected.isNotEmpty()) append(" Строк не разобрано: ${preview.rejected.size}.")
+            }
         }
-        val withText = importUserText?.takeIf { it.isNotBlank() }?.let { ":\n$it" } ?: ""
-        db.addChatMessage(ChatMessage.USER, "Приложила таблицу «$name»$withText")
+        if (!importFromChat) {
+            val withText = importUserText?.takeIf { it.isNotBlank() }?.let { ":\n$it" } ?: ""
+            db.addChatMessage(ChatMessage.USER, "Приложила таблицу «${importFileName ?: ""}»$withText")
+        }
         db.addChatMessage(ChatMessage.ASSISTANT, note)
         attachment = null
         importPreview = null
         importFileName = null
         importUserText = null
+        importFromChat = false
         reloadData()
         messages = db.chatHistory()
     }
@@ -352,6 +374,7 @@ fun ChatScreen(m: Modifier) {
         importPreview = null
         importFileName = null
         importUserText = null
+        importFromChat = false
     }
 
     fun send(question: String) {
@@ -380,7 +403,20 @@ fun ChatScreen(m: Modifier) {
                         ),
                         step = step,
                     ).fold(
-                        onSuccess = { reply -> db.addChatMessage(ChatMessage.ASSISTANT, reply) },
+                        onSuccess = { raw ->
+                            // Блоки «данные» в обычном ответе: тот же Предпросмотр, что у
+                            // Разбора таблицы, запись - только по явному «Записать».
+                            val dataReply = parseAiDataEntries(raw, data.slicesByDate, firstWellbeing(), LocalDate.now())
+                            db.addChatMessage(ChatMessage.ASSISTANT, dataReply.text)
+                            if (dataReply.brokenBlocks > 0) {
+                                error = "ИИ попробовала занести данные, но блок не разобрался: попроси повторить."
+                            }
+                            val p = dataReply.preview
+                            if (p != null && (p.entries.isNotEmpty() || p.wellbeing.isNotEmpty() || p.rejected.isNotEmpty())) {
+                                importFromChat = true
+                                importPreview = p
+                            }
+                        },
                         onFailure = { e -> error = e.message ?: "Чат не удался." },
                     )
                     busy = false
@@ -432,7 +468,8 @@ fun ChatScreen(m: Modifier) {
                     GlassCard(Modifier.fillMaxWidth()) {
                         Text(
                             "Спроси что угодно о своих данных: ИИ видит дневные срезы за 30 дней, " +
-                                "Самочувствие и профиль. Попроси показать график, например: «покажи вес за месяц».",
+                                "Самочувствие и профиль. Попроси показать график («покажи вес за месяц») " +
+                                "или занеси данные словами: «запиши сожжённые 2100 ккал за 26.09».",
                             color = TextMuted,
                             style = MaterialTheme.typography.bodyMedium,
                         )

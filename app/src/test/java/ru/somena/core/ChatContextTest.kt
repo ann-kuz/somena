@@ -240,6 +240,14 @@ class ChatContextTest {
     }
 
     @Test
+    fun `промпт учит заносить данные блоком данные без выдуманных значений`() {
+        assertTrue(CHAT_SYSTEM_PROMPT.contains("```данные"))
+        assertTrue(CHAT_SYSTEM_PROMPT.contains("burned_kcal"))
+        assertTrue(CHAT_SYSTEM_PROMPT.contains("которых не хватало - спроси"))
+        assertTrue("лимит Бэкенда на system - 4000 символов", CHAT_SYSTEM_PROMPT.length < 4000)
+    }
+
+    @Test
     fun `сводка Медкарты без типографских тире`() {
         val text = context(
             medcard = listOf(
