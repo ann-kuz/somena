@@ -72,16 +72,15 @@ import ru.somena.core.metricSeries
 import ru.somena.core.parseAiCharts
 import ru.somena.core.parseImportReply
 import ru.somena.core.parseMedReply
-import ru.somena.core.pdfTextIsDense
 import ru.somena.core.toSlice
 import ru.somena.core.toWellbeing
 import ru.somena.data.ChatClient
 import ru.somena.data.ChatLog
 import ru.somena.data.ChatMessage
 import ru.somena.data.ChatSettings
+import ru.somena.data.MedDocReader
 import ru.somena.data.MedStorage
 import ru.somena.data.PdfPages
-import ru.somena.data.PdfText
 import ru.somena.data.ProfileStore
 import ru.somena.data.SliceDb
 import ru.somena.data.STEP_FAST
@@ -105,8 +104,9 @@ private val SUGGESTIONS = listOf(
 )
 
 /** Ступень (спека 0004): Пользователь видит имена; названия моделей приходят из /health
- *  Бэкенда (единая точка правды), этот запасной список - только пока /health не ответит. */
-private val STEP_LABELS = listOf(STEP_FAST to "Быстрая", STEP_MAX to "Максимальная")
+ *  Бэкенда (единая точка правды), этот запасной список - только пока /health не ответит.
+ *  Общий для Чата и экрана файлов Медкарты. */
+internal val STEP_LABELS = listOf(STEP_FAST to "Быстрая", STEP_MAX to "Максимальная")
 private val STEP_UI_MODELS_FALLBACK = mapOf(STEP_FAST to "gpt-4.1-mini", STEP_MAX to "gpt-5.1")
 
 /** Цвет метрики на графике ИИ: правило цветов метрик спеки 0002, единое для всех экранов. */
@@ -130,7 +130,10 @@ private sealed interface PendingAttachment {
         val images: List<String>,
         val uri: String,
         val mime: String?,
-    ) : PendingAttachment
+        val pagesTotal: Int = 0,
+    ) : PendingAttachment {
+        val truncated: Boolean get() = pagesTotal > 0 && pagesTotal > PdfPages.MAX_PAGES
+    }
 }
 
 /** Предпросмотр Разбора документа: черновик записи и исходные данные файла. */
@@ -140,6 +143,7 @@ private data class MedImportState(
     val mime: String?,
     val userText: String,
     val result: MedImportResult,
+    val pagesTotal: Int = 0,
 )
 
 /** Экран «Чат по данным» (тикет 07): свободный вопрос, ответ ИИ, графики от модели, история. */
@@ -198,44 +202,19 @@ fun ChatScreen(m: Modifier) {
             val bytes = runCatching {
                 context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
             }.getOrNull()
-            fun attach(doc: PendingAttachment.MedDoc) {
-                error = null
-                attachment = doc
-            }
-            fun attachTable(name: String, text: String) {
-                error = null
-                attachment = PendingAttachment.Table(name, text)
-            }
             when {
                 bytes == null -> error = "Не удалось прочитать файл: выбери его заново."
-                isImage -> {
-                    // Фото и скриншоты - всегда зрением (ADR-0009), со сжатием на телефоне.
-                    val image = PdfPages.imageAsJpegBase64(bytes)
-                    if (image == null) {
-                        error = "Не получилось прочитать картинку: выбери её заново."
-                    } else {
-                        attach(PendingAttachment.MedDoc(name, null, listOf(image), uri.toString(), mime))
-                    }
-                }
-                isPdf -> {
-                    val text = PdfText.extract(context, uri)
-                    when {
-                        text == null -> error =
-                            "Не получилось открыть pdf: файл повреждён или недоступен."
-                        text.length > MAX_ATTACHMENT_CHARS -> error =
-                            "Документ слишком длинный (${text.length} симв.): пришли его по частям."
-                        // Плотный текстовый слой - первая ступень: точнее зрения и дешевле.
-                        pdfTextIsDense(text) -> attach(PendingAttachment.MedDoc(name, text, emptyList(), uri.toString(), mime))
-                        else -> {
-                            // Скан без текста - зрение: страницы картинками, не больше 10.
-                            val pages = PdfPages.renderAsJpegBase64(context, uri)
-                            if (pages.isNullOrEmpty()) {
-                                error = "Не получилось открыть pdf: файл повреждён или недоступен."
-                            } else {
-                                attach(PendingAttachment.MedDoc(name, null, pages, uri.toString(), mime))
-                            }
-                        }
-                    }
+                isPdf || isImage -> {
+                    // Один конвейер обоих входов (ADR-0009): текст прежде зрения.
+                    MedDocReader.read(context, uri, name, mime).fold(
+                        onSuccess = { parts ->
+                            error = null
+                            attachment = PendingAttachment.MedDoc(
+                                name, parts.text, parts.images, uri.toString(), mime, parts.totalPages,
+                            )
+                        },
+                        onFailure = { e -> error = e.message ?: "Не получилось прочитать документ." },
+                    )
                 }
                 bytes.size > MAX_ATTACHMENT_BYTES -> error =
                     "Таблица больше 2 МБ: убери лишние листы или разбей на части."
@@ -246,7 +225,8 @@ fun ChatScreen(m: Modifier) {
                     } else if (text.length > MAX_ATTACHMENT_CHARS) {
                         error = "Таблица слишком длинная (${text.length} симв.): разбей её на части, например по полгода."
                     } else {
-                        attachTable(name, text)
+                        error = null
+                        attachment = PendingAttachment.Table(name, text)
                     }
                 }
             }
@@ -293,7 +273,7 @@ fun ChatScreen(m: Modifier) {
                         error = "ИИ не смог разобрать документ. Попробуй Максимальную ступень " +
                             "или пришли документ картинками."
                     } else {
-                        medImport = MedImportState(doc.name, doc.uri, doc.mime, question, result)
+                        medImport = MedImportState(doc.name, doc.uri, doc.mime, question, result, doc.pagesTotal)
                         attachment = null
                     }
                 },
@@ -319,6 +299,9 @@ fun ChatScreen(m: Modifier) {
             append("Записала ${saved.chatSummary()}.")
             if (state.result.rejected.isNotEmpty()) {
                 append(" Не разобрано фрагментов: ${state.result.rejected.size}.")
+            }
+            if (state.pagesTotal > PdfPages.MAX_PAGES) {
+                append(" Разобраны первые ${PdfPages.MAX_PAGES} из ${state.pagesTotal} страниц.")
             }
             if (stored == null) {
                 append(" Оригинал не сохранён: Хранилище не выбрано - файл можно привязать позже.")
@@ -573,35 +556,7 @@ fun ChatScreen(m: Modifier) {
             saveLabel = "Записать",
             onSave = ::confirmMedImport,
             onDismiss = { medImport = null },
-            banner = {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    state.result.dateProblem?.let {
-                        Text("Дата: $it", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                    }
-                    state.result.duplicateOf?.let { dup ->
-                        Text(
-                            "Уже есть ${dup.kind.label} от ${dup.date.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))}: " +
-                                "если это тот же документ, после записи будет дубль - лишний удали на вкладке Медкарты.",
-                            color = TextMuted,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    if (state.result.rejected.isNotEmpty()) {
-                        Text(
-                            "Не разобрано фрагментов: ${state.result.rejected.size}",
-                            color = TextMuted,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        state.result.rejected.take(5).forEach { row ->
-                            Text(
-                                "«${row.raw.take(50)}» - ${row.reason}",
-                                color = TextMuted,
-                                style = MaterialTheme.typography.labelSmall,
-                            )
-                        }
-                    }
-                }
-            },
+            banner = { MedImportWarnings(state.result, pagesTotal = state.pagesTotal) },
         )
     }
 }

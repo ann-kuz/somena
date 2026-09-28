@@ -40,10 +40,6 @@ class MedStorage(private val context: Context) {
         prefs.edit().putString(KEY_FOLDER, uri.toString()).apply()
     }
 
-    fun clearFolder() {
-        prefs.edit().remove(KEY_FOLDER).apply()
-    }
-
     /** Файлы Хранилища без каталогов, насколько SAF их отдаёт. */
     fun listFiles(): List<StorageFile> {
         val tree = folderUri() ?: return emptyList()
@@ -110,7 +106,7 @@ class MedStorage(private val context: Context) {
     }
 
     /** Имя документа по uri; null - спросить не у кого. */
-    fun displayNameOf(uri: Uri): String? = runCatching {
+    private fun displayNameOf(uri: Uri): String? = runCatching {
         context.contentResolver.query(
             uri, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null
         )?.use { c -> if (c.moveToFirst()) c.getString(0) else null }

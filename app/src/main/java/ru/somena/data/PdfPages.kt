@@ -22,14 +22,19 @@ object PdfPages {
     private const val MAX_DIM = 1568
     private const val JPEG_QUALITY = 82
 
-    /** Страницы pdf картинками JPEG base64; null - pdf не открылся. */
-    fun renderAsJpegBase64(context: Context, uri: Uri, maxPages: Int = MAX_PAGES): List<String>? =
+    /** Отрендеренные страницы pdf: картинки и честное число страниц документа. */
+    data class RenderedPdf(val images: List<String>, val totalPages: Int) {
+        val truncated: Boolean get() = totalPages > images.size
+    }
+
+    /** Страницы pdf картинками JPEG base64 (до [MAX_PAGES]); null - pdf не открылся. */
+    fun renderAsJpegBase64(context: Context, uri: Uri): RenderedPdf? =
         runCatching {
             val pfd: ParcelFileDescriptor = context.contentResolver.openFileDescriptor(uri, "r")
                 ?: return null
             pfd.use { descriptor ->
                 PdfRenderer(descriptor).use { renderer ->
-                    (0 until minOf(renderer.pageCount, maxPages)).map { i ->
+                    val pages = (0 until minOf(renderer.pageCount, MAX_PAGES)).map { i ->
                         renderer.openPage(i).use { page ->
                             val scale = minOf(
                                 MAX_DIM.toFloat() / page.width,
@@ -47,6 +52,7 @@ object PdfPages {
                             encodeJpegBase64(bitmap)
                         }
                     }
+                    RenderedPdf(pages, renderer.pageCount)
                 }
             }
         }.getOrNull()

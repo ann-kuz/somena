@@ -10,8 +10,8 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import ru.somena.core.AnalyteRow
 import ru.somena.core.DaySlice
-import ru.somena.core.MedKind
 import ru.somena.core.MedRecord
+import ru.somena.core.medKindByWire
 
 @Serializable
 private data class SliceDto(
@@ -93,11 +93,7 @@ private fun medPayloadToRecord(
     payload: MedPayloadDto,
 ): MedRecord = MedRecord(
     id = id,
-    kind = when (kind) {
-        "exam" -> MedKind.EXAM
-        "protocol" -> MedKind.PROTOCOL
-        else -> MedKind.ANALYSIS
-    },
+    kind = medKindByWire(kind) ?: ru.somena.core.MedKind.ANALYSIS,
     date = LocalDate.parse(date),
     createdAt = createdAt,
     fileUri = fileUri,
@@ -342,19 +338,8 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 6
             arrayOf(id.toString()),
         ).use { c -> if (c.moveToFirst()) readMedRecord(c) else null }
 
-    /** Запись, ссылающаяся на файл Хранилища: бейдж «разобран» и Предпросмотр замены. */
-    fun medByFileUri(uri: String): MedRecord? =
-        readableDatabase.rawQuery(
-            "SELECT id, kind, date, file_uri, file_name, data, created_at FROM med_records WHERE file_uri = ? LIMIT 1",
-            arrayOf(uri),
-        ).use { c -> if (c.moveToFirst()) readMedRecord(c) else null }
-
     private fun medValues(r: MedRecord): android.content.ContentValues = android.content.ContentValues().apply {
-        put("kind", when (r.kind) {
-            MedKind.EXAM -> "exam"
-            MedKind.PROTOCOL -> "protocol"
-            else -> "analysis"
-        })
+        put("kind", r.kind.wire)
         put("date", r.date.format(ISO_LOCAL_DATE))
         put("file_uri", r.fileUri)
         put("file_name", r.fileName)

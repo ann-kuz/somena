@@ -11,11 +11,19 @@ import java.time.format.DateTimeFormatter
  * живут без оригинала.
  */
 
-/** Вид записи Медкарты. */
-enum class MedKind(val label: String) {
-    ANALYSIS("Анализ"),
-    EXAM("Обследование"),
-    PROTOCOL("Протокол"),
+/** Вид записи Медкарты: [wire] - строка в ответе ИИ и столбце базы. */
+enum class MedKind(val label: String, val wire: String) {
+    ANALYSIS("Анализ", "analysis"),
+    EXAM("Обследование", "exam"),
+    PROTOCOL("Протокол", "protocol"),
+}
+
+/** Вид по строке из ответа ИИ или базы; null - не наш. */
+fun medKindByWire(wire: String?): MedKind? = when (wire) {
+    MedKind.ANALYSIS.wire -> MedKind.ANALYSIS
+    MedKind.EXAM.wire -> MedKind.EXAM
+    MedKind.PROTOCOL.wire -> MedKind.PROTOCOL
+    else -> null
 }
 
 /** Одна строка Анализа: показатель со значением, единицами и границами референса. */

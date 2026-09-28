@@ -86,12 +86,7 @@ fun parseMedReply(
         return null
     }
 
-    val kind = when (reply.kind) {
-        "analysis" -> MedKind.ANALYSIS
-        "exam" -> MedKind.EXAM
-        "protocol" -> MedKind.PROTOCOL
-        else -> null
-    } ?: reply.let { r ->
+    val kind = medKindByWire(reply.kind) ?: reply.let { r ->
         // Вид не назван, но содержимое однозначное: доверяем содержимому.
         when {
             r.items.isNotEmpty() -> MedKind.ANALYSIS

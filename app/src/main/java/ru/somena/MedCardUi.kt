@@ -40,7 +40,6 @@ import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import ru.somena.core.AnalyteRow
-import ru.somena.core.MAX_ATTACHMENT_CHARS
 import ru.somena.core.MedFileIndex
 import ru.somena.core.MedImportResult
 import ru.somena.core.MedKind
@@ -51,17 +50,15 @@ import ru.somena.core.numericFieldError
 import ru.somena.core.parseLooseDate
 import ru.somena.core.parseMedReply
 import ru.somena.core.parseOptionalDouble
-import ru.somena.core.pdfTextIsDense
 import ru.somena.data.ChatClient
 import ru.somena.data.ChatLog
 import ru.somena.data.ChatMessage
 import ru.somena.data.ChatSettings
+import ru.somena.data.MedDocReader
 import ru.somena.data.MedStorage
 import ru.somena.data.PdfPages
-import ru.somena.data.PdfText
 import ru.somena.data.SliceDb
 import ru.somena.data.STEP_FAST
-import ru.somena.data.STEP_MAX
 import ru.somena.data.StorageFile
 import ru.somena.ui.BgBase
 import ru.somena.ui.CardLabel
@@ -221,10 +218,64 @@ private data class FileImportState(
     val file: StorageFile,
     val replaceOf: MedRecord?,
     val result: MedImportResult,
+    val pagesTotal: Int = 0,
 )
 
-/** Ступень Разбора файла: подписи как в Чате (спека 0004). */
-private val FILE_STEP_LABELS = listOf(STEP_FAST to "Быстрая", STEP_MAX to "Максимальная")
+/**
+ * Баннер предупреждений Предпросмотра Разбора (спека 0010): общий для обоих входов -
+ * скрепки в Чате и файла из Хранилища. Дата, замена, дубли, усечённые страницы
+ * и отброшенные фрагменты с причинами.
+ */
+@Composable
+fun MedImportWarnings(
+    result: MedImportResult,
+    pagesTotal: Int = 0,
+    replaceOf: MedRecord? = null,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (pagesTotal > PdfPages.MAX_PAGES) {
+            Text(
+                "В документе $pagesTotal страниц: разобраны первые ${PdfPages.MAX_PAGES}, " +
+                    "остальные остались за кадром - пришли их отдельным Разбором.",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        replaceOf?.let { old ->
+            Text(
+                "Заменит ${old.kind.label} от ${old.date.format(MED_LIST_DATE)} " +
+                    "(${old.describe()}): первый Разбор вышел кривым - второй поправит.",
+                color = TextMuted,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        result.dateProblem?.let {
+            Text("Дата: $it", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+        result.duplicateOf?.let { dup ->
+            Text(
+                "Уже есть ${dup.kind.label} от ${dup.date.format(MED_LIST_DATE)}: " +
+                    "если это тот же документ, после записи будет дубль - лишний удали на вкладке Медкарты.",
+                color = TextMuted,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        if (result.rejected.isNotEmpty()) {
+            Text(
+                "Не разобрано фрагментов: ${result.rejected.size}",
+                color = TextMuted,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            result.rejected.take(5).forEach { row ->
+                Text(
+                    "«${row.raw.take(50)}» - ${row.reason}",
+                    color = TextMuted,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+    }
+}
 
 /**
  * Файловый список Хранилища (спека 0010, тикеты 02 и 05): выбор папки, бейджи «разобран»,
@@ -275,44 +326,30 @@ fun MedFilesScreen(
         error = null
         selected = null
         scope.launch(Dispatchers.IO) {
-            val uri = Uri.parse(file.uri)
-            val isPdf = file.mime == "application/pdf" || file.name.endsWith(".pdf", ignoreCase = true)
-            val text = if (isPdf) PdfText.extract(context, uri) else null
-            val fits = text != null && text.length <= MAX_ATTACHMENT_CHARS
-            // Двухступенчатость ADR-0009: плотный слой - текстом, скудный, длинный или
-            // картинка - зрением (страницы pdf или сжатый файл).
-            val dense = fits && pdfTextIsDense(text!!)
-            val images = when {
-                dense -> emptyList()
-                isPdf -> PdfPages.renderAsJpegBase64(context, uri)
-                else -> storage.readBytes(uri)?.let { PdfPages.imageAsJpegBase64(it) }?.let { listOf(it) }
-            }
-            if (!dense && images.isNullOrEmpty()) {
-                error = if (isPdf && fits == false && text != null && text.length > MAX_ATTACHMENT_CHARS) {
-                    "Документ слишком длинный (${text.length} симв.) и не уместился страницами."
-                } else {
-                    "Не получилось прочитать файл: выбери его заново."
-                }
-            } else {
-                client.askDocumentImport(
-                    attachment = if (dense) text else null,
-                    images = images.orEmpty(),
-                    question = "",
-                    step = medStep,
-                ).fold(
-                    onSuccess = { raw ->
-                        // Заменяемая запись не считается дублём: переразбор - законный путь.
-                        val existing = db.allMed().filterNot { it.fileUri == file.uri }
-                        val result = parseMedReply(raw, LocalDate.now(), existing)
-                        if (result == null) {
-                            error = "ИИ не смог разобрать документ. Попробуй Максимальную ступень."
-                        } else {
-                            fileImport = FileImportState(file, index.recordOf(file.uri), result)
-                        }
-                    },
-                    onFailure = { e -> error = e.message ?: "Разбор не удался." },
-                )
-            }
+            // Один конвейер обоих входов (ADR-0009): текст прежде зрения.
+            MedDocReader.read(context, Uri.parse(file.uri), file.name, file.mime).fold(
+                onSuccess = { parts ->
+                    client.askDocumentImport(
+                        attachment = parts.text,
+                        images = parts.images,
+                        question = "",
+                        step = medStep,
+                    ).fold(
+                        onSuccess = { raw ->
+                            // Заменяемая запись не считается дублём: переразбор - законный путь.
+                            val existing = db.allMed().filterNot { it.fileUri == file.uri }
+                            val result = parseMedReply(raw, LocalDate.now(), existing)
+                            if (result == null) {
+                                error = "ИИ не смог разобрать документ. Попробуй Максимальную ступень."
+                            } else {
+                                fileImport = FileImportState(file, index.recordOf(file.uri), result, parts.totalPages)
+                            }
+                        },
+                        onFailure = { e -> error = e.message ?: "Разбор не удался." },
+                    )
+                },
+                onFailure = { e -> error = e.message ?: "Разбор не удался." },
+            )
             busy = false
         }
     }
@@ -334,6 +371,9 @@ fun MedFilesScreen(
             )
             if (state.result.rejected.isNotEmpty()) {
                 append(" Не разобрано фрагментов: ${state.result.rejected.size}.")
+            }
+            if (state.pagesTotal > PdfPages.MAX_PAGES) {
+                append(" Разобраны первые ${PdfPages.MAX_PAGES} из ${state.pagesTotal} страниц.")
             }
         }
         db.addChatMessage(ChatMessage.USER, "Разобрала файл «${state.file.name}» из Хранилища")
@@ -372,7 +412,7 @@ fun MedFilesScreen(
                     style = MaterialTheme.typography.labelSmall,
                     color = TextMuted,
                 )
-                FILE_STEP_LABELS.forEach { (key, label) ->
+                STEP_LABELS.forEach { (key, label) ->
                     PeriodChip(label, selected = medStep == key, onClick = { medStep = key })
                 }
                 if (busy) {
@@ -425,19 +465,27 @@ fun MedFilesScreen(
                                         style = MaterialTheme.typography.bodySmall,
                                     )
                                 } else {
-                                    records.take(12).forEach { record ->
-                                        Text(
-                                            "${record.date.format(MED_LIST_DATE)}, ${record.kind.label}: ${record.describe()}",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable {
-                                                    db.updateMed(record.copy(fileUri = file.uri, fileName = file.name))
-                                                    bindingFile = null
-                                                    selected = null
-                                                    onChanged()
-                                                },
-                                        )
+                                    // Весь список записей со скроллом: привязка доступна всегда.
+                                    Column(
+                                        Modifier
+                                            .heightIn(max = 320.dp)
+                                            .verticalScroll(rememberScrollState()),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        records.forEach { record ->
+                                            Text(
+                                                "${record.date.format(MED_LIST_DATE)}, ${record.kind.label}: ${record.describe()}",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        db.updateMed(record.copy(fileUri = file.uri, fileName = file.name))
+                                                        bindingFile = null
+                                                        selected = null
+                                                        onChanged()
+                                                    },
+                                            )
+                                        }
                                     }
                                 }
                             } else {
@@ -491,36 +539,7 @@ fun MedFilesScreen(
             saveLabel = if (state.replaceOf != null) "Заменить запись" else "Записать",
             onSave = ::confirmFileImport,
             onDismiss = { fileImport = null },
-            banner = {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    state.replaceOf?.let { old ->
-                        Text(
-                            "Заменит ${old.kind.label} от ${old.date.format(MED_LIST_DATE)} " +
-                                "(${old.describe()}): первый Разбор вышел кривым - второй поправит.",
-                            color = TextMuted,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    state.result.dateProblem?.let {
-                        Text("Дата: $it", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                    }
-                    state.result.duplicateOf?.let { dup ->
-                        Text(
-                            "Уже есть ${dup.kind.label} от ${dup.date.format(MED_LIST_DATE)}: " +
-                                "если это тот же документ, после записи будет дубль - лишний удали на вкладке Медкарты.",
-                            color = TextMuted,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    if (state.result.rejected.isNotEmpty()) {
-                        Text(
-                            "Не разобрано фрагментов: ${state.result.rejected.size}",
-                            color = TextMuted,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
-            },
+            banner = { MedImportWarnings(state.result, pagesTotal = state.pagesTotal, replaceOf = state.replaceOf) },
         )
     }
 }
@@ -555,6 +574,7 @@ fun MedRecordEditor(
     onDelete: (() -> Unit)? = null,
     banner: @Composable () -> Unit = {},
 ) {
+    val context = LocalContext.current
     var kind by remember { mutableStateOf(initial.kind) }
     var dateText by remember {
         mutableStateOf(initial.date.format(MED_LIST_DATE))
@@ -617,6 +637,10 @@ fun MedRecordEditor(
         items.forEachIndexed { i, row ->
             if (row.name.isBlank() && (row.value.isNotBlank() || row.refLow.isNotBlank() || row.refHigh.isNotBlank() || row.unit.isNotBlank())) {
                 add("Строка ${i + 1}: нет названия показателя")
+            }
+            // Пустое значение не превращается молча в ноль (правило Profile: мусор - не «пусто»).
+            if (row.name.isNotBlank() && row.value.isBlank()) {
+                add("Строка ${i + 1}: нет значения")
             }
             numericFieldError(row.value, integer = false)?.let { add("Строка ${i + 1}: значение - $it") }
             numericFieldError(row.refLow, integer = false)?.let { add("Строка ${i + 1}: референс от - $it") }
@@ -764,6 +788,18 @@ fun MedRecordEditor(
                         "Оригинал: ${initial.fileName}",
                         color = TextMuted,
                         style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                if (initial.fileUri != null) {
+                    // Тикет 02: оригинал открывается внешним просмотрщиком и из записи.
+                    GhostButton(
+                        "Открыть оригинал",
+                        onClick = {
+                            MedStorage(context).openFile(
+                                StorageFile(initial.fileUri, initial.fileName ?: "документ", 0, null)
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
                 GlowButton(
