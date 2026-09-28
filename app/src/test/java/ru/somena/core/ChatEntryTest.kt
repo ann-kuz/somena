@@ -93,4 +93,15 @@ class ChatEntryTest {
         assertEquals(false, isDataEntryRequest("Запиши сожжённые 400 за 26.09"))
         assertEquals(false, isDataEntryRequest("Как внести данные в график?"))
     }
+
+    @Test
+    fun `промпт внесения требует строгий json и календарь от сегодня`() {
+        assertTrue(DATA_ENTRY_SYSTEM_PROMPT.contains("никакой другой текст"))
+        // Пометка - служебная метка приложения: разборщик её игнорирует.
+        assertTrue(DATA_ENTRY_SYSTEM_PROMPT.contains(DATA_ENTRY_MARKER))
+        assertTrue(DATA_ENTRY_SYSTEM_PROMPT.contains("Сегодня"))
+        assertTrue(DATA_ENTRY_SYSTEM_PROMPT.contains("burned_kcal"))
+        assertTrue(DATA_ENTRY_SYSTEM_PROMPT.contains("ничего не выдумывай"))
+        assertTrue("лимит Бэкенда на system - 4000 символов", DATA_ENTRY_SYSTEM_PROMPT.length < 4000)
+    }
 }

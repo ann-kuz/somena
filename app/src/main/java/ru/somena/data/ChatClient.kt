@@ -11,6 +11,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import ru.somena.core.DATA_ENTRY_SYSTEM_PROMPT
 import ru.somena.core.IMPORT_SYSTEM_PROMPT
 import ru.somena.core.MAX_ATTACHMENT_CHARS
 import ru.somena.core.MED_IMPORT_SYSTEM_PROMPT
@@ -94,6 +95,26 @@ class ChatClient(
                 "разбор документа, вложение ${attachment?.length ?: 0} симв., картинок ${images.size}, ступень: $step"
             })
         }
+    }
+
+    /**
+     * Внесение данных с пометки «Внести данные» (кнопка чата): короткая фраза Пользователя
+     * превращается в строгий JSON того же формата, что у Разбора таблицы, - ответ валидирует
+     * core (parseImportReply). Выделенный вызов с выделенным промптом, а не чатовая модель:
+     * та на пометку отвечала «Записываю...» без блока (инцидент 29.09). Ответ маленький -
+     * обычный чатовый таймаут, Ступень всегда Быстрая.
+     */
+    suspend fun askDataEntry(text: String): Result<String> = withContext(Dispatchers.IO) {
+        exchange(
+            WireRequest(
+                messages = listOf(WireMessage(ChatMessage.USER, text.take(MAX_CONTENT))),
+                system = DATA_ENTRY_SYSTEM_PROMPT,
+                maxTokens = 2000,
+                step = STEP_FAST,
+            ),
+            chatReadTimeoutMs,
+            describe = { "внесение данных, ${text.length} симв., ступень: fast" },
+        )
     }
 
     /** Ступень→модель с Бэкенда (/health, без авторизации): подпись селектора не врёт после смены модели. */

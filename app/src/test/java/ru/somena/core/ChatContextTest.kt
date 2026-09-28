@@ -248,13 +248,10 @@ class ChatContextTest {
     }
 
     @Test
-    fun `промпт задаёт протокол пометки Внести данные`() {
-        assertTrue(CHAT_SYSTEM_PROMPT.contains(DATA_ENTRY_MARKER))
-        // Пометка обязывает блок в том же ответе, без пересказа значений текстом.
-        assertTrue(CHAT_SYSTEM_PROMPT.contains("обязателен"))
-        // Даты считаются по календарю контекста: последняя дата заголовка - сегодня.
-        assertTrue(CHAT_SYSTEM_PROMPT.contains("последняя дата заголовка"))
-        assertTrue("лимит Бэкенда на system - 4000 символов", CHAT_SYSTEM_PROMPT.length < 4000)
+    fun `протокол пометки Внести данные живёт в отдельном промпте, не в чатовом`() {
+        // Помеченные сообщения перехватывает приложение и несёт выделенному разборщику:
+        // чатовая модель отвечала «Записываю...» без блока (инцидент 29.09).
+        assertFalse(CHAT_SYSTEM_PROMPT.contains(DATA_ENTRY_MARKER))
     }
 
     @Test

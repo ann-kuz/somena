@@ -400,43 +400,60 @@ fun ChatScreen(m: Modifier) {
                 db.addChatMessage(ChatMessage.USER, text)
                 messages = db.chatHistory()
                 busy = true
-                scope.launch {
-                    client.ask(
-                        history = db.chatHistory(),
-                        system = CHAT_SYSTEM_PROMPT,
-                        context = buildChatContext(
-                            today = LocalDate.now(),
-                            data = data,
-                            profile = ProfileStore(context).load(),
-                            cycle = cycleEntries,
-                            medcard = db.allMed(),
-                        ),
-                        step = step,
-                    ).fold(
-                        onSuccess = { raw ->
-                            // Блоки «данные» в обычном ответе: тот же Предпросмотр, что у
-                            // Разбора таблицы, запись - только по явному «Записать».
-                            val dataReply = parseAiDataEntries(raw, data.slicesByDate, firstWellbeing(), LocalDate.now())
-                            db.addChatMessage(ChatMessage.ASSISTANT, dataReply.text)
-                            when {
-                                dataReply.brokenBlocks > 0 ->
+                if (isDataEntryRequest(text)) {
+                    // Пометка «Внести данные»: маршрут мимо чатовой модели - выделенный разбор
+                    // фразы в строгий JSON, как у Разбора таблицы. Чатовая модель на пометку
+                    // отвечала «Записываю...» без блока (инцидент 29.09).
+                    scope.launch {
+                        client.askDataEntry(text).fold(
+                            onSuccess = { raw ->
+                                val preview = parseImportReply(raw, data.slicesByDate, firstWellbeing(), LocalDate.now())
+                                val hasValues = preview != null &&
+                                    (preview.entries.isNotEmpty() || preview.wellbeing.isNotEmpty())
+                                if (!hasValues) {
+                                    error = "Не поняла, что занести. Напиши показатель, значение и дату, например: сожжено 400 за 26.09."
+                                } else {
+                                    importFromChat = true
+                                    importPreview = preview
+                                }
+                            },
+                            onFailure = { e -> error = e.message ?: "Разбор не удался." },
+                        )
+                        busy = false
+                    }
+                } else {
+                    scope.launch {
+                        client.ask(
+                            history = db.chatHistory(),
+                            system = CHAT_SYSTEM_PROMPT,
+                            context = buildChatContext(
+                                today = LocalDate.now(),
+                                data = data,
+                                profile = ProfileStore(context).load(),
+                                cycle = cycleEntries,
+                                medcard = db.allMed(),
+                            ),
+                            step = step,
+                        ).fold(
+                            onSuccess = { raw ->
+                                // Блоки «данные» в обычном ответе: тот же Предпросмотр, что у
+                                // Разбора таблицы, запись - только по явному «Записать».
+                                val dataReply = parseAiDataEntries(raw, data.slicesByDate, firstWellbeing(), LocalDate.now())
+                                db.addChatMessage(ChatMessage.ASSISTANT, dataReply.text)
+                                if (dataReply.brokenBlocks > 0) {
                                     error = "ИИ попробовала занести данные, но блок не разобрался: попроси повторить."
-                                // Пометка «Внести данные» без блока в ответе - не молчание, а отказ вслух:
-                                // так пропавшая запись не выглядит «записанной».
-                                isDataEntryRequest(text) &&
-                                    (dataReply.preview == null || dataReply.preview.entries.isEmpty() && dataReply.preview.wellbeing.isEmpty()) ->
-                                    error = "ИИ не предложила запись. Нажми «Внести данные» ещё раз и напиши дату и значения, например: сожжено 400 за 26.09."
-                            }
-                            val p = dataReply.preview
-                            if (p != null && (p.entries.isNotEmpty() || p.wellbeing.isNotEmpty() || p.rejected.isNotEmpty())) {
-                                importFromChat = true
-                                importPreview = p
-                            }
-                        },
-                        onFailure = { e -> error = e.message ?: "Чат не удался." },
-                    )
-                    busy = false
-                    messages = db.chatHistory()
+                                }
+                                val p = dataReply.preview
+                                if (p != null && (p.entries.isNotEmpty() || p.wellbeing.isNotEmpty() || p.rejected.isNotEmpty())) {
+                                    importFromChat = true
+                                    importPreview = p
+                                }
+                            },
+                            onFailure = { e -> error = e.message ?: "Чат не удался." },
+                        )
+                        busy = false
+                        messages = db.chatHistory()
+                    }
                 }
             }
         }
