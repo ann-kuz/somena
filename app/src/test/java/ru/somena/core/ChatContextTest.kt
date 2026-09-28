@@ -1,6 +1,7 @@
 package ru.somena.core
 
 import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -29,7 +30,11 @@ class ChatContextTest {
         wellbeing: Map<LocalDate, List<Wellbeing>> = mapOf(yesterday to listOf(this.wellbeing)),
         profile: Profile? = null,
         cycle: List<CycleDay> = emptyList(),
-    ) = buildChatContext(today, daysBack = 3, data = DayData(slices, wellbeing), profile = profile, cycle = cycle)
+        medcard: List<MedRecord> = emptyList(),
+    ) = buildChatContext(
+        today, daysBack = 3, data = DayData(slices, wellbeing),
+        profile = profile, cycle = cycle, medcard = medcard,
+    )
 
     @Test
     fun `контекст содержит показатели среза`() {
@@ -160,5 +165,89 @@ class ChatContextTest {
     @Test
     fun `без записей цикл помечен честно`() {
         assertTrue(context().contains("Цикл: записей нет"))
+    }
+
+    // ---- Медкарта в контексте (спека 0010, тикет 06) ----
+
+    private fun analysisAt(date: LocalDate, vararg rows: AnalyteRow) =
+        MedRecord(kind = MedKind.ANALYSIS, date = date, items = rows.toList())
+
+    private val hemoglobin = AnalyteRow("Гемоглобин", 134.0, "г/л", 120.0, 150.0)
+    private val ferritin = AnalyteRow("Ферритин", 8.0, "нг/мл", 13.0, 150.0)
+
+    @Test
+    fun `пустая Медкарта помечена честно`() {
+        val text = context(medcard = emptyList())
+        assertTrue(text.contains("Медкарта: записей нет"))
+    }
+
+    @Test
+    fun `список всех записей и все диагнозы за всё время в любом возрасте`() {
+        val old = MedRecord(
+            kind = MedKind.PROTOCOL,
+            date = today.minusDays(400),
+            specialty = "Эндокринолог",
+            diagnoses = listOf("Гипотиреоз"),
+        )
+        val text = context(medcard = listOf(analysisAt(today.minusDays(10), hemoglobin), old))
+        assertTrue(text.contains("записи: ${today.minusDays(10).format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))} анализ"))
+        assertTrue(text.contains("диагнозы за всё время: Гипотиреоз"))
+    }
+
+    @Test
+    fun `полные записи за полгода со значениями референсами и флагом`() {
+        val text = context(medcard = listOf(analysisAt(today.minusDays(30), hemoglobin, ferritin)))
+        assertTrue(text.contains("Гемоглобин 134 г/л (реф 120.0-150.0)"))
+        assertTrue(text.contains("Ферритин 8 нг/мл (реф 13.0-150.0) ВНЕ РЕФЕРЕНСА"))
+    }
+
+    @Test
+    fun `старше окна - только дата и вид с пометкой сказать об этом прямо`() {
+        val old = analysisAt(today.minusDays(200), hemoglobin)
+        val text = context(medcard = listOf(old))
+        // В списке запись есть, подробностей её значений нет.
+        assertTrue(text.contains("записи: ${today.minusDays(200).format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))} анализ"))
+        assertFalse(text.contains("Гемоглобин 134"))
+        assertTrue(text.contains("содержимого в этом запросе нет"))
+    }
+
+    @Test
+    fun `заключение обследования и рекомендации протокола попадают в подробности`() {
+        val exam = MedRecord(
+            kind = MedKind.EXAM,
+            date = today.minusDays(20),
+            examType = "УЗИ щитовидной железы",
+            conclusion = "Без особенностей.",
+        )
+        val protocol = MedRecord(
+            kind = MedKind.PROTOCOL,
+            date = today.minusDays(15),
+            specialty = "Эндокринолог",
+            diagnoses = listOf("Гипотиреоз"),
+            recommendations = "Контроль ТТГ через 3 месяца.",
+        )
+        val text = context(medcard = listOf(exam, protocol))
+        assertTrue(text.contains("УЗИ щитовидной железы: Без особенностей."))
+        assertTrue(text.contains("диагнозы Гипотиреоз"))
+        assertTrue(text.contains("рекомендации: Контроль ТТГ через 3 месяца."))
+    }
+
+    @Test
+    fun `рамка промпта дает медицинскую свободу до дозировок с оговоркой про врача`() {
+        assertTrue(CHAT_SYSTEM_PROMPT.contains("дозировок"))
+        assertTrue(CHAT_SYSTEM_PROMPT.contains("окончательное решение за врачом"))
+        assertFalse(CHAT_SYSTEM_PROMPT.contains("не ставишь диагнозов"))
+    }
+
+    @Test
+    fun `сводка Медкарты без типографских тире`() {
+        val text = context(
+            medcard = listOf(
+                analysisAt(today.minusDays(30), hemoglobin),
+                MedRecord(kind = MedKind.EXAM, date = today.minusDays(20), examType = "ЭКГ", conclusion = "Норма."),
+            )
+        )
+        assertFalse(medCardContextLine(listOf(analysisAt(today.minusDays(30), hemoglobin)), today).contains("—"))
+        assertFalse(text.contains("—"))
     }
 }

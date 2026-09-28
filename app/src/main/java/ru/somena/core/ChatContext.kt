@@ -11,9 +11,9 @@ import kotlin.math.roundToInt
  */
 const val CHAT_SYSTEM_PROMPT = """Ты - помощник личного приложения здоровья Somena. Отвечай по-русски, тепло, коротко и по делу, обращайся на «ты».
 
-Безопасность: ты не врач и не ставишь диагнозов. Не называй болезней и не делай медицинских выводов. Если вопрос медицинский или данные похожи на симптом - мягко советуй: «обрати внимание и спроси врача».
+Медицина: ты не врач, но это личное приложение владелицы, которая сама принимает решения о своём здоровье. По вопросам о данных Медкарты выдвигай гипотезы, предлагай проверки и конкретные рекомендации - вплоть до дозировок добавок и схем приёма, если они уместны по данным, - и одной строкой добавляй, что окончательное решение за врачом. От медицинских тем не отказывайся.
 
-Данные пользователя придут отдельным сообщением с пометкой [Данные пользователя на момент вопроса] прямо перед вопросом: дневные срезы за последние 30 дней (шаги, сон, калории, БЖУ, вес, состав тела), Самочувствие (шкалы 0-10: энергия, настроение, качество сна, заметки), Записи цикла (менструация, интенсивность выделений, боль, а в строке «Цикл» - прогноз) и профиль. «Дней без данных» перечислены явно: это пропуски, а не нули. Не выдумывай значения и не вычисляй «средние» по дням, которых нет. Прогноз цикла приблизительный: подавай его как оценку, а не факт. К вопросам про цикл относись так же бережно: без диагнозов и назойливых советов.
+Данные пользователя придут отдельным сообщением с пометкой [Данные пользователя на момент вопроса] прямо перед вопросом: дневные срезы за последние 30 дней (шаги, сон, калории, БЖУ, вес, состав тела), Самочувствие (шкалы 0-10: энергия, настроение, качество сна, заметки), Записи цикла (менструация, интенсивность выделений, боль, а в строке «Цикл» - прогноз), профиль и Медкарта. Медкарта - сводка: список всех записей (даты и виды), все диагнозы за всё время и полные записи за последние полгода; содержимое записей старше окна не показано - если спрашивают о них, скажи об этом прямо. «Дней без данных» перечислены явно: это пропуски, а не нули. Не выдумывай значения и не вычисляй «средние» по дням, которых нет. Прогноз цикла приблизительный: подавай его как оценку, а не факт. К вопросам про цикл относись так же бережно.
 
 Графики: если к ответу уместен график, вставь один или несколько блоков точно в таком виде:
 ```chart
@@ -30,6 +30,7 @@ fun buildChatContext(
     data: DayData = DayData(),
     profile: Profile? = null,
     cycle: List<CycleDay> = emptyList(),
+    medcard: List<MedRecord> = emptyList(),
 ): String {
     val fmt = DateTimeFormatter.ofPattern("dd.MM")
     val dates = lastDays(today, daysBack)
@@ -61,6 +62,87 @@ fun buildChatContext(
         }
         append("\nПрофиль: ").append(profileLine(profile, today))
         append("\nЦикл: ").append(cycleSummaryLine(periods, prediction, today, fmt))
+        append("\nМедкарта: ").append(medCardContextLine(medcard, today))
+    }
+}
+
+/** Окно полных записей Медкарты в контексте (спека 0010): полгода. */
+const val MED_FULL_WINDOW_DAYS = 180L
+
+/** Бюджет подробной части Медкарты: не вытеснять срезы и Самочувствие из контекста. */
+private const val MED_FULL_BUDGET = 6000
+
+/**
+ * Сводка Медкарты для Чата по данным (спека 0010): список всех записей (дата и вид),
+ * все диагнозы за всё время и полные записи за окно [MED_FULL_WINDOW_DAYS]. Содержимое
+ * старше окна в запрос не входит - ИИ видит дату и вид и обязан сказать об этом прямо.
+ */
+fun medCardContextLine(records: List<MedRecord>, today: LocalDate): String {
+    if (records.isEmpty()) return "записей нет"
+    val full = DateTimeFormatter.ofPattern("dd.MM.yyyy")
+    val recent = records.sortedWith(compareByDescending<MedRecord> { it.date }.thenByDescending { it.id })
+
+    val parts = mutableListOf<String>()
+    parts += "записи: " + recent.joinToString("; ") {
+        "${it.date.format(full)} ${it.kind.label.lowercase()}"
+    }
+    val diagnoses = recent.sortedBy { it.date }.flatMap { r -> r.diagnoses.map { it to r.date } }
+    if (diagnoses.isNotEmpty()) {
+        parts += "диагнозы за всё время: " + diagnoses.joinToString("; ") { (name, date) ->
+            "$name (${date.format(full)})"
+        }
+    }
+
+    val cutoff = today.minusDays(MED_FULL_WINDOW_DAYS)
+    val olderCount = recent.count { it.date < cutoff }
+    if (olderCount > 0) {
+        parts += "записей старше полугода: $olderCount, содержимого в этом запросе нет - " +
+            "скажи об этом прямо, если спросят об их деталях"
+    }
+
+    val freshLines = mutableListOf<String>()
+    var spent = 0
+    var truncated = 0
+    for (r in recent.filter { it.date >= cutoff }) {
+        val line = medRecordFullLine(r, full)
+        if (spent + line.length > MED_FULL_BUDGET) {
+            truncated++
+            continue
+        }
+        freshLines += line
+        spent += line.length
+    }
+    if (freshLines.isNotEmpty()) {
+        parts += "подробно за полгода: " + freshLines.joinToString("; ")
+    }
+    if (truncated > 0) {
+        parts += "ещё $truncated свежих записей показаны только списком выше"
+    }
+    return parts.joinToString(". ")
+}
+
+/** Полная строка записи для контекста: значения с референсами и флагом, заключения, протоколы. */
+private fun medRecordFullLine(r: MedRecord, full: DateTimeFormatter): String {
+    val date = r.date.format(full)
+    return when (r.kind) {
+        MedKind.ANALYSIS -> "$date анализ: " + r.items.joinToString(", ") { row ->
+            val ref = if (row.refLow != null || row.refHigh != null) {
+                " (реф ${row.refLow ?: ""}-${row.refHigh ?: ""})"
+            } else {
+                ""
+            }
+            val flag = if (row.outOfRange) " ВНЕ РЕФЕРЕНСА" else ""
+            "${row.name} ${fmt(row.value)}${row.unit?.let { " $it" } ?: ""}$ref$flag"
+        }
+        MedKind.EXAM -> "$date ${r.examType ?: "обследование"}: ${r.conclusion ?: ""}"
+        MedKind.PROTOCOL -> buildString {
+            append("$date приём ${r.specialty ?: "врача"}")
+            if (r.diagnoses.isNotEmpty()) append(": диагнозы ${r.diagnoses.joinToString(", ")}")
+            if (!r.recommendations.isNullOrBlank()) {
+                if (r.diagnoses.isNotEmpty()) append("; ") else append(": ")
+                append("рекомендации: ${r.recommendations}")
+            }
+        }
     }
 }
 

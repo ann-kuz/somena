@@ -393,6 +393,7 @@ fun ChatScreen(m: Modifier) {
                             data = data,
                             profile = ProfileStore(context).load(),
                             cycle = cycleEntries,
+                            medcard = db.allMed(),
                         ),
                         step = step,
                     ).fold(
@@ -413,7 +414,7 @@ fun ChatScreen(m: Modifier) {
     }
 
     Column(m.fillMaxSize().padding(16.dp).imePadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        ScreenHeader("Чат по данным", "ИИ видит твои срезы, Самочувствие и профиль. Не врач: диагнозов не ставит.")
+        ScreenHeader("Чат по данным", "ИИ видит твои срезы, Самочувствие, профиль и Медкарту.")
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             STEP_LABELS.forEach { (key, label) ->
                 PeriodChip(label, selected = step == key, onClick = {
