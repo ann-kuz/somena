@@ -17,6 +17,15 @@ data class AiDataReply(
 
 private val DATA_BLOCK = Regex("```данные\\s*([\\s\\S]*?)```")
 
+/**
+ * Пометка «Внести данные» (кнопка в Чате ставит её сама): сообщение, начинающееся с неё,
+ * - всегда просьба положить данные в долговременное хранение, даже совсем без глаголов.
+ * Промпт обязывает ИИ отвечать на неё блоком ```данные``` в том же ответе.
+ */
+const val DATA_ENTRY_MARKER = "Внести данные"
+
+fun isDataEntryRequest(text: String): Boolean = text.trim().startsWith(DATA_ENTRY_MARKER, ignoreCase = true)
+
 fun parseAiDataEntries(
     reply: String,
     existing: Map<LocalDate, DaySlice>,

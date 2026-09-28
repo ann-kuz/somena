@@ -35,6 +35,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -53,6 +55,7 @@ import kotlinx.coroutines.launch
 import ru.somena.core.AiChartSpec
 import ru.somena.core.AiMetric
 import ru.somena.core.CHAT_SYSTEM_PROMPT
+import ru.somena.core.DATA_ENTRY_MARKER
 import ru.somena.core.DayData
 import ru.somena.core.ImportPreview
 import ru.somena.core.ImportValues
@@ -67,6 +70,7 @@ import ru.somena.core.Wellbeing
 import ru.somena.core.buildChatContext
 import ru.somena.core.decodeTableBytes
 import ru.somena.core.describe
+import ru.somena.core.isDataEntryRequest
 import ru.somena.core.lastDays
 import ru.somena.core.metricSeries
 import ru.somena.core.parseAiCharts
@@ -194,6 +198,8 @@ fun ChatScreen(m: Modifier) {
     var medStep by remember { mutableStateOf(STEP_FAST) }
     var medImport by remember { mutableStateOf<MedImportState?>(null) }
     val listState = rememberLazyListState()
+    // Кнопка «Внести данные» ставит пометку в поле ввода и возвращает фокус в поле.
+    val inputFocus = remember { FocusRequester() }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch(Dispatchers.IO) {
@@ -326,21 +332,25 @@ fun ChatScreen(m: Modifier) {
         for (entry in preview.wellbeing) {
             db.upsert(entry.toWellbeing(db.getWellbeing(entry.date, Wellbeing.SLOT_FIRST)))
         }
-        val note = if (importFromChat) {
-            buildString {
-                val parts = buildList {
-                    if (preview.entries.isNotEmpty()) {
-                        add("показатели на ${preview.entries.size} дн. " +
-                            "(новых ${preview.entries.size - preview.replacedCount}, замен ${preview.replacedCount})")
-                    }
-                    if (preview.wellbeing.isNotEmpty()) {
-                        add("самочувствие на ${preview.wellbeing.size} дн. (замен ${preview.wellbeingReplacedCount})")
-                    }
-                }
-                append("Записала из ответа: ${parts.joinToString(", ")}.")
-                if (preview.rejected.isNotEmpty()) append(" Строк не разобрано: ${preview.rejected.size}.")
+    val note = if (importFromChat) {
+        buildString {
+            append("Записала из ответа")
+            if (preview.entries.isNotEmpty()) {
+                // Даты в итоге записи: сразу видно, на какие дни легли значения.
+                val fmtShort = DateTimeFormatter.ofPattern("dd.MM")
+                val dates = preview.entries.sortedBy { it.date }.map { it.date.format(fmtShort) }
+                val shown = if (dates.size <= 5) dates.joinToString(", ") else "${dates.size} дн."
+                append(": показатели на $shown")
+                append(" (новых ${preview.entries.size - preview.replacedCount}, замен ${preview.replacedCount})")
             }
-        } else {
+            if (preview.wellbeing.isNotEmpty()) {
+                append(if (preview.entries.isEmpty()) ": " else ", ")
+                append("самочувствие на ${preview.wellbeing.size} дн. (замен ${preview.wellbeingReplacedCount})")
+            }
+            append(".")
+            if (preview.rejected.isNotEmpty()) append(" Строк не разобрано: ${preview.rejected.size}.")
+        }
+    } else {
             buildString {
                 val parts = buildList {
                     if (preview.entries.isNotEmpty()) {
@@ -408,8 +418,14 @@ fun ChatScreen(m: Modifier) {
                             // Разбора таблицы, запись - только по явному «Записать».
                             val dataReply = parseAiDataEntries(raw, data.slicesByDate, firstWellbeing(), LocalDate.now())
                             db.addChatMessage(ChatMessage.ASSISTANT, dataReply.text)
-                            if (dataReply.brokenBlocks > 0) {
-                                error = "ИИ попробовала занести данные, но блок не разобрался: попроси повторить."
+                            when {
+                                dataReply.brokenBlocks > 0 ->
+                                    error = "ИИ попробовала занести данные, но блок не разобрался: попроси повторить."
+                                // Пометка «Внести данные» без блока в ответе - не молчание, а отказ вслух:
+                                // так пропавшая запись не выглядит «записанной».
+                                isDataEntryRequest(text) &&
+                                    (dataReply.preview == null || dataReply.preview.entries.isEmpty() && dataReply.preview.wellbeing.isEmpty()) ->
+                                    error = "ИИ не предложила запись. Нажми «Внести данные» ещё раз и напиши дату и значения, например: сожжено 400 за 26.09."
                             }
                             val p = dataReply.preview
                             if (p != null && (p.entries.isNotEmpty() || p.wellbeing.isNotEmpty() || p.rejected.isNotEmpty())) {
@@ -542,6 +558,18 @@ fun ChatScreen(m: Modifier) {
                 }
             }
         }
+        if (attachment == null && importPreview == null) {
+            // «Внести данные»: пометка в поле ввода, по которой ИИ обязан ответить блоком
+            // ```данные``` - предложение попадёт в Предпросмотр, запись только по «Записать».
+            PeriodChip(
+                "Внести данные",
+                selected = isDataEntryRequest(input),
+                onClick = {
+                    if (!isDataEntryRequest(input)) input = "$DATA_ENTRY_MARKER: "
+                    inputFocus.requestFocus()
+                },
+            )
+        }
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             AttachButton(
                 enabled = settings.isConfigured && !busy && importPreview == null,
@@ -565,16 +593,17 @@ fun ChatScreen(m: Modifier) {
                 onValueChange = { input = it },
                 placeholder = {
                     Text(
-                        when (attachment) {
-                            is PendingAttachment.MedDoc -> "Что учесть при разборе документа?"
-                            is PendingAttachment.Table -> "Что внести из таблицы?"
-                            null -> "Спроси о своих данных…"
+                        when {
+                            isDataEntryRequest(input) -> "Что занести? Например: сожжено 400 за 26.09"
+                            attachment is PendingAttachment.MedDoc -> "Что учесть при разборе документа?"
+                            attachment is PendingAttachment.Table -> "Что внести из таблицы?"
+                            else -> "Спроси о своих данных…"
                         }
                     )
                 },
                 enabled = settings.isConfigured && !busy && importPreview == null,
                 maxLines = 4,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).focusRequester(inputFocus),
             )
             SendButton(
                 enabled = settings.isConfigured && !busy && importPreview == null &&

@@ -84,4 +84,13 @@ class ChatEntryTest {
         assertNotNull(r.preview)
         assertEquals(1, r.preview!!.wellbeing.size)
     }
+
+    @Test
+    fun `пометка внесения данных распознаётся в начале сообщения`() {
+        assertTrue(isDataEntryRequest("Внести данные: сожжено 400 за 26.09"))
+        assertTrue(isDataEntryRequest("внести данные"))
+        assertTrue(isDataEntryRequest("  Внести данные: вес 62.4"))
+        assertEquals(false, isDataEntryRequest("Запиши сожжённые 400 за 26.09"))
+        assertEquals(false, isDataEntryRequest("Как внести данные в график?"))
+    }
 }
