@@ -105,6 +105,35 @@ class MedImportTest {
     }
 
     @Test
+    fun `название документа из ответа ИИ ложится в запись`() {
+        val result = parseMedReply(
+            """{"kind":"analysis","date":"12.05.2026","title":"Биохимический анализ крови","items":[{"name":"ТТГ","value":2.1}]}""",
+            today,
+        )!!
+        assertEquals("Биохимический анализ крови", result.draft.title)
+    }
+
+    @Test
+    fun `анализ без названия получает понятное имя обследование и протокол без`() {
+        // Гарантия кода, а не только промпта: в базе не должно быть безымянных анализов.
+        val analysis = parseMedReply(
+            """{"kind":"analysis","date":"12.05.2026","items":[{"name":"ТТГ","value":2.1}]}""",
+            today,
+        )!!
+        assertEquals("Анализ крови", analysis.draft.title)
+
+        val exam = parseMedReply(
+            """{"kind":"exam","date":"12.05.2026","exam_type":"ЭКГ"}""", today,
+        )!!
+        assertNull(exam.draft.title)
+        val protocol = parseMedReply(
+            """{"kind":"protocol","date":"12.05.2026","specialty":"Эндокринолог","diagnoses":["А"]}""",
+            today,
+        )!!
+        assertNull(protocol.draft.title)
+    }
+
+    @Test
     fun `вид не назван но содержимое однозначное - доверяем содержимому`() {
         val result = parseMedReply(
             """{"items":[{"name":"ТТГ","value":2.1}]}""", today,

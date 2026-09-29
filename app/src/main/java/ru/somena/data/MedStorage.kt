@@ -4,9 +4,17 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
+import ru.somena.core.StorageEntry
+import ru.somena.core.collectStorageFiles
 
-/** Файл Хранилища: uri документа SAF, имя, размер и тип. */
-data class StorageFile(val uri: String, val name: String, val sizeBytes: Long, val mime: String?)
+/** Файл Хранилища: uri документа SAF, имя, размер, тип и путь папки от корня. */
+data class StorageFile(
+    val uri: String,
+    val name: String,
+    val sizeBytes: Long,
+    val mime: String?,
+    val folder: String? = null,
+)
 
 /** Оригинал, скопированный в Хранилище: uri и имя (SAF мог дописать суффикс от коллизии). */
 data class StoredOriginal(val uri: String, val name: String)
@@ -40,38 +48,51 @@ class MedStorage(private val context: Context) {
         prefs.edit().putString(KEY_FOLDER, uri.toString()).apply()
     }
 
-    /** Файлы Хранилища без каталогов, насколько SAF их отдаёт. */
+    /** Файлы Хранилища на всю глубину вложенных папок (спека 0010). */
     fun listFiles(): List<StorageFile> {
         val tree = folderUri() ?: return emptyList()
         return runCatching {
-            val children = DocumentsContract.buildChildDocumentsUriUsingTree(
-                tree, DocumentsContract.getTreeDocumentId(tree)
-            )
-            context.contentResolver.query(
-                children,
-                arrayOf(
-                    DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                    DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                    DocumentsContract.Document.COLUMN_MIME_TYPE,
-                    DocumentsContract.Document.COLUMN_SIZE,
-                ),
-                null, null, null,
-            )?.use { c ->
-                buildList {
-                    while (c.moveToNext()) {
-                        if (c.getString(2) == DocumentsContract.Document.MIME_TYPE_DIR) continue
-                        add(
-                            StorageFile(
-                                uri = DocumentsContract.buildDocumentUriUsingTree(tree, c.getString(0)).toString(),
-                                name = c.getString(1)?.takeIf { it.isNotBlank() } ?: "файл",
-                                sizeBytes = c.getLong(3),
-                                mime = c.getString(2),
-                            )
-                        )
-                    }
-                }
-            } ?: emptyList()
+            collectStorageFiles(DocumentsContract.getTreeDocumentId(tree)) { dirId ->
+                childrenOf(tree, dirId)
+            }.map { hit ->
+                StorageFile(
+                    uri = DocumentsContract.buildDocumentUriUsingTree(tree, hit.entry.documentId).toString(),
+                    name = hit.entry.name.takeIf { it.isNotBlank() } ?: "файл",
+                    sizeBytes = hit.entry.sizeBytes,
+                    mime = hit.entry.mime,
+                    folder = hit.folder,
+                )
+            }
         }.getOrDefault(emptyList())
+    }
+
+    /** Прямые дети документа SAF: файлы и папки одним списком, разбор по типу MIME. */
+    private fun childrenOf(tree: Uri, dirId: String): List<StorageEntry> {
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, dirId)
+        return context.contentResolver.query(
+            children,
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_MIME_TYPE,
+                DocumentsContract.Document.COLUMN_SIZE,
+            ),
+            null, null, null,
+        )?.use { c ->
+            buildList {
+                while (c.moveToNext()) {
+                    add(
+                        StorageEntry(
+                            documentId = c.getString(0),
+                            name = c.getString(1) ?: "",
+                            isDir = c.getString(2) == DocumentsContract.Document.MIME_TYPE_DIR,
+                            sizeBytes = c.getLong(3),
+                            mime = c.getString(2),
+                        )
+                    )
+                }
+            }
+        } ?: emptyList()
     }
 
     /** Открыть оригинал внешним просмотрщиком; false - не нашлось чем открыть. */

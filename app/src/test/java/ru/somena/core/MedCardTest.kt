@@ -41,6 +41,21 @@ class MedCardTest {
     }
 
     @Test
+    fun `название анализа возглавляет сводки списка и чата`() {
+        val record = MedRecord(
+            kind = MedKind.ANALYSIS,
+            date = past,
+            title = "Биохимический анализ крови",
+            items = listOf(AnalyteRow("Гемоглобин", 134.0, "г/л", 120.0, 150.0)),
+        )
+        assertEquals("Биохимический анализ крови: 1 показатель", record.describe())
+        assertEquals(
+            "Биохимический анализ крови от 12.05.2026: 1 показатель",
+            record.chatSummary(),
+        )
+    }
+
+    @Test
     fun `сводки обследования и протокола строятся из их полей`() {
         val exam = MedRecord(
             kind = MedKind.EXAM,

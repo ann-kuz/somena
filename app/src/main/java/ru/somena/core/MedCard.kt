@@ -47,6 +47,7 @@ data class MedRecord(
     val createdAt: Long = 0,
     val fileUri: String? = null,
     val fileName: String? = null,
+    val title: String? = null,                   // Понятное название («Биохимический анализ крови»)
     val items: List<AnalyteRow> = emptyList(),   // Анализ
     val examType: String? = null,                // Обследование: «УЗИ щитовидной железы»
     val conclusion: String? = null,              // Обследование: заключение текстом
@@ -56,8 +57,15 @@ data class MedRecord(
 ) {
     val outOfRangeCount: Int get() = items.count { it.outOfRange }
 
+    /** Название записи для списков и итогов: понятное название или вид. */
+    fun name(): String = title?.takeIf { it.isNotBlank() } ?: kind.label
+
     /** Подзаголовок записи в списке Медкарты и Предпросмотре. */
-    fun describe(): String = when (kind) {
+    fun describe(): String =
+        if (kind == MedKind.ANALYSIS && !title.isNullOrBlank()) "$title: ${contents()}" else contents()
+
+    /** Содержательная часть без названия: для строк «название: содержимое». */
+    fun contents(): String = when (kind) {
         MedKind.ANALYSIS -> buildString {
             append("${items.size} ${pluralIndicator(items.size)}")
             if (outOfRangeCount > 0) append(", $outOfRangeCount вне референса")
@@ -75,8 +83,8 @@ data class MedRecord(
         }
     }
 
-    /** Строка итога для истории чата: «Анализ от 12.05.2026: 24 показателя, 3 вне референса». */
-    fun chatSummary(): String = "${kind.label} от ${date.format(MED_DATE)}: ${describe()}"
+    /** Строка итога для истории чата: «Биохимический анализ крови от 12.05.2026: 24 показателя, 3 вне референса». */
+    fun chatSummary(): String = "${name()} от ${date.format(MED_DATE)}: ${contents()}"
 }
 
 private val MED_DATE = DateTimeFormatter.ofPattern("dd.MM.yyyy")

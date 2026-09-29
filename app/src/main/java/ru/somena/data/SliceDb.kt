@@ -55,6 +55,7 @@ data class ChatMessage(val role: String, val content: String, val sentAt: Long) 
 /** Носимое содержимое записи Медкарта (спека 0010): поля по виду записи. */
 @Serializable
 private data class MedPayloadDto(
+    val title: String? = null,
     val examType: String? = null,
     val conclusion: String? = null,
     val specialty: String? = null,
@@ -73,6 +74,7 @@ private data class MedItemDto(
 )
 
 private fun MedRecord.toMedPayload() = MedPayloadDto(
+    title = title?.takeIf { it.isNotBlank() },
     examType = examType?.takeIf { it.isNotBlank() },
     conclusion = conclusion?.takeIf { it.isNotBlank() },
     specialty = specialty?.takeIf { it.isNotBlank() },
@@ -98,6 +100,7 @@ private fun medPayloadToRecord(
     createdAt = createdAt,
     fileUri = fileUri,
     fileName = fileName,
+    title = payload.title,
     items = payload.items.map {
         AnalyteRow(it.name, it.value, it.unit, it.refLow, it.refHigh)
     },

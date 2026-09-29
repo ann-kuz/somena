@@ -90,7 +90,7 @@ fun medCardContextLine(records: List<MedRecord>, today: LocalDate): String {
 
     val parts = mutableListOf<String>()
     parts += "записи: " + recent.joinToString("; ") {
-        "${it.date.format(full)} ${it.kind.label.lowercase()}"
+        "${it.date.format(full)} ${it.title ?: it.kind.label.lowercase()}"
     }
     val diagnoses = recent.sortedBy { it.date }.flatMap { r -> r.diagnoses.map { it to r.date } }
     if (diagnoses.isNotEmpty()) {
@@ -131,7 +131,7 @@ fun medCardContextLine(records: List<MedRecord>, today: LocalDate): String {
 private fun medRecordFullLine(r: MedRecord, full: DateTimeFormatter): String {
     val date = r.date.format(full)
     return when (r.kind) {
-        MedKind.ANALYSIS -> "$date анализ: " + r.items.joinToString(", ") { row ->
+        MedKind.ANALYSIS -> "$date ${r.title ?: "анализ"}: " + r.items.joinToString(", ") { row ->
             val ref = if (row.refLow != null || row.refHigh != null) {
                 " (реф ${row.refLow ?: ""}-${row.refHigh ?: ""})"
             } else {

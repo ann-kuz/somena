@@ -15,11 +15,12 @@ import kotlinx.serialization.json.Json
 const val MED_IMPORT_SYSTEM_PROMPT = """Ты - разборщик медицинских документов приложения здоровья Somena. Пользователь пришлёт текст или изображения медицинского документа: лабораторный анализ, заключение обследования или протокол приёма врача. Верни строгий JSON и никакой другой текст.
 
 Формат ответа:
-{"kind":"analysis","date":"ГГГГ-ММ-ДД","items":[{"name":"Гемоглобин","value":134,"unit":"г/л","ref_low":120,"ref_high":150}],"exam_type":null,"conclusion":null,"specialty":null,"diagnoses":[],"recommendations":null,"unparsed":[{"row":"фрагмент","problem":"что не так"}]}
+{"kind":"analysis","date":"ГГГГ-ММ-ДД","title":"Биохимический анализ крови","items":[{"name":"Гемоглобин","value":134,"unit":"г/л","ref_low":120,"ref_high":150}],"exam_type":null,"conclusion":null,"specialty":null,"diagnoses":[],"recommendations":null,"unparsed":[{"row":"фрагмент","problem":"что не так"}]}
 
 Правила:
 - kind: "analysis" - лабораторный бланк с показателями; "exam" - заключение обследования (УЗИ, МРТ, КТ, ЭКГ, рентген и подобные); "protocol" - приём врача с диагнозами и рекомендациями.
 - date - дата документа (сдачи, обследования или приёма) в виде ГГГГ-ММ-ДД; русская запись 05.01.2025 означает 5 января 2025. Даты в документе нет - оставь null, не выдумывай.
+- title - понятное название документа для списка Медкарты. Для analysis обязательно: возьми название бланка из документа («Биохимический анализ крови», «Общий анализ крови»), а если явного названия нет - назови по сути показателей, но не одним общим словом «анализ». Для exam и protocol заполни, только если в документе есть отдельное название, отличное от вида и специальности; иначе null.
 - items - только для analysis: каждый показатель отдельной строкой; value - число, запятую как десятичный разделитель меняй на точку; unit - единицы измерения; ref_low и ref_high - границы референса из документа, если указаны.
 - exam_type - вид обследования, например «УЗИ щитовидной железы»; conclusion - заключение текстом по существу, близко к оригиналу.
 - specialty - специальность врача; diagnoses - список диагнозов; recommendations - рекомендации текстом.
@@ -56,6 +57,7 @@ private data class MedUnparsedDto(val row: String? = null, val problem: String? 
 private data class MedReplyDto(
     val kind: String? = null,
     val date: String? = null,
+    val title: String? = null,
     val items: List<MedItemDto> = emptyList(),
     val exam_type: String? = null,
     val conclusion: String? = null,
@@ -121,9 +123,13 @@ fun parseMedReply(
     }
 
     val diagnoses = reply.diagnoses.map { it.trim() }.filter { it.isNotEmpty() }
+    val parsedTitle = reply.title?.trim()?.takeIf { it.isNotBlank() }
     val draft = MedRecord(
         kind = kind,
         date = reply.date?.let { parseLooseDate(it) } ?: today,
+        // Обследование и протокол зовутся видом и специальностью; безымянному анализу
+        // даём минимально понятное имя - «Анализ» в списке не различает записи.
+        title = parsedTitle ?: if (kind == MedKind.ANALYSIS) "Анализ крови" else null,
         items = items,
         examType = reply.exam_type?.trim()?.takeIf { it.isNotBlank() },
         conclusion = reply.conclusion?.trim()?.takeIf { it.isNotBlank() },

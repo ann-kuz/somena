@@ -425,8 +425,8 @@ fun MedFilesScreen(
             if (files.isEmpty()) {
                 GlassCard(Modifier.fillMaxWidth()) {
                     Text(
-                        "В папке пока пусто. Положи туда pdf и картинки - они появятся здесь " +
-                            "и будут готовы к Разбору.",
+                        "В папке пока пусто. Положи туда pdf и картинки - можно в подпапки - " +
+                            "они появятся здесь и будут готовы к Разбору.",
                         color = TextMuted,
                         style = MaterialTheme.typography.bodyMedium,
                     )
@@ -438,7 +438,7 @@ fun MedFilesScreen(
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(file.name, style = MaterialTheme.typography.bodyMedium)
                             Text(
-                                formatBytes(file.sizeBytes),
+                                listOfNotNull(file.folder, formatBytes(file.sizeBytes)).joinToString(" · "),
                                 color = TextMuted,
                                 style = MaterialTheme.typography.labelSmall,
                             )
@@ -474,7 +474,7 @@ fun MedFilesScreen(
                                     ) {
                                         records.forEach { record ->
                                             Text(
-                                                "${record.date.format(MED_LIST_DATE)}, ${record.kind.label}: ${record.describe()}",
+                                                "${record.date.format(MED_LIST_DATE)}, ${record.name()}: ${record.contents()}",
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 modifier = Modifier
                                                     .fillMaxWidth()
@@ -576,6 +576,7 @@ fun MedRecordEditor(
 ) {
     val context = LocalContext.current
     var kind by remember { mutableStateOf(initial.kind) }
+    var titleText by remember { mutableStateOf(initial.title ?: "") }
     var dateText by remember {
         mutableStateOf(initial.date.format(MED_LIST_DATE))
     }
@@ -621,6 +622,7 @@ fun MedRecordEditor(
             createdAt = initial.createdAt,
             fileUri = initial.fileUri,
             fileName = initial.fileName,
+            title = titleText.trim().ifBlank { null },
             items = rows,
             examType = examType.trim().ifBlank { null },
             conclusion = conclusion.trim().ifBlank { null },
@@ -675,6 +677,13 @@ fun MedRecordEditor(
                 )
                 when (kind) {
                     MedKind.ANALYSIS -> {
+                        OutlinedTextField(
+                            value = titleText,
+                            onValueChange = { titleText = it },
+                            label = { Text("Название («Биохимический анализ крови»)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                         items.forEachIndexed { i, row ->
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
