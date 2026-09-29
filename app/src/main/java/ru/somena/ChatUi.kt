@@ -53,7 +53,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -100,6 +102,7 @@ import ru.somena.core.parseAiDataEntries
 import ru.somena.core.parseImportReply
 import ru.somena.core.parseManualNumber
 import ru.somena.core.parseMedReply
+import ru.somena.core.sentenceCaseTyped
 import ru.somena.core.toSlice
 import ru.somena.core.toWellbeing
 import ru.somena.data.ChatClient
@@ -205,7 +208,7 @@ fun ChatScreen(m: Modifier) {
     }
     val cycleEntries = remember { db.allCycleDays() }
     var messages by remember { mutableStateOf(db.chatHistory()) }
-    var input by remember { mutableStateOf("") }
+    var input by remember { mutableStateOf(TextFieldValue("")) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var step by remember { mutableStateOf(settings.modelStep) }
@@ -274,7 +277,7 @@ fun ChatScreen(m: Modifier) {
     fun startImport(question: String) {
         val (name, tableText) = attachment as? PendingAttachment.Table ?: return
         busy = true
-        input = ""
+        input = TextFieldValue("")
         scope.launch {
                     client.askImport(tableText, question).fold(
                         onSuccess = { raw ->
@@ -298,7 +301,7 @@ fun ChatScreen(m: Modifier) {
     fun startMedImport(question: String) {
         val doc = attachment as? PendingAttachment.MedDoc ?: return
         busy = true
-        input = ""
+        input = TextFieldValue("")
         scope.launch {
             client.askDocumentImport(
                 attachment = doc.text,
@@ -437,7 +440,7 @@ fun ChatScreen(m: Modifier) {
             is PendingAttachment.Table -> startImport(text.ifBlank { "Разбери таблицу." })
             is PendingAttachment.MedDoc -> startMedImport(text.ifBlank { "Разбери документ." })
             null -> {
-                input = ""
+                input = TextFieldValue("")
                 db.addChatMessage(ChatMessage.USER, text)
                 messages = db.chatHistory()
                 busy = true
@@ -646,25 +649,24 @@ fun ChatScreen(m: Modifier) {
             )
             OutlinedTextField(
                 value = input,
-                onValueChange = { input = it },
-                placeholder = {
-                    Text(
-                        when {
-                            isDataEntryRequest(input) -> "Что занести? Например: сожжено 400 за 26.09"
-                            attachment is PendingAttachment.MedDoc -> "Что учесть при разборе документа?"
-                            attachment is PendingAttachment.Table -> "Что внести из таблицы?"
-                            else -> "Спроси о своих данных…"
-                        }
-                    )
+                // Автозаглавие предложений: правим только чистую вставку (core-функция
+                // с тестами), курсор из события остаётся валиден - длина не меняется.
+                onValueChange = { v -> input = v.copy(text = sentenceCaseTyped(input.text, v.text)) },
+                placeholder = when {
+                    isDataEntryRequest(input.text) -> ({ Text("Что занести? Например: сожжено 400 за 26.09") })
+                    attachment is PendingAttachment.MedDoc -> ({ Text("Что учесть при разборе документа?") })
+                    attachment is PendingAttachment.Table -> ({ Text("Что внести из таблицы?") })
+                    else -> null
                 },
                 enabled = settings.isConfigured && !busy && importPreview == null,
                 maxLines = 4,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 modifier = Modifier.weight(1f),
             )
             SendButton(
                 enabled = settings.isConfigured && !busy && importPreview == null &&
-                    (input.isNotBlank() || attachment != null),
-                onClick = { send(input) },
+                    (input.text.isNotBlank() || attachment != null),
+                onClick = { send(input.text) },
             )
         }
     }
@@ -960,11 +962,10 @@ private fun NeonChip(
     ) {
         Text(
             label,
-            Modifier.padding(horizontal = 14.dp),
+            Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
             style = MaterialTheme.typography.labelLarge,
             color = if (active) Color(0xFFF3F0FF) else Color(0xFFDCD6F2),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
     }
 }
@@ -1056,31 +1057,33 @@ private fun ManualEntryDialog(
                         }
                     }
                 } else if (date == null) {
+                    // Даты - пилюлями по две; «Другая дата» - отдельной строкой на всю
+                    // ширину: длинная подпись не жмётся в половину экрана.
                     listOf(
                         "Сегодня" to today,
                         "Вчера" to today.minusDays(1),
                         "Позавчера" to today.minusDays(2),
-                        (if (showCalendar) "Свернуть календарь" else "Другая дата") to null,
                     ).chunked(2).forEach { row ->
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             row.forEach { (label, d) ->
                                 NeonChip(
                                     label,
                                     onClick = {
-                                        if (d != null) {
-                                            date = d
-                                            resetValueInputs(metric, d)
-                                        } else {
-                                            showCalendar = !showCalendar
-                                        }
+                                        date = d
+                                        resetValueInputs(metric, d)
                                     },
                                     modifier = Modifier.weight(1f),
-                                    active = d == null && showCalendar,
                                 )
                             }
                             if (row.size == 1) Spacer(Modifier.weight(1f))
                         }
                     }
+                    NeonChip(
+                        if (showCalendar) "Свернуть календарь" else "Другая дата",
+                        onClick = { showCalendar = !showCalendar },
+                        modifier = Modifier.fillMaxWidth(),
+                        active = showCalendar,
+                    )
                     if (showCalendar) {
                         ManualMonthPicker(month, today, picked = {
                             month = YearMonth.from(it)
