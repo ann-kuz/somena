@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -46,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.border
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -123,6 +125,7 @@ import ru.somena.ui.PeriodChip
 import ru.somena.ui.ScreenHeader
 import ru.somena.ui.TextMuted
 import ru.somena.ui.Violet
+import ru.somena.ui.neonHalo
 import ru.somena.ui.neonSurface
 
 private val SUGGESTIONS = listOf(
@@ -616,10 +619,11 @@ fun ChatScreen(m: Modifier) {
         if (attachment == null && importPreview == null) {
             // «Внести данные»: меню категории - дата - значение, вовсе без ИИ
             // (Быстрая ступень обещала «записала», но Предпросмотра не было, инцидент 29.09).
-            PeriodChip(
+            NeonChip(
                 "Внести данные",
-                selected = manualEntry,
                 onClick = { manualEntry = true },
+                modifier = Modifier.fillMaxWidth(),
+                active = manualEntry,
             )
         }
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -924,6 +928,46 @@ fun ChatSettingsSection() {
  * итог уходит тем же Предпросмотром, запись - по явному «Записать».
  */
 @Composable
+private fun NeonChip(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    active: Boolean = false,
+) {
+    // Стекло Темы с постоянным неоновым ореолом: активная ступень ярче (правило
+    // «выбранная пилюля - неоновое стекло», спека 0002, применено к меню внесения).
+    val fill = if (active) {
+        Brush.linearGradient(listOf(Violet.copy(alpha = 0.34f), Indigo.copy(alpha = 0.20f)))
+    } else {
+        Brush.linearGradient(listOf(Violet.copy(alpha = 0.16f), Indigo.copy(alpha = 0.10f)))
+    }
+    val border = if (active) {
+        BorderStroke(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.50f), Violet.copy(alpha = 0.40f))))
+    } else {
+        BorderStroke(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.30f), Violet.copy(alpha = 0.22f))))
+    }
+    Box(
+        modifier
+            .heightIn(min = 44.dp)
+            .neonHalo(Violet, cornerRadius = 24.dp, glow = if (active) 12.dp else 6.dp, alpha = if (active) 0.24f else 0.15f)
+            .clip(CircleShape)
+            .background(fill)
+            .border(border, CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            Modifier.padding(horizontal = 14.dp),
+            style = MaterialTheme.typography.labelLarge,
+            color = if (active) Color(0xFFF3F0FF) else Color(0xFFDCD6F2),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
 private fun ManualEntryDialog(
     onDismiss: () -> Unit,
     onConfirm: (ImportPreview) -> Unit,
@@ -996,13 +1040,12 @@ private fun ManualEntryDialog(
                     style = MaterialTheme.typography.titleSmall,
                 )
                 if (metric == null) {
-                    // Категории - сеткой по две: пилюли одного ритма, как селектор Ступени.
+                    // Категории - сеткой по две: светящееся стекло пилюль одного ритма.
                     ManualMetric.entries.chunked(2).forEach { row ->
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             row.forEach { m ->
-                                PeriodChip(
+                                NeonChip(
                                     m.label,
-                                    selected = false,
                                     onClick = { metric = m },
                                     modifier = Modifier.weight(1f),
                                 )
@@ -1019,9 +1062,8 @@ private fun ManualEntryDialog(
                     ).chunked(2).forEach { row ->
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             row.forEach { (label, d) ->
-                                PeriodChip(
+                                NeonChip(
                                     label,
-                                    selected = showCalendar && d == null,
                                     onClick = {
                                         if (d != null) {
                                             date = d
@@ -1031,6 +1073,7 @@ private fun ManualEntryDialog(
                                         }
                                     },
                                     modifier = Modifier.weight(1f),
+                                    active = d == null && showCalendar,
                                 )
                             }
                             if (row.size == 1) Spacer(Modifier.weight(1f))
