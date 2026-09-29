@@ -670,16 +670,18 @@ fun ChatScreen(m: Modifier) {
     }
 
     // Предпросмотр Разбора документа (спека 0010): редактор записи с баннером предупреждений;
-    // запись - только по явному «Записать».
+    // запись - только по явному «Записать». Полноэкранный слой области вкладки.
     medImport?.let { state ->
-        MedRecordEditor(
-            initial = state.result.draft,
-            title = "Разбор документа «${state.name}»",
-            saveLabel = "Записать",
-            onSave = ::confirmMedImport,
-            onDismiss = { medImport = null },
-            banner = { MedImportWarnings(state.result, pagesTotal = state.pagesTotal) },
-        )
+        Box(m.fillMaxSize()) {
+            MedRecordEditor(
+                initial = state.result.draft,
+                title = "Разбор документа «${state.name}»",
+                saveLabel = "Записать",
+                onSave = ::confirmMedImport,
+                onDismiss = { medImport = null },
+                banner = { MedImportWarnings(state.result, pagesTotal = state.pagesTotal) },
+            )
+        }
     }
 
     // Ручное внесение (кнопка «Внести данные»): итог уходит тем же Предпросмотром.

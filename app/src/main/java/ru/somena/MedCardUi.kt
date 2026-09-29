@@ -1,9 +1,11 @@
 package ru.somena
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,10 +16,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -40,10 +40,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import android.net.Uri
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -225,29 +224,8 @@ fun MedCardScreen(m: Modifier) {
         )
     }
 
-    editing?.let { initial ->
-        MedRecordEditor(
-            initial = initial,
-            title = if (initial.id == 0L) "Новая запись Медкарты" else "Запись от ${initial.date.format(MED_LIST_DATE)}",
-            saveLabel = "Сохранить",
-            onSave = { record ->
-                if (record.id == 0L) db.insertMed(record) else db.updateMed(record)
-                editing = null
-                reload()
-            },
-            onDelete = if (initial.id != 0L) {
-                {
-                    db.deleteMed(initial.id)
-                    editing = null
-                    reload()
-                }
-            } else null,
-            onDismiss = { editing = null },
-        )
-    }
-
     if (showFiles) {
-        Box(Modifier.fillMaxSize().background(BgBase)) {
+        Box(m.fillMaxSize().background(BgBase)) {
             NebulaBackground()
             MedFilesScreen(
                 Modifier.fillMaxSize(),
@@ -255,6 +233,30 @@ fun MedCardScreen(m: Modifier) {
                 index = index,
                 onChanged = { reload() },
                 onBack = { showFiles = false },
+            )
+        }
+    }
+
+    // Редактор - полноэкранный слой в окне приложения: поверх Хранилища, если оба открыты.
+    editing?.let { initial ->
+        Box(m.fillMaxSize()) {
+            MedRecordEditor(
+                initial = initial,
+                title = if (initial.id == 0L) "Новая запись Медкарты" else "Запись от ${initial.date.format(MED_LIST_DATE)}",
+                saveLabel = "Сохранить",
+                onSave = { record ->
+                    if (record.id == 0L) db.insertMed(record) else db.updateMed(record)
+                    editing = null
+                    reload()
+                },
+                onDelete = if (initial.id != 0L) {
+                    {
+                        db.deleteMed(initial.id)
+                        editing = null
+                        reload()
+                    }
+                } else null,
+                onDismiss = { editing = null },
             )
         }
     }
@@ -506,11 +508,7 @@ fun MedFilesScreen(
     }
 
     Column(
-        m.fillMaxSize()
-            // Слой живёт поверх Scaffold без его отступов: уходим от панели навигации сами.
-            .navigationBarsPadding()
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
+        m.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         ScreenHeader("Файлы Хранилища", "Папка с оригиналами документов Медкарты")
@@ -705,14 +703,16 @@ fun MedFilesScreen(
 
     // Предпросмотр Разбора файла (тикет 05): замена честно названа, запись - по «Записать».
     fileImport?.let { state ->
-        MedRecordEditor(
-            initial = state.result.draft,
-            title = "Разбор файла «${state.file.name}»",
-            saveLabel = if (state.replaceOf != null) "Заменить запись" else "Записать",
-            onSave = ::confirmFileImport,
-            onDismiss = { fileImport = null },
-            banner = { MedImportWarnings(state.result, pagesTotal = state.pagesTotal, replaceOf = state.replaceOf) },
-        )
+        Box(m.fillMaxSize()) {
+            MedRecordEditor(
+                initial = state.result.draft,
+                title = "Разбор файла «${state.file.name}»",
+                saveLabel = if (state.replaceOf != null) "Заменить запись" else "Записать",
+                onSave = ::confirmFileImport,
+                onDismiss = { fileImport = null },
+                banner = { MedImportWarnings(state.result, pagesTotal = state.pagesTotal, replaceOf = state.replaceOf) },
+            )
+        }
     }
 }
 
@@ -826,24 +826,27 @@ fun MedRecordEditor(
         }
     }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        // Диалог сам честно отступает от системных панелей и клавиатуры: без этого
-        // нижние кнопки («Отмена», «Удалить запись») уезжают под панель навигации.
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    // Полноэкранный слой вместо системного диалога: окно диалога на части прошивок
+    // не доносит отступы до контента, и нижние кнопки («Отмена», «Удалить запись»)
+    // оставались под панелью навигации. Слой живёт в окне приложения и занимает
+    // область вкладки: от статус-бара и панели навигации его отводит Scaffold.
+    BackHandler(onBack = onDismiss)
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(BgBase)
+            // Слой глух к касаниям мимо полей: список под ним не нажимается.
+            .pointerInput(Unit) { detectTapGestures { } },
     ) {
-        Box(Modifier.fillMaxSize().background(BgBase)) {
-            NebulaBackground()
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
-                    .imePadding()
-                    .padding(16.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
+        NebulaBackground()
+        Column(
+            Modifier
+                .fillMaxSize()
+                .imePadding()
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
                 ScreenHeader(title, "Запись Медкарты")
                 banner()
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1015,7 +1018,6 @@ fun MedRecordEditor(
                     }
                 }
             }
-        }
     }
 }
 
