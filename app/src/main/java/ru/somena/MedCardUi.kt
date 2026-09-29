@@ -42,16 +42,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.somena.core.AnalyteRow
+import ru.somena.core.DirChildren
 import ru.somena.core.MedFileIndex
 import ru.somena.core.MedImportResult
 import ru.somena.core.MedKind
 import ru.somena.core.MedRecord
 import ru.somena.core.MedValidator
+import ru.somena.core.StorageEntry
+import ru.somena.core.TreeRow
 import ru.somena.core.fmt
 import ru.somena.core.numericFieldError
 import ru.somena.core.parseLooseDate
 import ru.somena.core.parseMedReply
 import ru.somena.core.parseOptionalDouble
+import ru.somena.core.treeRows
 import ru.somena.data.ChatClient
 import ru.somena.data.ChatLog
 import ru.somena.data.ChatMessage
@@ -88,24 +92,26 @@ fun MedCardScreen(m: Modifier) {
     val storage = remember { MedStorage(context) }
     val scope = rememberCoroutineScope()
     var records by remember { mutableStateOf(db.allMed()) }
-    var files by remember { mutableStateOf(listOf<StorageFile>()) }
-    var filesLoading by remember { mutableStateOf(true) }
+    var existingUris by remember { mutableStateOf<Set<String>?>(null) }
     var editing by remember { mutableStateOf<MedRecord?>(null) }
     var showFiles by remember { mutableStateOf(false) }
 
-    // Обход Хранилища - по binder-запросу на каждую папку, дерево бывает большое:
-    // только в фоне, иначе вкладка замирает на составлении экрана.
+    // Оригиналы проверяются точечно - по одному запросу на запись, без обхода дерева.
     fun reload() {
         records = db.allMed()
         scope.launch {
-            files = withContext(Dispatchers.IO) { storage.listFiles() }
-            filesLoading = false
+            existingUris = withContext(Dispatchers.IO) {
+                records.mapNotNull { it.fileUri }.filter { storage.documentExists(it) }.toSet()
+            }
         }
     }
 
     LaunchedEffect(Unit) { reload() }
 
-    val index = remember(records, files) { MedFileIndex(records, files.map { it.uri }.toSet()) }
+    // Пока идёт проверка, пропажи не объявляются: считаем все оригиналы на месте.
+    val index = remember(records, existingUris) {
+        MedFileIndex(records, existingUris ?: records.mapNotNull { it.fileUri }.toSet())
+    }
 
     Column(m.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.Bottom) {
@@ -181,8 +187,7 @@ fun MedCardScreen(m: Modifier) {
             MedFilesScreen(
                 Modifier.fillMaxSize(),
                 records = records,
-                files = files,
-                filesLoading = filesLoading,
+                index = index,
                 onChanged = { reload() },
                 onBack = { showFiles = false },
             )
@@ -290,21 +295,21 @@ fun MedImportWarnings(
 }
 
 /**
- * Файловый список Хранилища (спека 0010, тикеты 02 и 05): выбор папки, бейджи «разобран»,
- * открытие внешним просмотрщиком, привязка файла к записи и Разбор выбранного файла -
- * тем путём, который положен его типу: плотный текст pdf - текстом, скан и картинка -
- * зрением (ADR-0009). Переразбор заменяет запись файла через тот же Предпросмотр;
- * ничего не разбирается без явного выбора Пользователя. Приложение файлы только читает -
- * удаление и переименование остаются за Пользователем снаружи.
+ * Файловое дерево Хранилища (спека 0010, тикеты 02 и 05): структура с папками как
+ * на диске, уровень читается одним запросом при раскрытии - не всё дерево сразу.
+ * Бейджи «разобран», открытие внешним просмотрщиком, привязка файла к записи и
+ * Разбор выбранного файла - тем путём, который положен его типу: плотный текст pdf -
+ * текстом, скан и картинка - зрением (ADR-0009). Переразбор заменяет запись файла
+ * через тот же Предпросмотр; ничего не разбирается без явного выбора Пользователя.
+ * Приложение файлы только читает - удаление и переименование остаются за Пользователем.
  */
 @Composable
 fun MedFilesScreen(
     m: Modifier,
     records: List<MedRecord>,
-    files: List<StorageFile>,
+    index: MedFileIndex,
     onChanged: () -> Unit,
     onBack: () -> Unit,
-    filesLoading: Boolean = false,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -314,7 +319,9 @@ fun MedFilesScreen(
     val client = remember {
         ChatClient(settings.endpoint(), log = { line -> ChatLog.append(context, line) })
     }
-    val index = remember(records, files) { MedFileIndex(records, files.map { it.uri }.toSet()) }
+    var root by remember { mutableStateOf(storage.rootId()) }
+    var children by remember { mutableStateOf<Map<String, DirChildren>>(emptyMap()) }
+    var expanded by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selected by remember { mutableStateOf<StorageFile?>(null) }
     var bindingFile by remember { mutableStateOf<StorageFile?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -325,8 +332,37 @@ fun MedFilesScreen(
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             storage.setFolder(uri)
+            root = storage.rootId()
+            children = emptyMap()
+            expanded = emptySet()
             onChanged()
         }
+    }
+
+    /** Чтение одного уровня - единственная тяжёлая операция экрана, всегда в фоне. */
+    fun loadDir(dirId: String) {
+        if (dirId in children) return
+        scope.launch {
+            val level = withContext(Dispatchers.IO) {
+                storage.listChildren(dirId) ?: DirChildren(emptyList(), emptyList())
+            }
+            children = children + (dirId to level)
+        }
+    }
+
+    LaunchedEffect(root) { root?.let { loadDir(it) } }
+
+    fun toggleFolder(entry: StorageEntry) {
+        if (entry.documentId in expanded) {
+            expanded -= entry.documentId
+        } else {
+            loadDir(entry.documentId)
+            expanded += entry.documentId
+        }
+    }
+
+    val rows = remember(children, expanded, root) {
+        treeRows(root?.let { children[it] }, children, expanded)
     }
 
     fun startFileImport(file: StorageFile) {
@@ -435,108 +471,149 @@ fun MedFilesScreen(
             error?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
-            if (files.isEmpty()) {
+            if (root != null && root !in children) {
                 GlassCard(Modifier.fillMaxWidth()) {
                     Text(
-                        if (filesLoading) {
-                            "Читаю папку и подпапки…"
-                        } else {
-                            "В папке пока пусто. Положи туда pdf и картинки - можно в подпапки - " +
-                                "они появятся здесь и будут готовы к Разбору."
-                        },
+                        "Читаю папку…",
                         color = TextMuted,
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
             }
-            files.forEach { file ->
+            if (root in children && rows.isEmpty()) {
                 GlassCard(Modifier.fillMaxWidth()) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(file.name, style = MaterialTheme.typography.bodyMedium)
-                            Text(
-                                listOfNotNull(file.folder, formatBytes(file.sizeBytes)).joinToString(" · "),
-                                color = TextMuted,
-                                style = MaterialTheme.typography.labelSmall,
-                            )
-                        }
-                        if (index.isParsed(file.uri)) {
-                            PeriodChip("Разобран", selected = true, onClick = {})
+                    Text(
+                        "В папке пока пусто. Положи туда pdf и картинки - можно в подпапки - " +
+                            "они появятся здесь и будут готовы к Разбору.",
+                        color = TextMuted,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+            rows.forEach { row ->
+                when (row) {
+                    is TreeRow.Folder -> {
+                        GlassCard(
+                            Modifier.fillMaxWidth().clickable { toggleFolder(row.entry) },
+                        ) {
+                            Row(
+                                Modifier.padding(start = (row.depth * 20).dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(
+                                    FolderIcon,
+                                    contentDescription = "Папка",
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                                Text(
+                                    row.entry.name.ifBlank { "папка" } +
+                                        if (row.expanded && !row.loaded) " …" else "",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                Text(
+                                    if (row.expanded) "▾" else "▸",
+                                    color = TextMuted,
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            }
                         }
                     }
-                    if (selected?.uri == file.uri) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                if (bindingFile?.uri == file.uri) {
-                                    "К какой записи привязать этот файл?"
-                                } else {
-                                    "Что сделать с файлом?"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                            if (bindingFile?.uri == file.uri) {
-                                if (records.isEmpty()) {
+                    is TreeRow.File -> {
+                        val file = storage.fileOf(row.entry) ?: return@forEach
+                        GlassCard(Modifier.fillMaxWidth()) {
+                            Row(
+                                Modifier.padding(start = (row.depth * 20).dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(file.name, style = MaterialTheme.typography.bodyMedium)
                                     Text(
-                                        "Записей пока нет: нажми «Разобрать» - запись появится сама.",
+                                        formatBytes(file.sizeBytes),
                                         color = TextMuted,
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                }
+                                if (index.isParsed(file.uri)) {
+                                    PeriodChip("Разобран", selected = true, onClick = {})
+                                }
+                            }
+                            if (selected?.uri == file.uri) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        if (bindingFile?.uri == file.uri) {
+                                            "К какой записи привязать этот файл?"
+                                        } else {
+                                            "Что сделать с файлом?"
+                                        },
                                         style = MaterialTheme.typography.bodySmall,
                                     )
-                                } else {
-                                    // Весь список записей со скроллом: привязка доступна всегда.
-                                    Column(
-                                        Modifier
-                                            .heightIn(max = 320.dp)
-                                            .verticalScroll(rememberScrollState()),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                                    ) {
-                                        records.forEach { record ->
+                                    if (bindingFile?.uri == file.uri) {
+                                        if (records.isEmpty()) {
                                             Text(
-                                                "${record.date.format(MED_LIST_DATE)}, ${record.name()}: ${record.contents()}",
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .clickable {
-                                                        db.updateMed(record.copy(fileUri = file.uri, fileName = file.name))
-                                                        bindingFile = null
-                                                        selected = null
-                                                        onChanged()
-                                                    },
+                                                "Записей пока нет: нажми «Разобрать» - запись появится сама.",
+                                                color = TextMuted,
+                                                style = MaterialTheme.typography.bodySmall,
+                                            )
+                                        } else {
+                                            // Весь список записей со скроллом: привязка доступна всегда.
+                                            Column(
+                                                Modifier
+                                                    .heightIn(max = 320.dp)
+                                                    .verticalScroll(rememberScrollState()),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                            ) {
+                                                records.forEach { record ->
+                                                    Text(
+                                                        "${record.date.format(MED_LIST_DATE)}, ${record.name()}: ${record.contents()}",
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .clickable {
+                                                                db.updateMed(record.copy(fileUri = file.uri, fileName = file.name))
+                                                                bindingFile = null
+                                                                selected = null
+                                                                onChanged()
+                                                            },
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                            GlowButton(
+                                                "Разобрать",
+                                                onClick = { startFileImport(file) },
+                                                enabled = settings.isConfigured && !busy,
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                            GhostButton(
+                                                "Открыть",
+                                                onClick = { storage.openFile(file) },
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                        }
+                                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                            GhostButton(
+                                                "Привязать к записи",
+                                                onClick = { bindingFile = file },
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                            GhostButton(
+                                                "Закрыть",
+                                                onClick = { selected = null },
+                                                modifier = Modifier.weight(1f),
                                             )
                                         }
                                     }
                                 }
                             } else {
-                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    GlowButton(
-                                        "Разобрать",
-                                        onClick = { startFileImport(file) },
-                                        enabled = settings.isConfigured && !busy,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    GhostButton(
-                                        "Открыть",
-                                        onClick = { storage.openFile(file) },
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
-                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    GhostButton(
-                                        "Привязать к записи",
-                                        onClick = { bindingFile = file },
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    GhostButton(
-                                        "Закрыть",
-                                        onClick = { selected = null },
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
+                                Box(Modifier.fillMaxWidth().heightIn(min = 32.dp).clickable {
+                                    selected = if (selected?.uri == file.uri) null else file
+                                })
                             }
                         }
-                    } else {
-                        Box(Modifier.fillMaxWidth().heightIn(min = 32.dp).clickable {
-                            selected = if (selected?.uri == file.uri) null else file
-                        })
                     }
                 }
             }

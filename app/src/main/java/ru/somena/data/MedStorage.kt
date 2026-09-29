@@ -4,17 +4,11 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
+import ru.somena.core.DirChildren
 import ru.somena.core.StorageEntry
-import ru.somena.core.collectStorageFiles
 
-/** Файл Хранилища: uri документа SAF, имя, размер, тип и путь папки от корня. */
-data class StorageFile(
-    val uri: String,
-    val name: String,
-    val sizeBytes: Long,
-    val mime: String?,
-    val folder: String? = null,
-)
+/** Файл Хранилища: uri документа SAF, имя, размер и тип. */
+data class StorageFile(val uri: String, val name: String, val sizeBytes: Long, val mime: String?)
 
 /** Оригинал, скопированный в Хранилище: uri и имя (SAF мог дописать суффикс от коллизии). */
 data class StoredOriginal(val uri: String, val name: String)
@@ -48,28 +42,39 @@ class MedStorage(private val context: Context) {
         prefs.edit().putString(KEY_FOLDER, uri.toString()).apply()
     }
 
-    /** Файлы Хранилища на всю глубину вложенных папок (спека 0010). */
-    fun listFiles(): List<StorageFile> {
-        val tree = folderUri() ?: return emptyList()
-        return runCatching {
-            collectStorageFiles(DocumentsContract.getTreeDocumentId(tree)) { dirId ->
-                childrenOf(tree, dirId)
-            }.map { hit ->
-                StorageFile(
-                    uri = DocumentsContract.buildDocumentUriUsingTree(tree, hit.entry.documentId).toString(),
-                    name = hit.entry.name.takeIf { it.isNotBlank() } ?: "файл",
-                    sizeBytes = hit.entry.sizeBytes,
-                    mime = hit.entry.mime,
-                    folder = hit.folder,
-                )
-            }
-        }.getOrDefault(emptyList())
+    /** Корень Хранилища: documentId выбранной папки; null - папка не выбрана. */
+    fun rootId(): String? = folderUri()?.let { DocumentsContract.getTreeDocumentId(it) }
+
+    /** Дети папки одного уровня (спека 0010): запрос только при раскрытии; null - не спросить. */
+    fun listChildren(dirDocumentId: String): DirChildren? {
+        val tree = folderUri() ?: return null
+        return runCatching { childrenOf(tree, dirDocumentId) }.getOrNull()
     }
 
+    /** Файл для действия из строки дерева: uri документа внутри выбранной папки. */
+    fun fileOf(entry: StorageEntry): StorageFile? {
+        val tree = folderUri() ?: return null
+        return StorageFile(
+            uri = DocumentsContract.buildDocumentUriUsingTree(tree, entry.documentId).toString(),
+            name = entry.name.takeIf { it.isNotBlank() } ?: "файл",
+            sizeBytes = entry.sizeBytes,
+            mime = entry.mime,
+        )
+    }
+
+    /** Существует ли оригинал записи: точечный запрос по uri, без обхода дерева. */
+    fun documentExists(uri: String): Boolean = runCatching {
+        context.contentResolver.query(
+            Uri.parse(uri),
+            arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+            null, null, null,
+        ).use { c -> c != null && c.moveToFirst() }
+    }.getOrDefault(false)
+
     /** Прямые дети документа SAF: файлы и папки одним списком, разбор по типу MIME. */
-    private fun childrenOf(tree: Uri, dirId: String): List<StorageEntry> {
+    private fun childrenOf(tree: Uri, dirId: String): DirChildren {
         val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, dirId)
-        return context.contentResolver.query(
+        val entries = context.contentResolver.query(
             children,
             arrayOf(
                 DocumentsContract.Document.COLUMN_DOCUMENT_ID,
@@ -93,6 +98,8 @@ class MedStorage(private val context: Context) {
                 }
             }
         } ?: emptyList()
+        val (dirs, files) = entries.partition { it.isDir }
+        return DirChildren(dirs, files)
     }
 
     /** Открыть оригинал внешним просмотрщиком; false - не нашлось чем открыть. */
