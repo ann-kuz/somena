@@ -13,14 +13,21 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -101,6 +108,7 @@ fun MedCardScreen(m: Modifier) {
     var editing by remember { mutableStateOf<MedRecord?>(null) }
     var showFiles by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
+    var searchOpen by remember { mutableStateOf(false) }
     var kindFilter by remember { mutableStateOf<MedKind?>(null) }
 
     // Оригиналы проверяются точечно - по одному запросу на запись, без обхода дерева.
@@ -121,9 +129,23 @@ fun MedCardScreen(m: Modifier) {
     }
 
     Column(m.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(verticalAlignment = Alignment.Bottom) {
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(Modifier.weight(1f)) {
                 ScreenHeader("Медкарта", "Анализы, обследования и протоколы")
+            }
+            Box(
+                Modifier
+                    .size(48.dp)
+                    .neonSurface(true, cornerRadius = 100.dp)
+                    .clickable { searchOpen = true },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Filled.Search,
+                    contentDescription = "Поиск по записям",
+                    tint = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.size(20.dp),
+                )
             }
             Box(
                 Modifier
@@ -150,16 +172,28 @@ fun MedCardScreen(m: Modifier) {
                 )
             }
         } else {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                label = { Text("Поиск: название, показатель, пометка, дата") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            // Поиск свёрнут до лупы в шапке и разворачивается тапом; крестик
+            // очищает запрос и сворачивает обратно.
+            if (searchOpen) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Поиск: название, показатель, пометка, дата") },
+                    singleLine = true,
+                    trailingIcon = {
+                        IconButton(onClick = {
+                            query = ""
+                            searchOpen = false
+                        }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Свернуть поиск")
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 PeriodChip("Все", selected = kindFilter == null, onClick = { kindFilter = null })
-                MedKind.entries.forEach { k ->
+                listOf(MedKind.ANALYSIS, MedKind.EXAM).forEach { k ->
                     PeriodChip(k.label, selected = kindFilter == k, onClick = { kindFilter = if (kindFilter == k) null else k })
                 }
             }
@@ -472,7 +506,11 @@ fun MedFilesScreen(
     }
 
     Column(
-        m.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+        m.fillMaxSize()
+            // Слой живёт поверх Scaffold без его отступов: уходим от панели навигации сами.
+            .navigationBarsPadding()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         ScreenHeader("Файлы Хранилища", "Папка с оригиналами документов Медкарты")
@@ -788,12 +826,20 @@ fun MedRecordEditor(
         }
     }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        // Диалог сам честно отступает от системных панелей и клавиатуры: без этого
+        // нижние кнопки («Отмена», «Удалить запись») уезжают под панель навигации.
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
         Box(Modifier.fillMaxSize().background(BgBase)) {
             NebulaBackground()
             Column(
                 Modifier
                     .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .imePadding()
                     .padding(16.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -816,7 +862,7 @@ fun MedRecordEditor(
                 OutlinedTextField(
                     value = mark,
                     onValueChange = { mark = it },
-                    label = { Text("Пометка («до операции», «после операции»)") },
+                    label = { Text("Пометка") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -825,7 +871,7 @@ fun MedRecordEditor(
                         OutlinedTextField(
                             value = titleText,
                             onValueChange = { titleText = it },
-                            label = { Text("Название («Биохимический анализ крови»)") },
+                            label = { Text("Название") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                         )
