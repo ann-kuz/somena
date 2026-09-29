@@ -90,7 +90,7 @@ fun medCardContextLine(records: List<MedRecord>, today: LocalDate): String {
 
     val parts = mutableListOf<String>()
     parts += "записи: " + recent.joinToString("; ") {
-        "${it.date.format(full)} ${it.title ?: it.kind.label.lowercase()}"
+        "${it.date.format(full)} ${it.title ?: it.kind.label.lowercase()}${it.markSuffix()}"
     }
     val diagnoses = recent.sortedBy { it.date }.flatMap { r -> r.diagnoses.map { it to r.date } }
     if (diagnoses.isNotEmpty()) {
@@ -127,11 +127,15 @@ fun medCardContextLine(records: List<MedRecord>, today: LocalDate): String {
     return parts.joinToString(". ")
 }
 
+/** Пометка записи для строк контекста: «, пометка «до операции»»; без пометки - пусто. */
+private fun MedRecord.markSuffix(): String =
+    mark?.takeIf { it.isNotBlank() }?.let { ", пометка «$it»" } ?: ""
+
 /** Полная строка записи для контекста: значения с референсами и флагом, заключения, протоколы. */
 private fun medRecordFullLine(r: MedRecord, full: DateTimeFormatter): String {
     val date = r.date.format(full)
     return when (r.kind) {
-        MedKind.ANALYSIS -> "$date ${r.title ?: "анализ"}: " + r.items.joinToString(", ") { row ->
+        MedKind.ANALYSIS -> "$date ${r.title ?: "анализ"}${r.markSuffix()}: " + r.items.joinToString(", ") { row ->
             val ref = if (row.refLow != null || row.refHigh != null) {
                 " (реф ${row.refLow ?: ""}-${row.refHigh ?: ""})"
             } else {
@@ -140,9 +144,9 @@ private fun medRecordFullLine(r: MedRecord, full: DateTimeFormatter): String {
             val flag = if (row.outOfRange) " ВНЕ РЕФЕРЕНСА" else ""
             "${row.name} ${fmt(row.value)}${row.unit?.let { " $it" } ?: ""}$ref$flag"
         }
-        MedKind.EXAM -> "$date ${r.examType ?: "обследование"}: ${r.conclusion ?: ""}"
+        MedKind.EXAM -> "$date ${r.examType ?: "обследование"}${r.markSuffix()}: ${r.conclusion ?: ""}"
         MedKind.PROTOCOL -> buildString {
-            append("$date приём ${r.specialty ?: "врача"}")
+            append("$date приём ${r.specialty ?: "врача"}${r.markSuffix()}")
             if (r.diagnoses.isNotEmpty()) append(": диагнозы ${r.diagnoses.joinToString(", ")}")
             if (!r.recommendations.isNullOrBlank()) {
                 if (r.diagnoses.isNotEmpty()) append("; ") else append(": ")

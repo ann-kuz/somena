@@ -54,6 +54,7 @@ data class MedRecord(
     val specialty: String? = null,               // Протокол: специальность врача
     val diagnoses: List<String> = emptyList(),   // Протокол: диагнозы списком
     val recommendations: String? = null,         // Протокол: рекомендации текстом
+    val mark: String? = null,                    // Ручная пометка («до операции», «после операции»)
 ) {
     val outOfRangeCount: Int get() = items.count { it.outOfRange }
 
@@ -83,8 +84,9 @@ data class MedRecord(
         }
     }
 
-    /** Строка итога для истории чата: «Биохимический анализ крови от 12.05.2026: 24 показателя, 3 вне референса». */
-    fun chatSummary(): String = "${name()} от ${date.format(MED_DATE)}: ${contents()}"
+    /** Строка итога для истории чата: «Биохимический анализ крови от 12.05.2026 (до операции): 24 показателя, 3 вне референса». */
+    fun chatSummary(): String =
+        "${name()} от ${date.format(MED_DATE)}${mark?.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""}: ${contents()}"
 }
 
 private val MED_DATE = DateTimeFormatter.ofPattern("dd.MM.yyyy")
@@ -98,6 +100,34 @@ fun pluralIndicator(n: Int): String = when {
 
 private fun shorten(s: String, max: Int): String =
     s.trim().let { if (it.length <= max) it else it.take(max - 1) + "…" }
+
+/**
+ * Список Медкарты для экрана: всегда по дате новые сверху (при одной дате выше
+ * записанная позже), фильтр по виду и поиск по всем текстам записи - названию,
+ * пометке, показателям, заключениям, диагнозам, рекомендациям и дате. Пустой
+ * запрос и фильтр «все» ничего не отсеивают.
+ */
+fun medRecordsView(records: List<MedRecord>, query: String, kind: MedKind?): List<MedRecord> {
+    val q = query.trim().lowercase()
+    return records
+        .filter { kind == null || it.kind == kind }
+        .filter { q.isBlank() || it.searchText().contains(q) }
+        .sortedWith(compareByDescending<MedRecord> { it.date }.thenByDescending { it.id })
+}
+
+/** Все тексты записи для поиска одним полем, включая дату и вид. */
+private fun MedRecord.searchText(): String = buildString {
+    append(date.format(MED_DATE)); append(' ')
+    append(kind.label)
+    title?.let { append(' '); append(it) }
+    mark?.let { append(' '); append(it) }
+    examType?.let { append(' '); append(it) }
+    conclusion?.let { append(' '); append(it) }
+    specialty?.let { append(' '); append(it) }
+    diagnoses.forEach { append(' '); append(it) }
+    recommendations?.let { append(' '); append(it) }
+    items.forEach { append(' '); append(it.name) }
+}.lowercase()
 
 object MedValidator {
 

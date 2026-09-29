@@ -7,6 +7,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -51,6 +53,7 @@ import ru.somena.core.MedValidator
 import ru.somena.core.StorageEntry
 import ru.somena.core.TreeRow
 import ru.somena.core.fmt
+import ru.somena.core.medRecordsView
 import ru.somena.core.numericFieldError
 import ru.somena.core.parseLooseDate
 import ru.somena.core.parseMedReply
@@ -81,10 +84,12 @@ import ru.somena.ui.neonSurface
 private val MED_LIST_DATE = DateTimeFormatter.ofPattern("dd.MM.yyyy")
 
 /**
- * Экран «Медкарта» (спека 0010): список записей трёх видов, ручной ввод, правка
- * и удаление, файловый список Хранилища. Ничего не разбирается и не пишется без
- * явного действия Пользователя; файлы приложение не удаляет и не переименовывает.
+ * Экран «Медкарта» (спека 0010): список записей трёх видов с поиском и фильтром по виду,
+ * всегда по дате новые сверху; ручной ввод, правка и удаление, файловый список Хранилища.
+ * Ничего не разбирается и не пишется без явного действия Пользователя; файлы приложение
+ * не удаляет и не переименовывает.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MedCardScreen(m: Modifier) {
     val context = LocalContext.current
@@ -95,6 +100,8 @@ fun MedCardScreen(m: Modifier) {
     var existingUris by remember { mutableStateOf<Set<String>?>(null) }
     var editing by remember { mutableStateOf<MedRecord?>(null) }
     var showFiles by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    var kindFilter by remember { mutableStateOf<MedKind?>(null) }
 
     // Оригиналы проверяются точечно - по одному запросу на запись, без обхода дерева.
     fun reload() {
@@ -143,13 +150,37 @@ fun MedCardScreen(m: Modifier) {
                 )
             }
         } else {
-            LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(records) { record ->
-                    MedRecordCard(
-                        record,
-                        missingOriginal = index.missingRecords.any { it.id == record.id },
-                        onClick = { editing = record },
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = { Text("Поиск: название, показатель, пометка, дата") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                PeriodChip("Все", selected = kindFilter == null, onClick = { kindFilter = null })
+                MedKind.entries.forEach { k ->
+                    PeriodChip(k.label, selected = kindFilter == k, onClick = { kindFilter = if (kindFilter == k) null else k })
+                }
+            }
+            val visible = medRecordsView(records, query, kindFilter)
+            if (visible.isEmpty()) {
+                GlassCard(Modifier.fillMaxWidth()) {
+                    Text(
+                        "Ничего не нашлось: поменяй запрос или сбрось фильтр вида.",
+                        color = TextMuted,
+                        style = MaterialTheme.typography.bodyMedium,
                     )
+                }
+            } else {
+                LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(visible) { record ->
+                        MedRecordCard(
+                            record,
+                            missingOriginal = index.missingRecords.any { it.id == record.id },
+                            onClick = { editing = record },
+                        )
+                    }
                 }
             }
         }
@@ -195,13 +226,22 @@ fun MedCardScreen(m: Modifier) {
     }
 }
 
-/** Карточка записи в списке: вид, дата, сводка и честный статус оригинала. */
+/** Карточка записи в списке: вид, пометка, дата, сводка и честный статус оригинала. */
 @Composable
 fun MedRecordCard(record: MedRecord, missingOriginal: Boolean, onClick: () -> Unit) {
     GlassCard(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                CardLabel(record.kind.label)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    CardLabel(record.kind.label)
+                    record.mark?.takeIf { it.isNotBlank() }?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
                 Text(record.describe(), style = MaterialTheme.typography.bodyMedium)
                 when {
                     record.fileUri == null -> Text(
@@ -657,6 +697,8 @@ private data class AnalyteInput(
  * Редактор записи Медкарты: ручной ввод, правка существующей и Предпросмотр Разбора
  * документа (баннер с предупреждениями - слот [banner]). Дата обязательна, будущее
  * запрещено; правка значения или референса пересчитывает флаг «вне референса».
+ * Пометка - произвольный ярлык вроде «до операции»: задаётся здесь сразу после
+ * Разбора или позже правкой записи из списка.
  */
 @Composable
 fun MedRecordEditor(
@@ -689,6 +731,7 @@ fun MedRecordEditor(
     var specialty by remember { mutableStateOf(initial.specialty ?: "") }
     var diagnosesText by remember { mutableStateOf(initial.diagnoses.joinToString("\n")) }
     var recommendations by remember { mutableStateOf(initial.recommendations ?: "") }
+    var mark by remember { mutableStateOf(initial.mark ?: "") }
 
     val today = LocalDate.now()
 
@@ -723,6 +766,7 @@ fun MedRecordEditor(
             specialty = specialty.trim().ifBlank { null },
             diagnoses = diagnosesText.lines().map { it.trim() }.filter { it.isNotEmpty() },
             recommendations = recommendations.trim().ifBlank { null },
+            mark = mark.trim().ifBlank { null },
         )
     }
 
@@ -766,6 +810,13 @@ fun MedRecordEditor(
                     onValueChange = { dateText = it },
                     label = { Text("Дата, ДД.ММ.ГГГГ") },
                     isError = draft == null,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = mark,
+                    onValueChange = { mark = it },
+                    label = { Text("Пометка («до операции», «после операции»)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )

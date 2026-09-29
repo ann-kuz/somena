@@ -92,6 +92,7 @@ private fun medPayloadToRecord(
     fileUri: String?,
     fileName: String?,
     createdAt: Long,
+    mark: String?,
     payload: MedPayloadDto,
 ): MedRecord = MedRecord(
     id = id,
@@ -109,10 +110,11 @@ private fun medPayloadToRecord(
     specialty = payload.specialty,
     diagnoses = payload.diagnoses,
     recommendations = payload.recommendations,
+    mark = mark,
 )
 
 /** Локальное хранилище Дневных срезов, Самочувствия, Записей цикла, истории чата и Медкарты (ADR-0002: данные живут на телефоне). */
-class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 6) {
+class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 7) {
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -146,6 +148,7 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 6
             db.execSQL("DROP TABLE wellbeing_old")
         }
         if (oldVersion < 6) db.execSQL(SQL_CREATE_MED_RECORDS)
+        if (oldVersion < 7) db.execSQL("ALTER TABLE med_records ADD COLUMN mark TEXT")
     }
 
     fun upsert(slice: DaySlice) {
@@ -331,13 +334,13 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 6
     /** Все записи Медкарты по убыванию даты: список Медкарты и контекст Чата. */
     fun allMed(): List<MedRecord> =
         readableDatabase.rawQuery(
-            "SELECT id, kind, date, file_uri, file_name, data, created_at FROM med_records ORDER BY date DESC, id DESC",
+            "SELECT id, kind, date, file_uri, file_name, data, created_at, mark FROM med_records ORDER BY date DESC, id DESC",
             null,
         ).use { c -> buildList { while (c.moveToNext()) add(readMedRecord(c)) } }
 
     fun medById(id: Long): MedRecord? =
         readableDatabase.rawQuery(
-            "SELECT id, kind, date, file_uri, file_name, data, created_at FROM med_records WHERE id = ?",
+            "SELECT id, kind, date, file_uri, file_name, data, created_at, mark FROM med_records WHERE id = ?",
             arrayOf(id.toString()),
         ).use { c -> if (c.moveToFirst()) readMedRecord(c) else null }
 
@@ -348,6 +351,7 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 6
         put("file_name", r.fileName)
         put("data", json.encodeToString(r.toMedPayload()))
         put("created_at", r.createdAt.takeIf { it > 0 } ?: System.currentTimeMillis())
+        put("mark", r.mark?.takeIf { it.isNotBlank() })
     }
 
     private fun readMedRecord(c: android.database.Cursor): MedRecord = medPayloadToRecord(
@@ -357,6 +361,7 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 6
         fileUri = if (c.isNull(3)) null else c.getString(3),
         fileName = if (c.isNull(4)) null else c.getString(4),
         createdAt = c.getLong(6),
+        mark = if (c.isNull(7)) null else c.getString(7),
         payload = json.decodeFromString<MedPayloadDto>(c.getString(5)),
     )
 
@@ -397,6 +402,7 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 6
                 "file_uri TEXT, " +
                 "file_name TEXT, " +
                 "data TEXT NOT NULL, " +
-                "created_at INTEGER NOT NULL)"
+                "created_at INTEGER NOT NULL, " +
+                "mark TEXT)"
     }
 }

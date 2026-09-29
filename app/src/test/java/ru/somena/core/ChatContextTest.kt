@@ -255,6 +255,14 @@ class ChatContextTest {
     }
 
     @Test
+    fun `пометка записи видна и в списке и в подробностях контекста`() {
+        val marked = analysisAt(today.minusDays(10), hemoglobin).copy(mark = "до операции")
+        val text = context(medcard = listOf(marked))
+        // И строка списка, и полная запись несут пометку: ИИ различит «до» и «после».
+        assertTrue(text.contains("пометка «до операции»"))
+    }
+
+    @Test
     fun `сводка Медкарты без типографских тире`() {
         val text = context(
             medcard = listOf(

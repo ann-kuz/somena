@@ -104,6 +104,94 @@ class MedCardTest {
     }
 
     @Test
+    fun `пометка записи звучит в сводке чата и не трогает записи без неё`() {
+        val record = MedRecord(
+            kind = MedKind.ANALYSIS,
+            date = past,
+            title = "Биохимический анализ крови",
+            mark = "до операции",
+            items = listOf(AnalyteRow("Гемоглобин", 134.0, "г/л", 120.0, 150.0)),
+        )
+        assertEquals(
+            "Биохимический анализ крови от 12.05.2026 (до операции): 1 показатель",
+            record.chatSummary(),
+        )
+        assertEquals(
+            "Биохимический анализ крови от 12.05.2026: 1 показатель",
+            record.copy(mark = null).chatSummary(),
+        )
+    }
+
+    // ---- Список Медкарты: сортировка, поиск и фильтр по виду ----
+
+    private fun analysisAt(date: LocalDate, title: String? = null, mark: String? = null) = MedRecord(
+        kind = MedKind.ANALYSIS,
+        date = date,
+        title = title,
+        mark = mark,
+        items = listOf(AnalyteRow("Гемоглобин", 134.0, "г/л", 120.0, 150.0)),
+    )
+
+    @Test
+    fun `список всегда по дате новые сверху`() {
+        val january = analysisAt(LocalDate.of(2026, 1, 5))
+        val may = analysisAt(LocalDate.of(2026, 5, 12))
+        val september = analysisAt(LocalDate.of(2026, 9, 1))
+        // Одна дата - выше та, что записана позже.
+        val septemberAgain = analysisAt(LocalDate.of(2026, 9, 1)).copy(id = 2)
+        assertEquals(
+            listOf(septemberAgain, september, may, january),
+            medRecordsView(listOf(january, september, may, septemberAgain), "", null),
+        )
+    }
+
+    @Test
+    fun `фильтр по виду оставляет только выбранный вид`() {
+        val analysis = analysisAt(past)
+        val exam = MedRecord(kind = MedKind.EXAM, date = past, examType = "УЗИ щитовидной железы")
+        val protocol = MedRecord(kind = MedKind.PROTOCOL, date = past, specialty = "Эндокринолог")
+        assertEquals(listOf(exam), medRecordsView(listOf(analysis, exam, protocol), "", MedKind.EXAM))
+        assertEquals(listOf(analysis, exam, protocol), medRecordsView(listOf(analysis, exam, protocol), "", null))
+    }
+
+    @Test
+    fun `поиск находит по названию пометке показателю заключению и диагнозу`() {
+        val marked = analysisAt(past, title = "Биохимический анализ крови", mark = "до операции")
+        val ferritin = MedRecord(
+            kind = MedKind.ANALYSIS,
+            date = past,
+            items = listOf(AnalyteRow("Ферритин", 8.0, "нг/мл", 13.0, 150.0)),
+        )
+        val exam = MedRecord(kind = MedKind.EXAM, date = past, examType = "УЗИ щитовидной железы", conclusion = "Без особенностей")
+        val protocol = MedRecord(kind = MedKind.PROTOCOL, date = past, specialty = "Эндокринолог", diagnoses = listOf("Гипотиреоз"))
+
+        val all = listOf(marked, ferritin, exam, protocol)
+        // Регистр не важен, пробелы по краям не мешают.
+        assertEquals(listOf(marked), medRecordsView(all, "  биохимический ", null))
+        assertEquals(listOf(marked), medRecordsView(all, "до операции", null))
+        assertEquals(listOf(ferritin), medRecordsView(all, "ферритин", null))
+        assertEquals(listOf(exam), medRecordsView(all, "узи", null))
+        assertEquals(listOf(exam), medRecordsView(all, "особенност", null))
+        assertEquals(listOf(protocol), medRecordsView(all, "гипотиреоз", null))
+        // Часть слова тоже находит.
+        assertEquals(listOf(marked, ferritin), medRecordsView(all, "анализ", null).sortedBy { it.items.first().name })
+    }
+
+    @Test
+    fun `поиск находит по дате и работает вместе с фильтром вида`() {
+        val may = analysisAt(LocalDate.of(2026, 5, 12), title = "Ферритин")
+        val september = MedRecord(kind = MedKind.EXAM, date = LocalDate.of(2026, 9, 1), examType = "УЗИ")
+        val all = listOf(may, september)
+        assertEquals(listOf(may), medRecordsView(all, "12.05.2026", null))
+        assertEquals(listOf(september), medRecordsView(all, "09.2026", null))
+        // Фильтр и поиск складываются: поиск без вида, но фильтр отсекает чужие.
+        assertEquals(emptyList<MedRecord>(), medRecordsView(all, "УЗИ", MedKind.ANALYSIS))
+        assertEquals(listOf(september), medRecordsView(all, "УЗИ", MedKind.EXAM))
+        // Пустой запрос и без фильтра - всё, но по дате новые сверху.
+        assertEquals(listOf(september, may), medRecordsView(all, "  ", null))
+    }
+
+    @Test
     fun `видимые строки без типографских тире`() {
         val record = MedRecord(
             kind = MedKind.ANALYSIS,
