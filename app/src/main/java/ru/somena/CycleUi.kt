@@ -70,8 +70,9 @@ import ru.somena.ui.TextMuted
 import ru.somena.ui.Violet
 
 /**
- * Цикл (спека 0003): карточка на «Сегодня», экран с календарём, редактор дня
- * и статистика. Записи только ручные, хранение локальное (ADR-0005).
+ * Календарь цикла (спека 0003): карточка на «Сегодня», экран с календарём,
+ * редактор дня и статистика. Записи только ручные, хранение локальное (ADR-0005).
+ * Экран скрыт для пола «м» (Профиль); данные при этом не удаляются.
  */
 
 /** Записать или убрать день: без менструации и отметок день не хранится вовсе. */
@@ -83,7 +84,7 @@ private fun writeDay(db: SliceDb, date: LocalDate, menstruation: Boolean, flow: 
     }
 }
 
-/** Карточка цикла на «Сегодня»: статус, прогноз и быстрый переключатель менструации. */
+/** Карточка Календаря цикла на «Сегодня»: статус, прогноз и быстрый переключатель менструации. */
 @Composable
 fun CycleCard(db: SliceDb, revision: Int, onOpen: () -> Unit, onChanged: () -> Unit) {
     val today = LocalDate.now()
@@ -98,7 +99,7 @@ fun CycleCard(db: SliceDb, revision: Int, onOpen: () -> Unit, onChanged: () -> U
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                CardLabel("Цикл", Rose)
+                CardLabel("Календарь цикла", Rose)
                 Text(
                     cycleHeadline(periods, prediction, today),
                     fontSize = 19.sp,
@@ -129,7 +130,7 @@ fun CycleCard(db: SliceDb, revision: Int, onOpen: () -> Unit, onChanged: () -> U
     }
 }
 
-/** Полный экран цикла: статус, календарь, статистика. Открывается поверх вкладок. */
+/** Полный экран Календаря цикла: статус, календарь, статистика. Открывается поверх вкладок. */
 @Composable
 fun CycleScreen(m: Modifier, onBack: () -> Unit, onChanged: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -157,7 +158,7 @@ fun CycleScreen(m: Modifier, onBack: () -> Unit, onChanged: () -> Unit) {
                 Icon(Icons.Filled.KeyboardArrowLeft, "Назад", tint = TextMuted)
             }
             Column {
-                Text("Цикл", fontSize = 28.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp)
+                Text("Календарь цикла", fontSize = 28.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp)
                 Text(
                     "Календарь и прогноз; данные только на этом телефоне",
                     color = TextMuted,

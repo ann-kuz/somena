@@ -13,6 +13,9 @@ import org.junit.Test
  */
 class DailyAggregatorTest {
 
+    /** Источник-браслет в тестах: любое имя пакета, фильтра источников здесь нет. */
+    private val BAND = "com.xiaomi.wear"
+
     private val zone: ZoneId = ZoneId.of("Europe/Moscow")
     private val day: LocalDate = LocalDate.of(2026, 9, 24)
 
@@ -26,20 +29,20 @@ class DailyAggregatorTest {
     ) = DailyAggregator.buildSlice(day, zone, steps, sleep, burn, meals, body)
 
     @Test
-    fun `шаги считаются только с браслета`() {
-        val slice = build(
-            steps = listOf(
-                StepEntry(at(9), at(10), 5000, DailyAggregator.BAND_SOURCE),
-                StepEntry(at(9), at(10), 6000, "com.android.healthconnect.phone.abc"),
-            )
-        )
-        assertEquals(5000L, slice.steps)
+    fun `шаги учитываются из любого Источника`() {
+        val slice = build(steps = listOf(StepEntry(at(9), at(10), 6000, "phone.pedometer")))
+        assertEquals(6000L, slice.steps)
     }
 
     @Test
-    fun `день без браслета - шаги отсутствуют а не ноль`() {
-        val slice = build(steps = listOf(StepEntry(at(9), at(10), 6000, "phone.pedometer")))
-        assertNull(slice.steps)
+    fun `непересекающиеся интервалы разных Источников суммируются`() {
+        val slice = build(
+            steps = listOf(
+                StepEntry(at(9), at(10), 3000, "com.xiaomi.wear"),
+                StepEntry(at(10), at(11), 2000, "phone.pedometer"),
+            )
+        )
+        assertEquals(5000L, slice.steps)
     }
 
     @Test
@@ -101,7 +104,7 @@ class DailyAggregatorTest {
     fun `записи соседнего дня не попадают в срез`() {
         val otherDayStart = day.plusDays(1).atStartOfDay(zone).toInstant()
         val slice = build(
-            steps = listOf(StepEntry(otherDayStart, otherDayStart.plusSeconds(3600), 9999, DailyAggregator.BAND_SOURCE)),
+            steps = listOf(StepEntry(otherDayStart, otherDayStart.plusSeconds(3600), 9999, BAND)),
             meals = listOf(MealEntry(otherDayStart, otherDayStart, kcal = 5000.0, proteinG = null, fatG = null, carbsG = null)),
         )
         assertNull(slice.steps)
@@ -109,10 +112,10 @@ class DailyAggregatorTest {
     }
 
     @Test
-    fun `дубликаты шагов от браслета считаются один раз`() {
+    fun `дубликаты шагов одного Источника считаются один раз`() {
         val dup = listOf(
-            StepEntry(at(9), at(10), 3000, DailyAggregator.BAND_SOURCE),
-            StepEntry(at(9), at(10), 3000, DailyAggregator.BAND_SOURCE),
+            StepEntry(at(9), at(10), 3000, BAND),
+            StepEntry(at(9), at(10), 3000, BAND),
         )
         assertEquals(3000L, DailyAggregator.buildSlice(day, zone, steps = dup).steps)
     }
@@ -122,8 +125,8 @@ class DailyAggregatorTest {
         // 9:00-10:00 = 3000 шагов; 9:30-10:30 = 3000 шагов; союз 9:00-10:30:
         // 3000 + 3000 * (1800/3600) = 4500
         val overlap = listOf(
-            StepEntry(at(9), at(10), 3000, DailyAggregator.BAND_SOURCE),
-            StepEntry(at(9, 30), at(10, 30), 3000, DailyAggregator.BAND_SOURCE),
+            StepEntry(at(9), at(10), 3000, BAND),
+            StepEntry(at(9, 30), at(10, 30), 3000, BAND),
         )
         assertEquals(4500L, DailyAggregator.buildSlice(day, zone, steps = overlap).steps)
     }
@@ -131,16 +134,16 @@ class DailyAggregatorTest {
     @Test
     fun `стык и разрыв интервалов не склеиваются ошибочно`() {
         val adjacent = listOf(
-            StepEntry(at(9), at(10), 3000, DailyAggregator.BAND_SOURCE),
-            StepEntry(at(10), at(11), 2000, DailyAggregator.BAND_SOURCE),
-            StepEntry(at(12), at(13), 1000, DailyAggregator.BAND_SOURCE),
+            StepEntry(at(9), at(10), 3000, BAND),
+            StepEntry(at(10), at(11), 2000, BAND),
+            StepEntry(at(12), at(13), 1000, BAND),
         )
         assertEquals(6000L, DailyAggregator.buildSlice(day, zone, steps = adjacent).steps)
     }
 
     @Test
     fun `слияние со свежим пересчётом не теряет старые поля`() {
-        val stored = build(steps = listOf(StepEntry(at(9), at(10), 5000, DailyAggregator.BAND_SOURCE)))
+        val stored = build(steps = listOf(StepEntry(at(9), at(10), 5000, BAND)))
         val fresh = build(body = listOf(BodyEntry(at(8), weightKg = 74.5, bodyFatPct = null, boneMassKg = null, bmrKcalPerDay = null)))
         val merged = stored.mergeFresh(fresh)
         assertEquals(5000L, merged.steps)

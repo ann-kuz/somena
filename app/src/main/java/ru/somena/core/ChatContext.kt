@@ -46,8 +46,9 @@ fun buildChatContext(
 
     val dayLines = mutableListOf<String>()
     val emptyDates = mutableListOf<String>()
-    // Обмен для Дефицита: ручное значение из Профиля, пока весы не дали своего.
+    // Базовый расход для Дефицита: ручное значение из Профиля, пока весы не дали своего.
     var carriedBmr = profile?.bmrKcal
+
     for (d in dates) {
         val line = dayLine(
             data.slicesByDate[d],
@@ -174,9 +175,9 @@ private fun dayLine(s: DaySlice?, ws: List<Wellbeing>, cyc: CycleDay?, phase: Cy
             parts += "дефицит ${fmtNum(s.burnedKcal - s.eatenKcal + (bmr ?: 0.0))} ккал"
         }
         s.weightKg?.let { parts += "вес ${fmtNum(it)} кг" }
-        s.bodyFatPct?.let { parts += "жир ${fmtNum(it)}%" }
-        s.boneMassKg?.let { parts += "кости ${fmtNum(it)} кг" }
-        s.bmrKcal?.let { parts += "обмен ${fmtNum(it)} ккал/дн" }
+        s.bodyFatPct?.let { parts += "процент жира ${fmtNum(it)}%" }
+        s.boneMassKg?.let { parts += "костная масса ${fmtNum(it)} кг" }
+        s.bmrKcal?.let { parts += "базовый расход ${fmtNum(it)} ккал/дн" }
     }
     if (ws.isNotEmpty()) {
         val first = ws.minByOrNull { it.slot }!!
@@ -246,15 +247,16 @@ private fun painWord(pain: Int) = when (pain) {
 
 private fun profileLine(p: Profile?, today: LocalDate): String {
     if (p == null ||
-        (p.heightCm == null && p.birthDate == null && p.goalWeightKg == null && p.bmrKcal == null)
+        (p.heightCm == null && p.birthDate == null && p.goalWeightKg == null && p.bmrKcal == null && p.sex == null)
     ) {
         return "не заполнен"
     }
     val parts = mutableListOf<String>()
+    p.sex?.let { parts += "пол ${it.labelGenitive}" }
     p.heightCm?.let { parts += "рост $it см" }
     p.ageYears(today)?.let { parts += "полных лет $it" }
     p.goalWeightKg?.let { parts += "цель по весу ${fmtNum(it)} кг" }
-    p.bmrKcal?.let { parts += "обмен ${fmtNum(it)} ккал/дн (если весы не дали своего)" }
+    p.bmrKcal?.let { parts += "базовый расход ${fmtNum(it)} ккал/дн (если весы не дали своего)" }
     return parts.joinToString(", ")
 }
 

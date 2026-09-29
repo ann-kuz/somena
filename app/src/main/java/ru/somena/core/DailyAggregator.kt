@@ -6,7 +6,8 @@ import java.time.ZoneId
 
 /**
  * Чистая логика Дневного среза: без Android-зависимостей, покрывается автотестами на сервере.
- * Политики см. ADR-0001 (шаги только с браслета) и спеку 0001 (день без данных ≠ ноль).
+ * Политики см. ADR-0001 (Health Connect - единственная точка чтения), ADR-0010
+ * (выбор Источника при нескольких пишущих) и спеку 0001 (день без данных ≠ ноль).
  */
 
 /** Записи, приходящие из любого источника; time-поля — в UTC. */
@@ -61,9 +62,6 @@ data class DaySlice(
 
 object DailyAggregator {
 
-    /** Политика шагов: верим только браслету (ADR-0001). */
-    const val BAND_SOURCE = "com.xiaomi.wear"
-
     fun buildSlice(
         date: LocalDate,
         zone: ZoneId,
@@ -79,7 +77,9 @@ object DailyAggregator {
         fun inDay(start: Instant) = start >= dayStart && start < dayEnd
 
         // Запись принадлежит дню своего начала: интервал через полночь не считается дважды.
-        val bandSteps = dedupeSteps(steps.filter { it.source == BAND_SOURCE && inDay(it.start) })
+        // Шаги учитываются из всех переданных Источников: выбор делает HcImporter
+        // фильтром чтения (ADR-0010), а пересечения схлопывает дедупликация.
+        val daySteps = dedupeSteps(steps.filter { inDay(it.start) })
         val daySleep = sleep.filter { inDay(it.start) }
         val dayBurn = burn.filter { inDay(it.start) }
         val dayMeals = meals.filter { inDay(it.start) }
@@ -87,7 +87,7 @@ object DailyAggregator {
 
         return DaySlice(
             date = date,
-            steps = bandSteps.sumOf { it.count }.takeIf { bandSteps.isNotEmpty() },
+            steps = daySteps.sumOf { it.count }.takeIf { daySteps.isNotEmpty() },
             sleepMinutes = daySleep.sumOf { it.durationMinutes }.takeIf { daySleep.isNotEmpty() },
             burnedKcal = dayBurn.sumOf { it.kcal }.takeIf { dayBurn.isNotEmpty() },
             eatenKcal = dayMeals.sumOrNull { it.kcal },
@@ -103,9 +103,9 @@ object DailyAggregator {
     }
 
     /**
-     * Схлопывает пересекающиеся записи шагов одного источника (ADR-0001: дедупликация —
-     * наша работа): интервалы объединяются, шаги из пересечения считаются один раз
-     * с пропорцией по длительности.
+     * Схлопывает пересекающиеся записи шагов (ADR-0001: дедупликация - наша работа):
+     * интервалы объединяются, шаги из пересечения считаются один раз с пропорцией
+     * по длительности. Работает и когда пишут несколько Источников.
      */
     fun dedupeSteps(entries: List<StepEntry>): List<StepEntry> {
         val out = mutableListOf<StepEntry>()

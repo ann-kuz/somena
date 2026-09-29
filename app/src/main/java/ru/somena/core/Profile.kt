@@ -8,16 +8,24 @@ import java.time.format.ResolverStyle
 
 /**
  * Профиль Пользователя (тикет 03): контекст для будущего Чата по данным.
- * Все поля необязательны — пустой Профиль не блокирует остальные экраны.
+ * Все поля необязательные — пустой Профиль не блокирует остальные экраны.
  * Храним дату рождения, а не возраст: возраст вычисляется на дату вопроса.
- * Обмен веществ - запасной для Дефицита: главный источник - умные весы.
+ * Базовый расход - запасной для Дефицита: главный источник - умные весы.
+ * Пол «м» прячет Календарь цикла с «Сегодня»; данные цикла не удаляются.
  */
+@Serializable
+enum class Sex(val label: String, val labelGenitive: String) {
+    FEMALE("Женский", "женский"),
+    MALE("Мужской", "мужской"),
+}
+
 @Serializable
 data class Profile(
     val heightCm: Int? = null,
     val birthDateIso: String? = null,
     val goalWeightKg: Double? = null,
     val bmrKcal: Double? = null,
+    val sex: Sex? = null,
 ) {
     fun ageYears(today: LocalDate): Int? = birthDate
         ?.let { Period.between(it, today).years.takeIf { y -> y >= 0 } }
@@ -41,7 +49,7 @@ object ProfileValidator {
             if (it !in 30.0..300.0) add(Error("goalWeightKg", "Цель по весу: разумно 30-300 кг"))
         }
         profile.bmrKcal?.let {
-            if (it !in 800.0..4000.0) add(Error("bmrKcal", "Обмен: разумно 800-4000 ккал/дн"))
+            if (it !in 800.0..4000.0) add(Error("bmrKcal", "Базовый расход: разумно 800-4000 ккал/дн"))
         }
     }
 }

@@ -62,6 +62,7 @@ import java.util.Locale
 import ru.somena.core.DaySlice
 import ru.somena.core.Profile
 import ru.somena.core.ProfileValidator
+import ru.somena.core.Sex
 import ru.somena.core.birthDateFieldError
 import ru.somena.core.numericFieldError
 import ru.somena.core.parseBirthDate
@@ -79,6 +80,7 @@ import ru.somena.ui.Gold
 import ru.somena.ui.MetricCard
 import ru.somena.ui.NebulaBackground
 import ru.somena.ui.NavItem
+import ru.somena.ui.PeriodChip
 import ru.somena.ui.ScreenHeader
 import ru.somena.ui.SomenaNavBar
 import ru.somena.ui.SomenaTheme
@@ -199,6 +201,8 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
     var wellbeing by remember { mutableStateOf(db.dayWellbeing(LocalDate.now())) }
     var showWellbeingEditor by remember { mutableStateOf(false) }
     val weekSteps = remember(db) { db.all().takeLast(7).map { it.steps?.toDouble() } }
+    // Календарь цикла скрыт для пола «м»: пол читается один раз при входе на экран.
+    val sex = remember { ProfileStore(context).load().sex }
 
     fun refresh() {
         busy = true
@@ -293,11 +297,11 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MetricCard("Жир", s.bodyFatPct?.let { "%,.1f".format(it) }, Modifier.weight(1f), accent = Violet, unit = "%")
-                MetricCard("Кости", s.boneMassKg?.let { "%,.1f".format(it) }, Modifier.weight(1f), accent = Violet, unit = "кг")
+                MetricCard("Процент жира", s.bodyFatPct?.let { "%,.1f".format(it) }, Modifier.weight(1f), accent = Violet, unit = "%")
+                MetricCard("Костная масса", s.boneMassKg?.let { "%,.1f".format(it) }, Modifier.weight(1f), accent = Violet, unit = "кг")
             }
             MetricCard(
-                "Обмен", s.bmrKcal?.let { "%,.0f".format(it) }, Modifier.fillMaxWidth(),
+                "Базовый расход", s.bmrKcal?.let { "%,.0f".format(it) }, Modifier.fillMaxWidth(),
                 accent = Violet, unit = "ккал/дн",
             )
         }
@@ -312,14 +316,16 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
             SelectionContainer { Text(it, color = TextMuted, style = MaterialTheme.typography.bodySmall) }
         }
         WellbeingSection(wellbeing, onEdit = { showWellbeingEditor = true })
-        CycleCard(
-            db = db,
-            revision = cycleRevision,
-            onOpen = onOpenCycle,
-            onChanged = onCycleChanged,
-        )
+        if (sex != Sex.MALE) {
+            CycleCard(
+                db = db,
+                revision = cycleRevision,
+                onOpen = onOpenCycle,
+                onChanged = onCycleChanged,
+            )
+        }
         Text(
-            "Шаги считаются только с браслета. «—» значит «данных нет за день».",
+            "Данные читаются из Health Connect; если пишут несколько приложений, источник выбирается во вкладке «Ещё». «—» значит «данных нет за день».",
             color = TextMuted,
             style = MaterialTheme.typography.bodySmall,
         )
@@ -462,6 +468,9 @@ fun MoreScreen(m: Modifier, onRepeatOnboarding: () -> Unit, onOpenHcDebug: () ->
             ProfileSection()
         }
         GlassCard(Modifier.fillMaxWidth()) {
+            SourcesSection()
+        }
+        GlassCard(Modifier.fillMaxWidth()) {
             ChatSettingsSection()
         }
         Text(
@@ -483,6 +492,7 @@ private fun ProfileSection() {
     }
     var goal by remember { mutableStateOf(saved.goalWeightKg?.let { "%,.1f".format(it) } ?: "") }
     var bmr by remember { mutableStateOf(saved.bmrKcal?.let { "%,.0f".format(it) } ?: "") }
+    var sex by remember { mutableStateOf(saved.sex) }
     var status by remember { mutableStateOf<String?>(null) }
 
     val today = LocalDate.now()
@@ -491,6 +501,7 @@ private fun ProfileSection() {
         birthDateIso = parseBirthDate(birth)?.toString(),
         goalWeightKg = parseOptionalDouble(goal),
         bmrKcal = parseOptionalDouble(bmr),
+        sex = sex,
     )
     val errors = buildList {
         addAll(ProfileValidator.validate(draft, today))
@@ -533,6 +544,26 @@ private fun ProfileSection() {
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
+        Text("Пол", color = TextMuted, style = MaterialTheme.typography.bodySmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PeriodChip(
+                "Женский",
+                selected = sex == Sex.FEMALE,
+                onClick = { sex = if (sex == Sex.FEMALE) null else Sex.FEMALE },
+                modifier = Modifier.weight(1f),
+            )
+            PeriodChip(
+                "Мужской",
+                selected = sex == Sex.MALE,
+                onClick = { sex = if (sex == Sex.MALE) null else Sex.MALE },
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Text(
+            "Влияет на советы ИИ; «мужской» прячет Календарь цикла. Повторный тап снимает выбор.",
+            color = TextMuted,
+            style = MaterialTheme.typography.bodySmall,
+        )
         OutlinedTextField(
             value = goal,
             onValueChange = { goal = it },
@@ -545,7 +576,7 @@ private fun ProfileSection() {
         OutlinedTextField(
             value = bmr,
             onValueChange = { bmr = it },
-            label = { Text("Обмен веществ, ккал/дн") },
+            label = { Text("Базовый расход, ккал/дн") },
             isError = errorFor("bmrKcal") != null,
             supportingText = { errorFor("bmrKcal")?.let { Text(it) } },
             singleLine = true,

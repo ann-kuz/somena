@@ -304,8 +304,8 @@ fun ImportValues.describe(): String {
     if (proteinG != null || fatG != null || carbsG != null) {
         parts += "Б ${fmt(proteinG ?: 0.0)} / Ж ${fmt(fatG ?: 0.0)} / У ${fmt(carbsG ?: 0.0)} г"
     }
-    bodyFatPct?.let { parts += "жир ${fmt(it)}%" }
-    boneMassKg?.let { parts += "кости ${fmt(it)} кг" }
+    bodyFatPct?.let { parts += "процент жира ${fmt(it)}%" }
+    boneMassKg?.let { parts += "костная масса ${fmt(it)} кг" }
     steps?.let { parts += "шаги ${fmt(it.toDouble())}" }
     burnedKcal?.let { parts += "сожжено ${fmt(it)} ккал" }
     sleepMinutes?.let { parts += "сон ${fmt(it / 60.0)} ч" }

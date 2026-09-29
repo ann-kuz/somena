@@ -113,7 +113,7 @@ class MetricSeriesTest {
     }
 
     @Test
-    fun `дефицит прибавляет обмен с весов и несёт его вперёд`() {
+    fun `дефицит прибавляет базовый расход с весов и несёт его вперёд`() {
         val withBmr = mapOf(
             d1 to slice.copy(bmrKcal = 1300.0),
             d2 to slice.copy(date = d2, bmrKcal = null),
@@ -123,13 +123,13 @@ class MetricSeriesTest {
     }
 
     @Test
-    fun `ручной обмен работает пока весы не дали своего`() {
+    fun `ручной базовый расход работает пока весы не дали своего`() {
         val series = metricSeries(AiMetric.DEFICIT, dates, DayData(slices), defaultBmr = 1200.0)
         assertEquals(listOf(1500.0, null), series)
     }
 
     @Test
-    fun `обмен с весов сильнее ручного`() {
+    fun `базовый расход с весов сильнее ручного`() {
         val withBmr = mapOf(d1 to slice.copy(bmrKcal = 1300.0))
         val series = metricSeries(AiMetric.DEFICIT, dates, DayData(withBmr), defaultBmr = 1200.0)
         assertEquals(listOf(1600.0, null), series)

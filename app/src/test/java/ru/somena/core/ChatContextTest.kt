@@ -47,7 +47,7 @@ class ChatContextTest {
         // Дефицит: разница сожжённых и съеденных калорий (спека 0005).
         assertTrue(text.contains("дефицит 300 ккал"))
         assertTrue(text.contains("вес 62.4 кг"))
-        assertTrue(text.contains("жир 28.1%"))
+        assertTrue(text.contains("процент жира 28.1%"))
     }
 
     @Test
@@ -68,20 +68,20 @@ class ChatContextTest {
     }
 
     @Test
-    fun `дефицит в контексте прибавляет ручной обмен из профиля`() {
+    fun `дефицит в контексте прибавляет ручной базовый расход из профиля`() {
         val text = context(profile = Profile(bmrKcal = 1200.0))
         assertTrue(text.contains("дефицит 1500 ккал"))
-        assertTrue(text.contains("обмен 1200 ккал/дн"))
+        assertTrue(text.contains("базовый расход 1200 ккал/дн"))
     }
 
     @Test
-    fun `обмен с весов сильнее ручного в дефиците`() {
+    fun `базовый расход с весов сильнее ручного в дефиците`() {
         val text = context(
             slices = mapOf(yesterday to slice.copy(bmrKcal = 1300.0)),
             profile = Profile(bmrKcal = 1200.0),
         )
         assertTrue(text.contains("дефицит 1600 ккал"))
-        assertTrue(text.contains("обмен 1300 ккал/дн"))
+        assertTrue(text.contains("базовый расход 1300 ккал/дн"))
     }
 
     @Test
@@ -93,13 +93,21 @@ class ChatContextTest {
     }
 
     @Test
-    fun `профиль попадает в контекст с вычисленным возрастом`() {
+    fun `профиль попадает в контекст с полом и вычисленным возрастом`() {
         val text = context(
-            profile = Profile(heightCm = 168, birthDateIso = "1990-05-14", goalWeightKg = 60.0)
+            profile = Profile(heightCm = 168, birthDateIso = "1990-05-14", goalWeightKg = 60.0, sex = Sex.FEMALE)
         )
+        assertTrue(text.contains("пол женский"))
         assertTrue(text.contains("рост 168 см"))
         assertTrue(text.contains("полных лет 36"))
         assertTrue(text.contains("цель по весу 60 кг"))
+    }
+
+    @Test
+    fun `пол без остальных полей уже не пустой профиль`() {
+        val text = context(profile = Profile(sex = Sex.MALE))
+        assertFalse(text.contains("Профиль: не заполнен"))
+        assertTrue(text.contains("пол мужской"))
     }
 
     @Test

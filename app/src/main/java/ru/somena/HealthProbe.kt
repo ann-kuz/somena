@@ -21,13 +21,9 @@ import java.util.Locale
 
 /**
  * Отладочный зонд Health Connect: читает записи за N дней и показывает,
- * какие приложения (dataOrigin) их написали. Цель — проверить живые источники:
- * Mi Fitness (com.xiaomi.wear) и Fitdays. Не production-код, живёт до первого релиза.
+ * какие приложения (dataOrigin) их написали. Не production-код, живёт до первого релиза.
  */
 object HealthProbe {
-
-    /** Политика ADR-0001: шагам верит только браслет. */
-    const val STEP_SOURCE = "com.xiaomi.wear"
 
     private val fmt =
         DateTimeFormatter.ofPattern("dd.MM HH:mm").withZone(ZoneId.systemDefault())
@@ -56,21 +52,18 @@ object HealthProbe {
         val range = TimeRangeFilter.between(from, now)
         val sb = StringBuilder()
 
-        // --- Шаги: группируем по источнику, итог считаем только по браслету ---
+        // --- Шаги: группируем по источнику, выбранный в настройках помечаем ---
         val steps = client.readRecords(ReadRecordsRequest(StepsRecord::class, range)).records
+        val chosenSteps = ru.somena.data.SourceStore(context).chosenPackage(ru.somena.core.SourceGroup.ACTIVITY)
         sb.appendLine("ШАГИ за $days дн.:")
         if (steps.isEmpty()) sb.appendLine("  нет записей")
         steps.groupBy { it.metadata.dataOrigin.packageName }
             .map { (pkg, rs) -> pkg to rs.sumOf { it.count } }
             .sortedByDescending { it.second }
             .forEach { (pkg, cnt) ->
-                val mark = if (pkg == STEP_SOURCE) " ← наш источник"
-                else " ← игнорируется (только браслет)"
+                val mark = if (pkg == chosenSteps) " ← выбран в «Ещё»" else ""
                 sb.appendLine("  $pkg: ${fmtInt(cnt)}$mark")
             }
-        val bandSteps = steps.filter { it.metadata.dataOrigin.packageName == STEP_SOURCE }
-            .sumOf { it.count }
-        sb.appendLine("  ИТОГ (только браслет): ${fmtInt(bandSteps)}")
         sb.appendLine()
 
         // --- Сон ---
@@ -124,14 +117,14 @@ object HealthProbe {
             latestLine("Вес", it.time, "${fmt1(it.weight.inKilograms)} кг", it.metadata.dataOrigin.packageName)
         } ?: sb.appendLine("  Вес: нет записей")
         fat.maxByOrNull { it.time }?.let {
-            latestLine("Жир", it.time, "${fmt1(it.percentage.value)} %", it.metadata.dataOrigin.packageName)
-        } ?: sb.appendLine("  Жир: нет записей")
+            latestLine("Процент жира", it.time, "${fmt1(it.percentage.value)} %", it.metadata.dataOrigin.packageName)
+        } ?: sb.appendLine("  Процент жира: нет записей")
         bone.maxByOrNull { it.time }?.let {
-            latestLine("Кости", it.time, "${fmt1(it.mass.inKilograms)} кг", it.metadata.dataOrigin.packageName)
-        } ?: sb.appendLine("  Кости: нет записей")
+            latestLine("Костная масса", it.time, "${fmt1(it.mass.inKilograms)} кг", it.metadata.dataOrigin.packageName)
+        } ?: sb.appendLine("  Костная масса: нет записей")
         bmr.maxByOrNull { it.time }?.let {
-            latestLine("Обмен", it.time, "${fmtInt(it.basalMetabolicRate.inKilocaloriesPerDay)} ккал/дн", it.metadata.dataOrigin.packageName)
-        } ?: sb.appendLine("  Обмен: нет записей")
+            latestLine("Базовый расход", it.time, "${fmtInt(it.basalMetabolicRate.inKilocaloriesPerDay)} ккал/дн", it.metadata.dataOrigin.packageName)
+        } ?: sb.appendLine("  Базовый расход: нет записей")
         sb.appendLine()
 
         // --- Еда: важно видеть, кто её пишет в HC (FatSecret не пишет — кто тогда?) ---

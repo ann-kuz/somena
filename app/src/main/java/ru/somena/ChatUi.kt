@@ -189,7 +189,7 @@ fun ChatScreen(m: Modifier) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val db = remember { SliceDb(context) }
-    // Ручной обмен из Профиля: запас для Дефицита, пока весы не передают свой.
+    // Ручной базовый расход из Профиля: запас для Дефицита, пока весы не передают свой.
     val profileBmr = remember { ProfileStore(context).load().bmrKcal }
     val settings = remember { ChatSettings(context) }
     val client = remember {

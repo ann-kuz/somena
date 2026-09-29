@@ -10,6 +10,7 @@ import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
 import androidx.health.connect.client.records.WeightRecord
+import androidx.health.connect.client.records.metadata.DataOrigin
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import java.time.Instant
@@ -21,6 +22,8 @@ import ru.somena.core.DailyAggregator
 import ru.somena.core.ImportWindow
 import ru.somena.core.MealEntry
 import ru.somena.core.SleepEntry
+import ru.somena.core.SourceGroup
+import ru.somena.core.SourceKind
 import ru.somena.core.StepEntry
 
 /**
@@ -29,6 +32,9 @@ import ru.somena.core.StepEntry
  * подхватывается при следующем импорте; после долгого перерыва - весь непрочитанный
  * промежуток. Пересчитанный день сливается с сохранённым (свежие поля сильнее),
  * поэтому дубликатов не бывает.
+ *
+ * Выбор Источника (ADR-0010): если Пользователь выбрал Источник для группы типов,
+ * чтение этого типа фильтруется по пакету; без выбора читаются все Источники.
  */
 class HcImporter(
     private val db: SliceDb,
@@ -41,17 +47,29 @@ class HcImporter(
         val client = HealthConnectClient.getOrCreate(context)
         val now = Instant.now()
         val range = TimeRangeFilter.between(ImportWindow.start(now, zone, db.lastStoredDate(), windowDays), now)
+        val choices = SourceStore(context).load()
 
-        val steps = client.readRecords(ReadRecordsRequest(StepsRecord::class, range)).records.map {
+        fun origins(kind: SourceKind): Set<DataOrigin> =
+            choices[SourceGroup.byKind(kind).key]?.let { setOf(DataOrigin(it)) } ?: emptySet()
+
+        val steps = client.readRecords(
+            ReadRecordsRequest(StepsRecord::class, range, dataOriginFilter = origins(SourceKind.STEPS)),
+        ).records.map {
             StepEntry(it.startTime, it.endTime, it.count, it.metadata.dataOrigin.packageName)
         }
-        val sleep = client.readRecords(ReadRecordsRequest(SleepSessionRecord::class, range)).records.map {
+        val sleep = client.readRecords(
+            ReadRecordsRequest(SleepSessionRecord::class, range, dataOriginFilter = origins(SourceKind.SLEEP)),
+        ).records.map {
             SleepEntry(it.startTime, it.endTime)
         }
-        val burn = client.readRecords(ReadRecordsRequest(TotalCaloriesBurnedRecord::class, range)).records.map {
+        val burn = client.readRecords(
+            ReadRecordsRequest(TotalCaloriesBurnedRecord::class, range, dataOriginFilter = origins(SourceKind.BURN)),
+        ).records.map {
             BurnEntry(it.startTime, it.endTime, it.energy.inKilocalories)
         }
-        val meals = client.readRecords(ReadRecordsRequest(NutritionRecord::class, range)).records.map {
+        val meals = client.readRecords(
+            ReadRecordsRequest(NutritionRecord::class, range, dataOriginFilter = origins(SourceKind.FOOD)),
+        ).records.map {
             MealEntry(
                 start = it.startTime,
                 end = it.endTime,
@@ -62,10 +80,18 @@ class HcImporter(
             )
         }
         // Показатели тела собираем в единые точки взвешивания по времени.
-        val weights = client.readRecords(ReadRecordsRequest(WeightRecord::class, range)).records
-        val fats = client.readRecords(ReadRecordsRequest(BodyFatRecord::class, range)).records
-        val bones = client.readRecords(ReadRecordsRequest(BoneMassRecord::class, range)).records
-        val bmr = client.readRecords(ReadRecordsRequest(BasalMetabolicRateRecord::class, range)).records
+        val weights = client.readRecords(
+            ReadRecordsRequest(WeightRecord::class, range, dataOriginFilter = origins(SourceKind.WEIGHT)),
+        ).records
+        val fats = client.readRecords(
+            ReadRecordsRequest(BodyFatRecord::class, range, dataOriginFilter = origins(SourceKind.BODY_FAT)),
+        ).records
+        val bones = client.readRecords(
+            ReadRecordsRequest(BoneMassRecord::class, range, dataOriginFilter = origins(SourceKind.BONE)),
+        ).records
+        val bmr = client.readRecords(
+            ReadRecordsRequest(BasalMetabolicRateRecord::class, range, dataOriginFilter = origins(SourceKind.BMR)),
+        ).records
         val bodyTimes = (weights.map { it.time } + fats.map { it.time } + bones.map { it.time } + bmr.map { it.time }).distinct()
         val body = bodyTimes.map { t ->
             BodyEntry(

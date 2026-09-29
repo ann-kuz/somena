@@ -166,8 +166,9 @@ fun OnboardingScreen(m: Modifier, onDone: () -> Unit) {
         }
 
         Text(
-            "Важно: Mi Fitness отправляет в Health Connect только новые данные: включи синхронизацию " +
-                "сразу, как поставишь браслет. История задним числом не заливается.",
+            "Важно: некоторые приложения (например, Mi Fitness) отправляют в Health Connect " +
+                "только новые данные: включи синхронизацию сразу, как поставишь браслет. " +
+                "История задним числом может не заливаться.",
             color = TextMuted,
             style = MaterialTheme.typography.bodySmall,
         )

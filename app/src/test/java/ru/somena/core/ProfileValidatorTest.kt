@@ -72,7 +72,7 @@ class ProfileValidatorTest {
     }
 
     @Test
-    fun `обмен веществ проверяется на разумный диапазон`() {
+    fun `базовый расход проверяется на разумный диапазон`() {
         assertTrue(ProfileValidator.validate(Profile(bmrKcal = 100.0), today).any { it.field == "bmrKcal" })
         assertTrue(ProfileValidator.validate(Profile(bmrKcal = 5000.0), today).any { it.field == "bmrKcal" })
         assertTrue(ProfileValidator.validate(Profile(bmrKcal = 1400.0), today).none { it.field == "bmrKcal" })

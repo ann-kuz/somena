@@ -73,7 +73,7 @@ private fun fmtDate(d: LocalDate): String = d.format(DateTimeFormatter.ofPattern
 fun ChartsScreen(m: Modifier) {
     val context = LocalContext.current
     val db = remember { SliceDb(context) }
-    // Ручной обмен из Профиля: запас для Дефицита, пока весы не передают свой.
+    // Ручной базовый расход из Профиля: запас для Дефицита, пока весы не передают свой.
     val profileBmr = remember { ProfileStore(context).load().bmrKcal }
     val slices = remember { db.all() }
     val wellbeing = remember { db.allWellbeing() }
@@ -167,7 +167,7 @@ fun ChartsScreen(m: Modifier) {
                         ),
                     ),
                     onPan = ::shift,
-                    caption = "Сожжено + обмен - съедено",
+                    caption = "Сожжено + базовый расход - съедено",
                 )
             }
             ChartCard {
@@ -230,22 +230,22 @@ fun ChartsScreen(m: Modifier) {
             }
             ChartCard {
                 LineChart(
-                    "Жир", days,
-                    listOf(ChartSeries("Жир", bodyFat, MaterialTheme.colorScheme.primary, "%")),
+                    "Процент жира", days,
+                    listOf(ChartSeries("Процент жира", bodyFat, MaterialTheme.colorScheme.primary, "%")),
                     onPan = ::shift,
                 )
             }
             ChartCard {
                 LineChart(
-                    "Кости", days,
-                    listOf(ChartSeries("Кости", bone, MaterialTheme.colorScheme.primary, "кг")),
+                    "Костная масса", days,
+                    listOf(ChartSeries("Костная масса", bone, MaterialTheme.colorScheme.primary, "кг")),
                     onPan = ::shift,
                 )
             }
             ChartCard {
                 LineChart(
-                    "Обмен", days,
-                    listOf(ChartSeries("Обмен", bmr, MaterialTheme.colorScheme.primary, "ккал/дн")),
+                    "Базовый расход", days,
+                    listOf(ChartSeries("Базовый расход", bmr, MaterialTheme.colorScheme.primary, "ккал/дн")),
                     onPan = ::shift,
                 )
             }

@@ -64,7 +64,17 @@ object OnboardingChecker {
     fun formatLastWrite(status: SourceStatus): String =
         status.lastWrite?.let { fmt.format(it) } ?: ""
 
-    /** Проверка по факту записей за последние [days] дней для всех Источников. */
+    /** Имя приложения из системы; null для удалённого или незнакомого пакета. */
+    fun appLabel(context: Context, pkg: String): String? = runCatching {
+        val info = context.packageManager.getApplicationInfo(pkg, 0)
+        context.packageManager.getApplicationLabel(info).toString()
+    }.getOrNull()
+
+    /**
+     * Проверка по факту записей за последние [days] дней. Известному каталогу
+     * принадлежат инструкции; любые другие приложения, писавшие в Health Connect,
+     * тоже показываются (ADR-0010: приложение работает с любыми Источниками).
+     */
     suspend fun sourceStatuses(context: Context, days: Long = 7L): List<SourceStatus> {
         if (HealthConnectClient.getSdkStatus(context) != HealthConnectClient.SDK_AVAILABLE) {
             return SourceCatalog.ALL.map { SourceStatus(it, writing = false, lastWrite = null, foundTypes = emptyList()) }
@@ -73,7 +83,7 @@ object OnboardingChecker {
         val now = Instant.now()
         val range = TimeRangeFilter.between(now.minus(Duration.ofDays(days)), now)
 
-        // Для каждого Источника — какие типы записей реально появились в окне.
+        // Для каждого Источника - какие типы записей реально появились в окне.
         val found = mutableMapOf<String, MutableSet<String>>()
         val last = mutableMapOf<String, Instant>()
 
@@ -84,10 +94,8 @@ object OnboardingChecker {
         ) {
             for (rec in client.readRecords(request).records) {
                 val pkg = rec.metadata.dataOrigin.packageName
-                if (SourceCatalog.ALL.any { it.id == pkg }) {
-                    found.getOrPut(pkg) { mutableSetOf() }.add(label)
-                    last[pkg] = maxOf(last[pkg] ?: timeOf(rec), timeOf(rec))
-                }
+                found.getOrPut(pkg) { mutableSetOf() }.add(label)
+                last[pkg] = maxOf(last[pkg] ?: timeOf(rec), timeOf(rec))
             }
         }
 
@@ -96,11 +104,11 @@ object OnboardingChecker {
         absorb<HeartRateRecord>("пульс", { it.startTime }, ReadRecordsRequest(HeartRateRecord::class, range))
         absorb<NutritionRecord>("еда", { it.startTime }, ReadRecordsRequest(NutritionRecord::class, range))
         absorb<WeightRecord>("вес", { it.time }, ReadRecordsRequest(WeightRecord::class, range))
-        absorb<BodyFatRecord>("жир", { it.time }, ReadRecordsRequest(BodyFatRecord::class, range))
-        absorb<BoneMassRecord>("кости", { it.time }, ReadRecordsRequest(BoneMassRecord::class, range))
-        absorb<BasalMetabolicRateRecord>("обмен", { it.time }, ReadRecordsRequest(BasalMetabolicRateRecord::class, range))
+        absorb<BodyFatRecord>("процент жира", { it.time }, ReadRecordsRequest(BodyFatRecord::class, range))
+        absorb<BoneMassRecord>("костная масса", { it.time }, ReadRecordsRequest(BoneMassRecord::class, range))
+        absorb<BasalMetabolicRateRecord>("базовый расход", { it.time }, ReadRecordsRequest(BasalMetabolicRateRecord::class, range))
 
-        return SourceCatalog.ALL.map { spec ->
+        val known = SourceCatalog.ALL.map { spec ->
             SourceStatus(
                 spec = spec,
                 writing = found[spec.id]?.isNotEmpty() == true,
@@ -108,6 +116,23 @@ object OnboardingChecker {
                 foundTypes = found[spec.id]?.sorted().orEmpty(),
             )
         }
+        // Неизвестные каталогу Источники: найдены самим фактом записей.
+        val unknown = found.keys
+            .filter { pkg -> SourceCatalog.ALL.none { it.id == pkg } }
+            .sorted()
+            .map { pkg ->
+                SourceStatus(
+                    spec = SourceSpec(
+                        id = pkg,
+                        name = appLabel(context, pkg) ?: pkg,
+                        instructions = "",
+                    ),
+                    writing = true,
+                    lastWrite = last[pkg],
+                    foundTypes = found[pkg]?.sorted().orEmpty(),
+                )
+            }
+        return known + unknown
     }
 }
 
