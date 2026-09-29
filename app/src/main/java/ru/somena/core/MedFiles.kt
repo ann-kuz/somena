@@ -36,13 +36,16 @@ data class StorageHit(val entry: StorageEntry, val folder: String?)
 /**
  * Файлы Хранилища на всю глубину вложенных папок (спека 0010): SAF отдаёт только
  * прямых детей документа, поэтому обходим дерево сами. Папки в список не попадают;
- * [folder] различает одинаковые имена из разных подпапок.
+ * [folder] различает одинаковые имена из разных подпапок. Повторный визит папки
+ * (петля или дубль от провайдера) пропускается - обход обязан завершаться.
  */
 fun collectStorageFiles(
     rootId: String,
     childrenOf: (documentId: String) -> List<StorageEntry>,
 ): List<StorageHit> {
+    val visited = mutableSetOf<String>()
     fun walk(dirId: String, folder: String?, out: MutableList<StorageHit>) {
+        if (!visited.add(dirId)) return
         for (e in childrenOf(dirId)) {
             if (e.isDir) {
                 walk(e.documentId, if (folder == null) e.name else "$folder/${e.name}", out)

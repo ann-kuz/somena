@@ -23,6 +23,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +40,7 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import ru.somena.core.AnalyteRow
 import ru.somena.core.MedFileIndex
 import ru.somena.core.MedImportResult
@@ -84,15 +86,24 @@ fun MedCardScreen(m: Modifier) {
     val context = LocalContext.current
     val db = remember { SliceDb(context) }
     val storage = remember { MedStorage(context) }
+    val scope = rememberCoroutineScope()
     var records by remember { mutableStateOf(db.allMed()) }
-    var files by remember { mutableStateOf(storage.listFiles()) }
+    var files by remember { mutableStateOf(listOf<StorageFile>()) }
+    var filesLoading by remember { mutableStateOf(true) }
     var editing by remember { mutableStateOf<MedRecord?>(null) }
     var showFiles by remember { mutableStateOf(false) }
 
+    // Обход Хранилища - по binder-запросу на каждую папку, дерево бывает большое:
+    // только в фоне, иначе вкладка замирает на составлении экрана.
     fun reload() {
         records = db.allMed()
-        files = storage.listFiles()
+        scope.launch {
+            files = withContext(Dispatchers.IO) { storage.listFiles() }
+            filesLoading = false
+        }
     }
+
+    LaunchedEffect(Unit) { reload() }
 
     val index = remember(records, files) { MedFileIndex(records, files.map { it.uri }.toSet()) }
 
@@ -171,6 +182,7 @@ fun MedCardScreen(m: Modifier) {
                 Modifier.fillMaxSize(),
                 records = records,
                 files = files,
+                filesLoading = filesLoading,
                 onChanged = { reload() },
                 onBack = { showFiles = false },
             )
@@ -292,6 +304,7 @@ fun MedFilesScreen(
     files: List<StorageFile>,
     onChanged: () -> Unit,
     onBack: () -> Unit,
+    filesLoading: Boolean = false,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -425,8 +438,12 @@ fun MedFilesScreen(
             if (files.isEmpty()) {
                 GlassCard(Modifier.fillMaxWidth()) {
                     Text(
-                        "В папке пока пусто. Положи туда pdf и картинки - можно в подпапки - " +
-                            "они появятся здесь и будут готовы к Разбору.",
+                        if (filesLoading) {
+                            "Читаю папку и подпапки…"
+                        } else {
+                            "В папке пока пусто. Положи туда pdf и картинки - можно в подпапки - " +
+                                "они появятся здесь и будут готовы к Разбору."
+                        },
                         color = TextMuted,
                         style = MaterialTheme.typography.bodyMedium,
                     )

@@ -36,6 +36,22 @@ class MedStorageWalkTest {
         assertTrue(files.isEmpty())
     }
 
+    @Test(timeout = 2000L)
+    fun `цикл в дереве провайдера не зацикливает обход`() {
+        // Провайдер отдал папку её же собственным ребёнком: без защиты обход
+        // уходит в бесконечную рекурсию и вешает вкладку Медкарты навсегда.
+        val files = collectStorageFiles("root") { dir ->
+            when (dir) {
+                "root" -> listOf(folder("root:петля", "петля"))
+                else -> listOf(
+                    folder(dir, "петля"),                       // самоссылка
+                    file("$dir:кровь.pdf", "кровь.pdf"),
+                )
+            }
+        }
+        assertTrue(files.map { it.entry.name }.contains("кровь.pdf"))
+    }
+
     private fun file(id: String, name: String) =
         StorageEntry(id, name, isDir = false, sizeBytes = 10, mime = "application/pdf")
 
