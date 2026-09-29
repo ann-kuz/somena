@@ -14,6 +14,9 @@
 
 Только через `/root/somena/scripts/build-apk.sh` (сервер vkbot). Скрипт собирает
 debug-APK и кладёт его в `backend/apk/somena.apk`, который раздаёт бэкенд.
+Каждую правку `app/` заканчивай коммитом и сборкой APK этим скриптом, подняв
+версию в `app/build.gradle.kts` (фича - минор, правка - патч); отдельная просьба
+не нужна.
 После правки `backend/app.py` — `systemctl restart somena-ai` (см. backend/README.md).
 
 ## Тикеты
