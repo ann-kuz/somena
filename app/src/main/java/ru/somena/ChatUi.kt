@@ -2,6 +2,7 @@ package ru.somena
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +22,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -42,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -52,6 +56,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import android.widget.Toast
 import android.net.Uri
 import java.time.Instant
@@ -107,6 +112,8 @@ import ru.somena.data.SliceDb
 import ru.somena.data.STEP_FAST
 import ru.somena.data.STEP_MAX
 import ru.somena.ui.AttachFileIcon
+import ru.somena.ui.BgBase
+import ru.somena.ui.CardBorder
 import ru.somena.ui.GhostButton
 import ru.somena.ui.GlassCard
 import ru.somena.ui.GlowButton
@@ -955,10 +962,29 @@ private fun ManualEntryDialog(
         else -> date != null && value.isNotBlank() && problem == null
     }
 
-    Dialog(onDismissRequest = onDismiss) {
-        GlassCard(Modifier.fillMaxWidth()) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        // Скрим на весь экран и плотная карточка Темы: полупрозрачное стекло пропускало
+        // текст чата сквозь выбор, а системного затемнения не хватало.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.62f))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onDismiss() },
+            contentAlignment = Alignment.Center,
+        ) {
             Column(
-                Modifier.verticalScroll(rememberScrollState()),
+                Modifier
+                    .padding(20.dp)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(BgBase)
+                    .border(BorderStroke(1.dp, CardBorder), RoundedCornerShape(24.dp))
+                    .pointerInput(Unit) { detectTapGestures { } }
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(
@@ -970,26 +996,46 @@ private fun ManualEntryDialog(
                     style = MaterialTheme.typography.titleSmall,
                 )
                 if (metric == null) {
-                    ManualMetric.entries.forEach { m ->
-                        PeriodChip(m.label, selected = false, onClick = { metric = m }, modifier = Modifier.fillMaxWidth())
+                    // Категории - сеткой по две: пилюли одного ритма, как селектор Ступени.
+                    ManualMetric.entries.chunked(2).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            row.forEach { m ->
+                                PeriodChip(
+                                    m.label,
+                                    selected = false,
+                                    onClick = { metric = m },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            if (row.size == 1) Spacer(Modifier.weight(1f))
+                        }
                     }
                 } else if (date == null) {
                     listOf(
                         "Сегодня" to today,
                         "Вчера" to today.minusDays(1),
                         "Позавчера" to today.minusDays(2),
-                    ).forEach { (label, d) ->
-                        PeriodChip(label, selected = false, onClick = {
-                            date = d
-                            resetValueInputs(metric, d)
-                        }, modifier = Modifier.fillMaxWidth())
+                        (if (showCalendar) "Свернуть календарь" else "Другая дата") to null,
+                    ).chunked(2).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            row.forEach { (label, d) ->
+                                PeriodChip(
+                                    label,
+                                    selected = showCalendar && d == null,
+                                    onClick = {
+                                        if (d != null) {
+                                            date = d
+                                            resetValueInputs(metric, d)
+                                        } else {
+                                            showCalendar = !showCalendar
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            if (row.size == 1) Spacer(Modifier.weight(1f))
+                        }
                     }
-                    PeriodChip(
-                        if (showCalendar) "Свернуть календарь" else "Другая дата",
-                        selected = showCalendar,
-                        onClick = { showCalendar = !showCalendar },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
                     if (showCalendar) {
                         ManualMonthPicker(month, today, picked = {
                             month = YearMonth.from(it)
