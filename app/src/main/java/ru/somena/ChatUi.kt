@@ -2,11 +2,13 @@ package ru.somena
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -19,10 +21,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -35,19 +41,22 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import android.widget.Toast
 import android.net.Uri
 import java.time.Instant
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.Dispatchers
@@ -55,11 +64,12 @@ import kotlinx.coroutines.launch
 import ru.somena.core.AiChartSpec
 import ru.somena.core.AiMetric
 import ru.somena.core.CHAT_SYSTEM_PROMPT
-import ru.somena.core.DATA_ENTRY_MARKER
 import ru.somena.core.DayData
+import ru.somena.core.DaySlice
 import ru.somena.core.ImportPreview
 import ru.somena.core.ImportValues
 import ru.somena.core.ImportWellbeing
+import ru.somena.core.ManualMetric
 import ru.somena.core.MAX_ATTACHMENT_BYTES
 import ru.somena.core.MAX_ATTACHMENT_CHARS
 import ru.somena.core.MED_IMPORT_SYSTEM_PROMPT
@@ -70,12 +80,18 @@ import ru.somena.core.Wellbeing
 import ru.somena.core.buildChatContext
 import ru.somena.core.decodeTableBytes
 import ru.somena.core.describe
+import ru.somena.core.fmt
 import ru.somena.core.isDataEntryRequest
 import ru.somena.core.lastDays
+import ru.somena.core.manualProblem
+import ru.somena.core.manualSlicePreview
+import ru.somena.core.manualWellbeingPreview
+import ru.somena.core.manualWellbeingProblem
 import ru.somena.core.metricSeries
 import ru.somena.core.parseAiCharts
 import ru.somena.core.parseAiDataEntries
 import ru.somena.core.parseImportReply
+import ru.somena.core.parseManualNumber
 import ru.somena.core.parseMedReply
 import ru.somena.core.toSlice
 import ru.somena.core.toWellbeing
@@ -151,6 +167,9 @@ private data class MedImportState(
     val pagesTotal: Int = 0,
 )
 
+/** Источник Предпросмотра Дневных срезов: у каждого - свой итог в истории чата. */
+private enum class ImportOrigin { TABLE, CHAT, MANUAL }
+
 /** Экран «Чат по данным» (тикет 07): свободный вопрос, ответ ИИ, графики от модели, история. */
 @Composable
 fun ChatScreen(m: Modifier) {
@@ -192,14 +211,14 @@ fun ChatScreen(m: Modifier) {
     var importPreview by remember { mutableStateOf<ImportPreview?>(null) }
     var importFileName by remember { mutableStateOf<String?>(null) }
     var importUserText by remember { mutableStateOf<String?>(null) }
-    // Источник Предпросмотра: таблица вложения или блок «данные» в ответе ИИ - итог записи разный.
-    var importFromChat by remember { mutableStateOf(false) }
+    // Источник Предпросмотра: таблица, ответ ИИ или ручное внесение - итог записи разный.
+    var importOrigin by remember { mutableStateOf(ImportOrigin.TABLE) }
+    // Диалог ручного внесения (кнопка «Внести данные»): категория - дата - значение.
+    var manualEntry by remember { mutableStateOf(false) }
     // Разбор документа (спека 0010): Ступень выбирается при запуске, по умолчанию Быстрая.
     var medStep by remember { mutableStateOf(STEP_FAST) }
     var medImport by remember { mutableStateOf<MedImportState?>(null) }
     val listState = rememberLazyListState()
-    // Кнопка «Внести данные» ставит пометку в поле ввода и возвращает фокус в поле.
-    val inputFocus = remember { FocusRequester() }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch(Dispatchers.IO) {
@@ -247,20 +266,21 @@ fun ChatScreen(m: Modifier) {
         busy = true
         input = ""
         scope.launch {
-            client.askImport(tableText, question).fold(
-                onSuccess = { raw ->
-                    val preview = parseImportReply(raw, data.slicesByDate, firstWellbeing())
-                    if (preview == null) {
-                        error = "ИИ не смог разобрать таблицу. Нужны колонки с датами и показателями. " +
-                            "Если таблица длинная, разбей её на части."
-                    } else {
-                        importFileName = name
-                        importUserText = question
-                        importPreview = preview
-                    }
-                },
-                onFailure = { e -> error = e.message ?: "Разбор не удался." },
-            )
+                    client.askImport(tableText, question).fold(
+                        onSuccess = { raw ->
+                            val preview = parseImportReply(raw, data.slicesByDate, firstWellbeing())
+                            if (preview == null) {
+                                error = "ИИ не смог разобрать таблицу. Нужны колонки с датами и показателями. " +
+                                    "Если таблица длинная, разбей её на части."
+                            } else {
+                                importFileName = name
+                                importUserText = question
+                                importOrigin = ImportOrigin.TABLE
+                                importPreview = preview
+                            }
+                        },
+                        onFailure = { e -> error = e.message ?: "Разбор не удался." },
+                    )
             busy = false
         }
     }
@@ -325,56 +345,67 @@ fun ChatScreen(m: Modifier) {
 
     fun confirmImport() {
         val preview = importPreview ?: return
-        if (!importFromChat && importFileName == null) return
+        if (importOrigin == ImportOrigin.TABLE && importFileName == null) return
         for (entry in preview.entries) {
             db.upsert(entry.toSlice(db.get(entry.date)))
         }
         for (entry in preview.wellbeing) {
             db.upsert(entry.toWellbeing(db.getWellbeing(entry.date, Wellbeing.SLOT_FIRST)))
         }
-    val note = if (importFromChat) {
-        buildString {
-            append("Записала из ответа")
-            if (preview.entries.isNotEmpty()) {
-                // Даты в итоге записи: сразу видно, на какие дни легли значения.
-                val fmtShort = DateTimeFormatter.ofPattern("dd.MM")
-                val dates = preview.entries.sortedBy { it.date }.map { it.date.format(fmtShort) }
-                val shown = if (dates.size <= 5) dates.joinToString(", ") else "${dates.size} дн."
-                append(": показатели на $shown")
-                append(" (новых ${preview.entries.size - preview.replacedCount}, замен ${preview.replacedCount})")
+        val fmtShort = DateTimeFormatter.ofPattern("dd.MM")
+        when (importOrigin) {
+            // Ручное внесение: итог перечисляет, что и за какие дни легло в базу.
+            ImportOrigin.MANUAL -> {
+                val what = buildList {
+                    preview.entries.forEach { add("${it.date.format(fmtShort)}: ${it.values.describe()}") }
+                    preview.wellbeing.forEach { add("${it.date.format(fmtShort)}: ${it.values.describe()}") }
+                }.joinToString("; ")
+                db.addChatMessage(ChatMessage.USER, "Внести данные: $what")
+                db.addChatMessage(ChatMessage.ASSISTANT, "Записала вручную: $what.")
             }
-            if (preview.wellbeing.isNotEmpty()) {
-                append(if (preview.entries.isEmpty()) ": " else ", ")
-                append("самочувствие на ${preview.wellbeing.size} дн. (замен ${preview.wellbeingReplacedCount})")
-            }
-            append(".")
-            if (preview.rejected.isNotEmpty()) append(" Строк не разобрано: ${preview.rejected.size}.")
-        }
-    } else {
-            buildString {
-                val parts = buildList {
+            ImportOrigin.CHAT -> {
+                val note = buildString {
+                    append("Записала из ответа")
                     if (preview.entries.isNotEmpty()) {
-                        add("записала ${preview.entries.size} дн. " +
-                            "(новых ${preview.entries.size - preview.replacedCount}, замен ${preview.replacedCount})")
+                        // Даты в итоге записи: сразу видно, на какие дни легли значения.
+                        val dates = preview.entries.sortedBy { it.date }.map { it.date.format(fmtShort) }
+                        val shown = if (dates.size <= 5) dates.joinToString(", ") else "${dates.size} дн."
+                        append(": показатели на $shown")
+                        append(" (новых ${preview.entries.size - preview.replacedCount}, замен ${preview.replacedCount})")
                     }
                     if (preview.wellbeing.isNotEmpty()) {
-                        add("самочувствия ${preview.wellbeing.size} дн. (замен ${preview.wellbeingReplacedCount})")
+                        append(if (preview.entries.isEmpty()) ": " else ", ")
+                        append("самочувствие на ${preview.wellbeing.size} дн. (замен ${preview.wellbeingReplacedCount})")
                     }
+                    append(".")
+                    if (preview.rejected.isNotEmpty()) append(" Строк не разобрано: ${preview.rejected.size}.")
                 }
-                append("Разобрала таблицу «${importFileName ?: ""}»: ${parts.joinToString(", ")}.")
-                if (preview.rejected.isNotEmpty()) append(" Строк не разобрано: ${preview.rejected.size}.")
+                db.addChatMessage(ChatMessage.ASSISTANT, note)
+            }
+            ImportOrigin.TABLE -> {
+                val note = buildString {
+                    val parts = buildList {
+                        if (preview.entries.isNotEmpty()) {
+                            add("записала ${preview.entries.size} дн. " +
+                                "(новых ${preview.entries.size - preview.replacedCount}, замен ${preview.replacedCount})")
+                        }
+                        if (preview.wellbeing.isNotEmpty()) {
+                            add("самочувствия ${preview.wellbeing.size} дн. (замен ${preview.wellbeingReplacedCount})")
+                        }
+                    }
+                    append("Разобрала таблицу «${importFileName ?: ""}»: ${parts.joinToString(", ")}.")
+                    if (preview.rejected.isNotEmpty()) append(" Строк не разобрано: ${preview.rejected.size}.")
+                }
+                val withText = importUserText?.takeIf { it.isNotBlank() }?.let { ":\n$it" } ?: ""
+                db.addChatMessage(ChatMessage.USER, "Приложила таблицу «${importFileName ?: ""}»$withText")
+                db.addChatMessage(ChatMessage.ASSISTANT, note)
             }
         }
-        if (!importFromChat) {
-            val withText = importUserText?.takeIf { it.isNotBlank() }?.let { ":\n$it" } ?: ""
-            db.addChatMessage(ChatMessage.USER, "Приложила таблицу «${importFileName ?: ""}»$withText")
-        }
-        db.addChatMessage(ChatMessage.ASSISTANT, note)
         attachment = null
         importPreview = null
         importFileName = null
         importUserText = null
-        importFromChat = false
+        importOrigin = ImportOrigin.TABLE
         reloadData()
         messages = db.chatHistory()
     }
@@ -384,7 +415,7 @@ fun ChatScreen(m: Modifier) {
         importPreview = null
         importFileName = null
         importUserText = null
-        importFromChat = false
+        importOrigin = ImportOrigin.TABLE
     }
 
     fun send(question: String) {
@@ -413,7 +444,7 @@ fun ChatScreen(m: Modifier) {
                                 if (!hasValues) {
                                     error = "Не поняла, что занести. Напиши показатель, значение и дату, например: сожжено 400 за 26.09."
                                 } else {
-                                    importFromChat = true
+                                    importOrigin = ImportOrigin.CHAT
                                     importPreview = preview
                                 }
                             },
@@ -445,7 +476,7 @@ fun ChatScreen(m: Modifier) {
                                 }
                                 val p = dataReply.preview
                                 if (p != null && (p.entries.isNotEmpty() || p.wellbeing.isNotEmpty() || p.rejected.isNotEmpty())) {
-                                    importFromChat = true
+                                    importOrigin = ImportOrigin.CHAT
                                     importPreview = p
                                 }
                             },
@@ -576,15 +607,12 @@ fun ChatScreen(m: Modifier) {
             }
         }
         if (attachment == null && importPreview == null) {
-            // «Внести данные»: пометка в поле ввода, по которой ИИ обязан ответить блоком
-            // ```данные``` - предложение попадёт в Предпросмотр, запись только по «Записать».
+            // «Внести данные»: меню категории - дата - значение, вовсе без ИИ
+            // (Быстрая ступень обещала «записала», но Предпросмотра не было, инцидент 29.09).
             PeriodChip(
                 "Внести данные",
-                selected = isDataEntryRequest(input),
-                onClick = {
-                    if (!isDataEntryRequest(input)) input = "$DATA_ENTRY_MARKER: "
-                    inputFocus.requestFocus()
-                },
+                selected = manualEntry,
+                onClick = { manualEntry = true },
             )
         }
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -620,7 +648,7 @@ fun ChatScreen(m: Modifier) {
                 },
                 enabled = settings.isConfigured && !busy && importPreview == null,
                 maxLines = 4,
-                modifier = Modifier.weight(1f).focusRequester(inputFocus),
+                modifier = Modifier.weight(1f),
             )
             SendButton(
                 enabled = settings.isConfigured && !busy && importPreview == null &&
@@ -640,6 +668,20 @@ fun ChatScreen(m: Modifier) {
             onSave = ::confirmMedImport,
             onDismiss = { medImport = null },
             banner = { MedImportWarnings(state.result, pagesTotal = state.pagesTotal) },
+        )
+    }
+
+    // Ручное внесение (кнопка «Внести данные»): итог уходит тем же Предпросмотром.
+    if (manualEntry) {
+        ManualEntryDialog(
+            onDismiss = { manualEntry = false },
+            onConfirm = { preview ->
+                manualEntry = false
+                importOrigin = ImportOrigin.MANUAL
+                importPreview = preview
+            },
+            sliceAt = { db.get(it) },
+            firstWellbeingAt = { db.getWellbeing(it, Wellbeing.SLOT_FIRST) },
         )
     }
 }
@@ -865,6 +907,229 @@ fun ChatSettingsSection() {
         )
         status?.let {
             Text(it, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+/**
+ * Диалог ручного внесения (кнопка «Внести данные»): категория - дата - значение,
+ * без ИИ. Дата - пилюлями (сегодня/вчера/позавчера) или календарём, как у цикла;
+ * итог уходит тем же Предпросмотром, запись - по явному «Записать».
+ */
+@Composable
+private fun ManualEntryDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (ImportPreview) -> Unit,
+    sliceAt: (LocalDate) -> DaySlice?,
+    firstWellbeingAt: (LocalDate) -> Wellbeing?,
+) {
+    val today = LocalDate.now()
+    var metric by remember { mutableStateOf<ManualMetric?>(null) }
+    var date by remember { mutableStateOf<LocalDate?>(null) }
+    var showCalendar by remember { mutableStateOf(false) }
+    var month by remember { mutableStateOf(YearMonth.now()) }
+    var value by remember { mutableStateOf("") }
+    var energy by remember { mutableStateOf("") }
+    var mood by remember { mutableStateOf("") }
+    var sleepQ by remember { mutableStateOf("") }
+
+    fun resetValueInputs(m: ManualMetric?, d: LocalDate?) {
+        value = ""
+        if (m == ManualMetric.WELLBEING) {
+            val old = d?.let { firstWellbeingAt(it) }
+            energy = old?.energy?.toString() ?: ""
+            mood = old?.mood?.toString() ?: ""
+            sleepQ = old?.sleepQuality?.toString() ?: ""
+        }
+    }
+
+    val problem = when (val m = metric) {
+        ManualMetric.WELLBEING -> manualWellbeingProblem(energy, mood, sleepQ)
+        null -> null
+        else -> if (value.isBlank()) null else manualProblem(m, value)
+    }
+    val ready = when (metric) {
+        null -> false
+        ManualMetric.WELLBEING -> date != null && problem == null &&
+            energy.isNotBlank() && mood.isNotBlank() && sleepQ.isNotBlank()
+        else -> date != null && value.isNotBlank() && problem == null
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        GlassCard(Modifier.fillMaxWidth()) {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    when {
+                        metric == null -> "Что занести?"
+                        date == null -> "${metric!!.label}: за какой день?"
+                        else -> "${metric!!.label} за ${date!!.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))}"
+                    },
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                if (metric == null) {
+                    ManualMetric.entries.forEach { m ->
+                        PeriodChip(m.label, selected = false, onClick = { metric = m }, modifier = Modifier.fillMaxWidth())
+                    }
+                } else if (date == null) {
+                    listOf(
+                        "Сегодня" to today,
+                        "Вчера" to today.minusDays(1),
+                        "Позавчера" to today.minusDays(2),
+                    ).forEach { (label, d) ->
+                        PeriodChip(label, selected = false, onClick = {
+                            date = d
+                            resetValueInputs(metric, d)
+                        }, modifier = Modifier.fillMaxWidth())
+                    }
+                    PeriodChip(
+                        if (showCalendar) "Свернуть календарь" else "Другая дата",
+                        selected = showCalendar,
+                        onClick = { showCalendar = !showCalendar },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (showCalendar) {
+                        ManualMonthPicker(month, today, picked = {
+                            month = YearMonth.from(it)
+                            date = it
+                            resetValueInputs(metric, it)
+                            showCalendar = false
+                        }, onMove = { month = it })
+                    }
+                } else {
+                    val m = metric!!
+                    val d = date!!
+                    // Что сейчас в базе: замена видна до ввода, а не после «Записать».
+                    if (m != ManualMetric.WELLBEING) {
+                        val oldField = sliceAt(d)
+                        val oldLine = when (m) {
+                            ManualMetric.BURNED -> oldField?.burnedKcal
+                            ManualMetric.EATEN -> oldField?.eatenKcal
+                            ManualMetric.WEIGHT -> oldField?.weightKg
+                            ManualMetric.STEPS -> oldField?.steps?.toDouble()
+                            else -> oldField?.sleepMinutes?.let { it / 60.0 }
+                        }
+                        if (oldLine != null) {
+                            Text(
+                                "Сейчас в базе: ${fmt(oldLine)} ${m.unitHint}",
+                                color = TextMuted,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                    if (m == ManualMetric.WELLBEING) {
+                        OutlinedTextField(energy, onValueChange = { energy = it }, label = { Text("Энергия, 0-10") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(mood, onValueChange = { mood = it }, label = { Text("Настроение, 0-10") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(sleepQ, onValueChange = { sleepQ = it }, label = { Text("Качество сна, 0-10") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    } else {
+                        OutlinedTextField(
+                            value,
+                            onValueChange = { value = it },
+                            label = { Text("${m.label}, ${m.unitHint}") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    problem?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        GlowButton(
+                            "В Предпросмотр",
+                            enabled = ready,
+                            onClick = {
+                                val preview = if (m == ManualMetric.WELLBEING) {
+                                    manualWellbeingPreview(
+                                        d, energy.toInt(), mood.toInt(), sleepQ.toInt(), firstWellbeingAt(d),
+                                    )
+                                } else {
+                                    manualSlicePreview(m, parseManualNumber(value)!!, d, sliceAt(d))
+                                }
+                                onConfirm(preview)
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        GhostButton("Отмена", onClick = onDismiss, modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Мини-календарь выбора даты: та же сетка-месяц, что у Цикла; будущее недоступно. */
+@Composable
+private fun ManualMonthPicker(
+    month: YearMonth,
+    today: LocalDate,
+    picked: (LocalDate) -> Unit,
+    onMove: (YearMonth) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { onMove(month.minusMonths(1)) }) {
+                Icon(Icons.Filled.KeyboardArrowLeft, "Месяц назад", tint = TextMuted)
+            }
+            Text(
+                month.format(DateTimeFormatter.ofPattern("LLLL uuuu", java.util.Locale("ru", "RU")))
+                    .replaceFirstChar { it.uppercase(java.util.Locale("ru", "RU")) },
+                Modifier.weight(1f),
+                style = MaterialTheme.typography.titleSmall,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+            IconButton(onClick = { onMove(month.plusMonths(1)) }) {
+                Icon(Icons.Filled.KeyboardArrowRight, "Месяц вперёд", tint = TextMuted)
+            }
+        }
+        Row(Modifier.fillMaxWidth()) {
+            listOf("пн", "вт", "ср", "чт", "пт", "сб", "вс").forEach {
+                Text(
+                    it,
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextMuted,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+            }
+        }
+        val leading = month.atDay(1).dayOfWeek.value - 1
+        val cells: List<LocalDate?> = List(leading) { null } +
+            (1..month.lengthOfMonth()).map { month.atDay(it) }
+        cells.chunked(7).forEach { week ->
+            Row(Modifier.fillMaxWidth()) {
+                week.forEach { d ->
+                    if (d == null) {
+                        Spacer(Modifier.weight(1f))
+                    } else {
+                        val future = d.isAfter(today)
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .padding(2.dp)
+                                .aspectRatio(1f)
+                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                .background(
+                                    if (d == today) Violet.copy(alpha = 0.25f) else Color.Transparent
+                                )
+                                .then(
+                                    if (future) Modifier else Modifier.clickable { picked(d) }
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                "${d.dayOfMonth}",
+                                fontSize = 14.sp,
+                                fontWeight = if (d == today) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Medium,
+                                color = if (future) TextMuted.copy(alpha = 0.4f) else androidx.compose.ui.graphics.Color.Unspecified,
+                            )
+                        }
+                    }
+                }
+                repeat(7 - week.size) { Spacer(Modifier.weight(1f)) }
+            }
         }
     }
 }
