@@ -11,6 +11,14 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import ru.somena.core.DATA_ENTRY_SYSTEM_PROMPT
 import ru.somena.core.IMPORT_SYSTEM_PROMPT
 import ru.somena.core.MAX_ATTACHMENT_CHARS
@@ -20,22 +28,52 @@ import ru.somena.core.MED_IMPORT_SYSTEM_PROMPT
 const val STEP_FAST = "fast"
 const val STEP_MAX = "max"
 
-/** Адрес и токен запросов к Бэкенду: чистые данные, тестируются без Android. */
-data class ChatEndpoint(val url: String, val token: String)
+/**
+ * Транспорт Чата по данным: чистые данные, тестируются без Android.
+ * Server - Бэкенд-прокси владелицы (ключи ИИ живут на сервере); Direct - свой ключ
+ * proxyapi, приложение само собирает OpenAI-совместимый запрос, сервер не нужен.
+ */
+sealed interface ChatTransport {
+    /** Имя транспорта в строках ошибок: «Бэкенд» или «proxyapi». */
+    val label: String
+
+    data class Server(val url: String, val appToken: String) : ChatTransport {
+        override val label get() = "Бэкенд"
+    }
+
+    data class Direct(
+        val apiKey: String,
+        val fastModel: String,
+        val maxModel: String,
+        val baseUrl: String = PROXYAPI_URL,
+    ) : ChatTransport {
+        override val label get() = "proxyapi"
+
+        /** Модель Ступени: выбирается на телефоне, а не на сервере. */
+        fun modelFor(step: String?): String = if (step == STEP_MAX) maxModel else fastModel
+
+        companion object {
+            const val PROXYAPI_URL = "https://api.proxyapi.ru/openai/v1"
+        }
+    }
+}
 
 /**
- * Клиент Бэкенда-прокси (тикет 07, вложения - спека 0004): POST /v1/chat с историей
- * диалога, системным промптом и Ступенью модели. Контекст данных идёт первым user-
- * сообщением: у Бэкенда жёсткий лимит на system в 4000 символов, а срез за 30 дней
- * в него не помещается. askImport отправляет таблицу Вложения в поле attachment
- * (свой, более широкий лимит) и всегда на Быстрой Ступени.
- * О каждом запросе пишет две строки (запрос и исход) в [log] - это журнал на вкладке
- * «Отладка HC»; токен в журнал не попадает никогда.
+ * Клиент ИИ (тикет 07, вложения - спека 0004): одна точка входа для двух транспортов.
+ * [ChatTransport.Server] шлёт POST /v1/chat с историей диалога, системным промптом и
+ * Ступенью (модель выбирает сервер). [ChatTransport.Direct] сам собирает тот же запрос
+ * в OpenAI-совместимом виде и шлёт прямо в proxyapi со своим ключом: сервер не нужен.
+ * Контекст данных идёт первым user-сообщением: у Бэкенда жёсткий лимит на system в
+ * 4000 символов, а срез за 30 дней в него не помещается. askImport отправляет таблицу
+ * Вложения в поле attachment (свой, более широкий лимит) и всегда на Быстрой Ступени;
+ * в прямом режиме вложение сворачивается в user-сообщение теми же правилами, что на
+ * Бэкенде. О каждом запросе пишет две строки (запрос и исход) в [log] - это журнал на
+ * вкладке «Отладка HC»; токен и ключ в журнал не попадают никогда.
  */
 class ChatClient(
-    private val endpoint: ChatEndpoint,
+    private val transport: ChatTransport,
     private val log: (String) -> Unit = {},
-    /** Сколько ждать ответа в обычном чате: ответы Бэкенда там секунды. */
+    /** Сколько ждать ответа в обычном чате: ответы там секунды. */
     private val chatReadTimeoutMs: Long = 90_000,
     /**
      * Сколько ждать Разбор таблицы: ответ провайдера на длинную таблицу занимает до
@@ -117,47 +155,161 @@ class ChatClient(
         )
     }
 
-    /** Ступень→модель с Бэкенда (/health, без авторизации): подпись селектора не врёт после смены модели. */
-    fun steps(): Map<String, String>? = try {
-        val conn = (URL("${endpoint.url}/health").openConnection() as HttpURLConnection).apply {
-            connectTimeout = 5000
-            readTimeout = 5000
+    /**
+     * Подпись Ступень→модель для селектора чата. У Бэкенда - из /health без авторизации
+     * (подпись не врёт после смены модели), у прямого proxyapi - выбранные модели с
+     * телефона, сети не нужно вовсе.
+     */
+    fun steps(): Map<String, String>? = when (transport) {
+        is ChatTransport.Direct ->
+            mapOf(STEP_FAST to transport.fastModel, STEP_MAX to transport.maxModel)
+        is ChatTransport.Server -> try {
+            val conn = (URL("${transport.url}/health").openConnection() as HttpURLConnection).apply {
+                connectTimeout = 5000
+                readTimeout = 5000
+            }
+            runCatching {
+                val body = conn.inputStream.bufferedReader().readText()
+                json.decodeFromString<WireHealth>(body).steps
+                    ?.filterKeys { it == STEP_FAST || it == STEP_MAX }
+                    ?.takeIf { it.isNotEmpty() }
+            }.getOrNull()
+        } catch (e: Exception) {
+            null
         }
-        runCatching {
-            val body = conn.inputStream.bufferedReader().readText()
-            json.decodeFromString<WireHealth>(body).steps
-                ?.filterKeys { it == STEP_FAST || it == STEP_MAX }
-                ?.takeIf { it.isNotEmpty() }
-        }.getOrNull()
-    } catch (e: Exception) {
-        null
     }
 
-    private fun exchange(req: WireRequest, readTimeoutMs: Long, describe: () -> String): Result<String> {
+    private fun exchange(req: WireRequest, readTimeoutMs: Long, describe: () -> String): Result<String> =
+        when (transport) {
+            is ChatTransport.Server -> postJson(
+                "${transport.url}/v1/chat",
+                transport.appToken,
+                json.encodeToString(req),
+                readTimeoutMs,
+                describe,
+                parse200 = { raw ->
+                    val wire = json.decodeFromString<WireReply>(raw)
+                    wire.reply to wire.model
+                },
+                httpError = { code, detail ->
+                    when (code) {
+                        401 -> "Токен приложения неверный. Нужна строка APP_TOKEN из backend/.env на сервере " +
+                            "(это не ключ proxyapi): проверь вкладку «Ещё» и попробуй снова."
+                        400 -> detail ?: "Бэкенд отклонил запрос (HTTP 400): обнови приложение и Бэкенд."
+                        else -> "Бэкенд ответил ошибкой (HTTP $code): ${detail ?: "попробуй позже"}."
+                    }
+                },
+            )
+            is ChatTransport.Direct -> postJson(
+                "${transport.baseUrl}/chat/completions",
+                transport.apiKey,
+                directPayload(transport, req),
+                readTimeoutMs,
+                describe,
+                parse200 = { raw ->
+                    val wire = json.decodeFromString<WireProviderReply>(raw)
+                    (wire.choices.firstOrNull()?.message?.content ?: "") to wire.model
+                },
+                httpError = { code, detail ->
+                    when (code) {
+                        401 -> "Ключ proxyapi неверный: проверь его на вкладке «Ещё» и попробуй снова."
+                        429 -> "proxyapi ограничивает частоту запросов: подожди минуту и попробуй снова."
+                        else -> "proxyapi ответил ошибкой (HTTP $code)${detail?.let { ": $it" } ?: ". Попробуй позже."}"
+                    }
+                },
+            )
+        }
+
+    /**
+     * Прямое тело запроса в proxyapi (OpenAI-совместимое): то, что Бэкенд собирает на
+     * своей стороне, здесь собирает приложение. Системный промпт - первым сообщением,
+     * Вложение - user-сообщением перед вопросом, картинки - multimodal-частями вопроса
+     * (спека 0010, ADR-0009).
+     */
+    private fun directPayload(t: ChatTransport.Direct, req: WireRequest): String {
+        val messages: MutableList<Pair<String, JsonElement>> =
+            req.messages.map { it.role to JsonPrimitive(it.content) }.toMutableList()
+        req.attachment?.let { text ->
+            val attachment: Pair<String, JsonElement> =
+                ChatMessage.USER to JsonPrimitive("[Приложенная таблица]\n$text")
+            val lastUser = messages.indexOfLast { it.first == ChatMessage.USER }
+            if (lastUser >= 0) messages.add(lastUser, attachment) else messages.add(attachment)
+        }
+        if (!req.images.isNullOrEmpty()) {
+            val lastUser = messages.indexOfLast { it.first == ChatMessage.USER }
+            val parts = buildJsonArray {
+                if (lastUser >= 0) {
+                    add(
+                        buildJsonObject {
+                            put("type", "text")
+                            put("text", messages[lastUser].second.jsonPrimitive.content)
+                        }
+                    )
+                }
+                req.images.forEach { img ->
+                    add(
+                        buildJsonObject {
+                            put("type", "image_url")
+                            put(
+                                "image_url",
+                                buildJsonObject {
+                                    put("url", if (img.startsWith("data:")) img else "data:image/jpeg;base64,$img")
+                                }
+                            )
+                        }
+                    )
+                }
+            }
+            val merged: Pair<String, JsonElement> = ChatMessage.USER to parts
+            if (lastUser >= 0) messages[lastUser] = merged else messages.add(merged)
+        }
+        return buildJsonObject {
+            put("model", t.modelFor(req.step))
+            put("max_completion_tokens", req.maxTokens)
+            put("messages", buildJsonArray {
+                req.system?.let { add(buildJsonObject { put("role", "system"); put("content", it) }) }
+                messages.forEach { (role, content) ->
+                    add(buildJsonObject { put("role", role); put("content", content) })
+                }
+            })
+        }.toString()
+    }
+
+    /**
+     * Общий POST обоих транспортов: соединение, журнал «запрос/исход», одинаковый перевод
+     * сетевых ошибок в слова. Ответ 200 разбирает [parse200] (пара «ответ/модель»),
+     * прочие коды - [httpError] (текст по коду и телу ошибки; 502/503/504 у обоих
+     * транспортов означают одно - ИИ недоступен).
+     */
+    private fun postJson(
+        url: String,
+        bearer: String,
+        body: String,
+        readTimeoutMs: Long,
+        describe: () -> String,
+        parse200: (String) -> Pair<String?, String?>,
+        httpError: (Int, String?) -> String,
+    ): Result<String> {
         val startedAt = System.currentTimeMillis()
-        log("→ POST ${endpoint.url}/v1/chat (${describe()})")
+        log("→ POST $url (${describe()})")
         return try {
-            val conn = (URL("${endpoint.url}/v1/chat").openConnection() as HttpURLConnection).apply {
+            val conn = (URL(url).openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 10_000
                 readTimeout = readTimeoutMs.toInt()
                 doOutput = true
-                setRequestProperty("Authorization", "Bearer ${endpoint.token}")
+                setRequestProperty("Authorization", "Bearer $bearer")
                 setRequestProperty("Content-Type", "application/json; charset=utf-8")
             }
-            conn.outputStream.use {
-                it.write(json.encodeToString(req).toByteArray())
-            }
+            conn.outputStream.use { it.write(body.toByteArray()) }
             fun spent() = "${System.currentTimeMillis() - startedAt} мс"
             when (conn.responseCode) {
                 200 -> {
-                    val body = runCatching {
-                        val wire = json.decodeFromString<WireReply>(conn.inputStream.bufferedReader().readText())
-                        wire.reply to wire.model
-                    }.getOrNull()
-                    val (reply, model) = body ?: ("" to null)
+                    val raw = runCatching { conn.inputStream.bufferedReader().readText() }.getOrNull()
+                    val parsed = raw?.let { runCatching { parse200(it) }.getOrNull() }
+                    val (reply, model) = parsed ?: (null to null)
                     if (reply.isNullOrBlank()) fail(
-                        "Бэкенд вернул пустой ответ: попробуй ещё раз.",
+                        "ИИ вернул пустой ответ: попробуй ещё раз.",
                         "HTTP 200 за ${spent()}, пустой ответ",
                     )
                     else {
@@ -166,39 +318,45 @@ class ChatClient(
                         Result.success(reply)
                     }
                 }
-                401 -> fail(
-                    "Токен приложения неверный. Нужна строка APP_TOKEN из backend/.env на сервере " +
-                        "(это не ключ proxyapi): проверь вкладку «Ещё» и попробуй снова.",
-                    "HTTP 401 (неверный токен) за ${spent()}",
-                )
-                400 -> fail(
-                    backendDetail(conn) ?: "Бэкенд отклонил запрос (HTTP 400): обнови приложение и Бэкенд.",
-                    "HTTP 400 за ${spent()}",
-                )
-                502, 503 -> fail(
+                502, 503, 504 -> fail(
                     "ИИ сейчас недоступен: попробуй ещё раз позже.",
                     "HTTP ${conn.responseCode} за ${spent()}",
                 )
                 else -> fail(
-                    "Бэкенд ответил ошибкой (HTTP ${conn.responseCode}). Попробуй позже.",
+                    httpError(conn.responseCode, errorDetail(conn)),
                     "HTTP ${conn.responseCode} за ${spent()}",
                 )
             }
         } catch (e: SSLException) {
             fail(
-                "Адрес, похоже, начинается с https, а сервер работает по http: " +
-                    "убери букву s в адресе Бэкенда на вкладке «Ещё».",
+                if (transport is ChatTransport.Server) {
+                    "Адрес, похоже, начинается с https, а сервер работает по http: " +
+                        "убери букву s в адресе Бэкенда на вкладке «Ещё»."
+                } else {
+                    "Соединение с proxyapi не удалось: проверь сеть и попробуй позже."
+                },
                 e,
             )
         } catch (e: UnknownHostException) {
-            fail("Адрес Бэкенда не разрешается: проверь его на вкладке «Ещё».", e)
+            fail(
+                if (transport is ChatTransport.Server) {
+                    "Адрес Бэкенда не разрешается: проверь его на вкладке «Ещё»."
+                } else {
+                    "Адрес proxyapi не разрешается: проверь сеть и попробуй снова."
+                },
+                e,
+            )
         } catch (e: java.net.ConnectException) {
             fail(
-                "Бэкенд отклонил соединение: проверь адрес Бэкенда на вкладке «Ещё».",
+                if (transport is ChatTransport.Server) {
+                    "Бэкенд отклонил соединение: проверь адрес Бэкенда на вкладке «Ещё»."
+                } else {
+                    "proxyapi отклонил соединение: попробуй ещё раз позже."
+                },
                 e,
             )
         } catch (e: SocketTimeoutException) {
-            fail("Бэкенд не отвечает: проверь адрес и сеть, попробуй ещё раз.", e)
+            fail("${transport.label} не отвечает: проверь ${if (transport is ChatTransport.Server) "адрес и " else ""}сеть, попробуй ещё раз.", e)
         } catch (e: Exception) {
             fail("Чат не удался: ${e.message ?: "ошибка сети"}.", e)
         }
@@ -257,10 +415,16 @@ class ChatClient(
         images = images.takeIf { it.isNotEmpty() },
     )
 
-    /** Читаемый текст ошибки из тела Бэкенда: {"detail": "..."}; без тела - null. */
-    private fun backendDetail(conn: HttpURLConnection): String? = runCatching {
+    /**
+     * Читаемый текст ошибки из тела ответа: Бэкенд отвечает {"detail": "..."},
+     * провайдер прямого режима - {"error": {"message": "..."}}. Без тела или без
+     * знакомых полей - null.
+     */
+    private fun errorDetail(conn: HttpURLConnection): String? = runCatching {
         val body = conn.errorStream?.bufferedReader()?.readText() ?: return null
-        json.decodeFromString<WireError>(body).detail?.take(200)
+        val obj = json.parseToJsonElement(body).jsonObject
+        (obj["error"]?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull
+            ?: obj["detail"]?.jsonPrimitive?.contentOrNull)?.take(200)
     }.getOrNull()
 
     private companion object {
@@ -292,8 +456,18 @@ private data class WireRequest(
 @Serializable
 private data class WireReply(val reply: String = "", val model: String? = null)
 
+/** Ответ провайдера прямого режима (OpenAI-совместимый): текст в choices[0].message.content. */
 @Serializable
-private data class WireError(val detail: String? = null)
+private data class WireProviderReply(
+    val model: String? = null,
+    val choices: List<WireProviderChoice> = emptyList(),
+)
+
+@Serializable
+private data class WireProviderChoice(val message: WireProviderMessage = WireProviderMessage())
+
+@Serializable
+private data class WireProviderMessage(val content: String? = null)
 
 @Serializable
 private data class WireHealth(val steps: Map<String, String>? = null)

@@ -22,7 +22,15 @@ class ChatClientTest {
     private val history = listOf(ChatMessage(ChatMessage.USER, "Почему вес встал?", 0L))
     private val lines = mutableListOf<String>()
 
-    private fun client(url: String) = ChatClient(ChatEndpoint(url, "токен"), log = { lines.add(it) })
+    private fun client(url: String) =
+        ChatClient(ChatTransport.Server(url, "токен"), log = { lines.add(it) })
+
+    /** Клиент прямого режима: свой ключ proxyapi, модели Ступеней с телефона, сервер не нужен. */
+    private fun directClient(url: String, fast: String = "gpt-4.1-mini", max: String = "gpt-5.1") =
+        ChatClient(
+            ChatTransport.Direct("ключ", fast, max, baseUrl = url),
+            log = { lines.add(it) },
+        )
 
     /** Консервированный ответ разбора: валидный JSON с пустым массивом дней. */
     private fun importStub(bodies: MutableList<String>) =
@@ -159,7 +167,7 @@ class ChatClientTest {
         // разбор таблицы обязан дожидаться тот же ответ.
         val s = stubServer(200, "{\"reply\": \"ок\"}", delayMs = 500)
         val slow = ChatClient(
-            ChatEndpoint(s.url(), "токен"),
+            ChatTransport.Server(s.url(), "токен"),
             chatReadTimeoutMs = 100,
             importReadTimeoutMs = 5_000,
         )
@@ -245,6 +253,109 @@ class ChatClientTest {
         assertTrue("тело: $body", !body.contains("\"attachment\":\""))
         // Пустой вопрос подменяется фиксированной фразой разбора документа.
         assertTrue("тело: $body", body.contains(utf8AsIso("приложенный")))
+        s.close()
+    }
+
+    // Прямой режим: свой ключ proxyapi, OpenAI-совместимый запрос вместо формата Бэкенда.
+
+    /** Ответ провайдера в OpenAI-форме: текст в choices[0].message.content. */
+    private val providerReply =
+        "{\"model\":\"gpt-5.1\",\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"Вес стоит из-за воды.\"}}]}"
+
+    @Test
+    fun `прямой режим шлёт OpenAI-совместимый запрос с моделью ступени`() {
+        val bodies = mutableListOf<String>()
+        val s = stubServer(200, providerReply, bodies)
+        val r = runBlocking {
+            directClient(s.url()).ask(history, "sys-промпт", "контекст", "max")
+        }
+        assertEquals("Вес стоит из-за воды.", r.getOrNull())
+        val body = bodies.single()
+        assertTrue("тело: $body", body.contains("\"model\":\"gpt-5.1\""))
+        assertTrue("тело: $body", body.contains("\"max_completion_tokens\":3000"))
+        // Системный промпт - первым сообщением, полей формата Бэкенда в теле нет.
+        assertTrue("тело: $body", body.startsWith("{\"model\":\"gpt-5.1\",\"max_completion_tokens\":3000,\"messages\":[{\"role\":\"system\""))
+        assertTrue("тело: $body", !body.contains("\"step\""))
+        assertTrue("тело: $body", !body.contains("\"attachment\""))
+        s.close()
+    }
+
+    @Test
+    fun `прямой режим шлёт быструю модель на быстрой ступени`() {
+        val bodies = mutableListOf<String>()
+        val s = stubServer(200, providerReply, bodies)
+        runBlocking { directClient(s.url(), fast = "gpt-4o-mini").ask(history, "sys", "контекст", "fast") }
+        assertTrue("тело: ${bodies.single()}", bodies.single().contains("\"model\":\"gpt-4o-mini\""))
+        s.close()
+    }
+
+    @Test
+    fun `прямой режим вкладывает таблицу user-сообщением перед вопросом`() {
+        // Те же правила, что у Бэкенда: таблица доходит до модели сообщением, вопрос - после неё.
+        val bodies = mutableListOf<String>()
+        val s = stubServer(200, providerReply, bodies)
+        val r = runBlocking {
+            directClient(s.url()).askImport("Дата;Вес\n05.01.2025;62.4", "Внеси сожжённые калории из 2 столбца")
+        }
+        assertTrue(r.isSuccess)
+        val body = bodies.single()
+        assertTrue("тело: $body", !body.contains("\"attachment\""))
+        val attachmentAt = body.indexOf(utf8AsIso("[Приложенная таблица]"))
+        // «столбца» живёт только в вопросе: «сожжённые» есть и в системном промпте.
+        val questionAt = body.indexOf(utf8AsIso("столбца"))
+        assertTrue("тело: $body", attachmentAt >= 0)
+        assertTrue("тело: $body", questionAt > attachmentAt)
+        s.close()
+    }
+
+    @Test
+    fun `прямой режим шлёт картинки multimodal-частями вопроса`() {
+        val bodies = mutableListOf<String>()
+        val s = stubServer(200, providerReply, bodies)
+        val r = runBlocking {
+            directClient(s.url()).askDocumentImport(
+                attachment = null,
+                images = listOf("aGVsbG8="),
+                question = "Что на снимке?",
+                step = "fast",
+            )
+        }
+        assertTrue(r.isSuccess)
+        val body = bodies.single()
+        assertTrue("тело: $body", body.contains("\"type\":\"image_url\""))
+        assertTrue("тело: $body", body.contains("\"url\":\"data:image/jpeg;base64,aGVsbG8=\""))
+        // Текст вопроса остался рядом с картинками: multimodal-сообщение собрано верно.
+        assertTrue("тело: $body", body.contains(utf8AsIso("Что на снимке?")))
+        assertTrue("тело: $body", !body.contains("\"images\":["))
+        s.close()
+    }
+
+    @Test
+    fun `401 в прямом режиме объясняет про ключ proxyapi а не про токен приложения`() {
+        val s = stubServer(401, "{\"error\":{\"message\":\"Incorrect API key\"}}")
+        val r = runBlocking { directClient(s.url()).ask(history, "sys", "контекст", "fast") }
+        val msg = r.exceptionOrNull()?.message ?: ""
+        assertTrue("сообщение: $msg", msg.contains("Ключ proxyapi"))
+        assertTrue("сообщение: $msg", !msg.contains("APP_TOKEN"))
+        s.close()
+    }
+
+    @Test
+    fun `подписи ступеней прямого режима берутся из настроек без сети`() {
+        // Серверный /health не нужен: модели уже выбраны на телефоне, замкнутый порт не мешает.
+        val probe = stubServer(200, "{}")
+        val url = probe.url()
+        probe.close()
+        val steps = directClient(url, fast = "gpt-4o-mini", max = "gpt-4.1").steps()
+        assertEquals(mapOf("fast" to "gpt-4o-mini", "max" to "gpt-4.1"), steps)
+    }
+
+    @Test
+    fun `пустой ответ провайдера в прямом режиме дает внятную ошибку`() {
+        val s = stubServer(200, "{\"model\":\"gpt-5.1\",\"choices\":[{\"message\":{\"content\":\"\"}}]}")
+        val r = runBlocking { directClient(s.url()).ask(history, "sys", "контекст", "fast") }
+        val msg = r.exceptionOrNull()?.message ?: ""
+        assertTrue("сообщение: $msg", msg.contains("пустой ответ"))
         s.close()
     }
 }

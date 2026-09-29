@@ -8,6 +8,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -109,10 +111,13 @@ import ru.somena.data.ChatClient
 import ru.somena.data.ChatLog
 import ru.somena.data.ChatMessage
 import ru.somena.data.ChatSettings
+import ru.somena.data.MODE_DIRECT
+import ru.somena.data.MODE_SERVER
 import ru.somena.data.MedDocReader
 import ru.somena.data.MedStorage
 import ru.somena.data.PdfPages
 import ru.somena.data.ProfileStore
+import ru.somena.data.ProxyModels
 import ru.somena.data.SliceDb
 import ru.somena.data.STEP_FAST
 import ru.somena.data.STEP_MAX
@@ -137,9 +142,9 @@ private val SUGGESTIONS = listOf(
     "Запиши сожжённые 2100 ккал за 26.09",
 )
 
-/** Ступень (спека 0004): Пользователь видит имена; названия моделей приходят из /health
- *  Бэкенда (единая точка правды), этот запасной список - только пока /health не ответит.
- *  Общий для Чата и экрана файлов Медкарты. */
+/** Ступень (спека 0004): Пользователь видит имена; названия моделей у Бэкенда берутся
+ *  из /health, у «Своего proxyapi» - из настроек на телефоне; этот запасной список -
+ *  только пока /health не ответит. Общий для Чата и экрана файлов Медкарты. */
 internal val STEP_LABELS = listOf(STEP_FAST to "Быстрая", STEP_MAX to "Максимальная")
 private val STEP_UI_MODELS_FALLBACK = mapOf(STEP_FAST to "gpt-4.1-mini", STEP_MAX to "gpt-5.1")
 
@@ -193,7 +198,7 @@ fun ChatScreen(m: Modifier) {
     val profileBmr = remember { ProfileStore(context).load().bmrKcal }
     val settings = remember { ChatSettings(context) }
     val client = remember {
-        ChatClient(settings.endpoint(), log = { line -> ChatLog.append(context, line) })
+        ChatClient(settings.transport(), log = { line -> ChatLog.append(context, line) })
     }
     // Данные для контекста вопроса и графиков ИИ: перечитываются после Разбора таблицы.
     // Самочувствие группируется по дате: отметок в день бывает две.
@@ -528,7 +533,7 @@ fun ChatScreen(m: Modifier) {
         if (!settings.isConfigured) {
             GlassCard(Modifier.fillMaxWidth()) {
                 Text(
-                    "Чат не настроен: введи токен приложения на вкладке «Ещё». " +
+                    "Чат не настроен: ${settings.notConfiguredHint}. " +
                         "Остальное приложение работает и без него.",
                     color = TextMuted,
                     style = MaterialTheme.typography.bodyMedium,
@@ -871,45 +876,84 @@ private fun SendButton(enabled: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** Настройки Чата по данным на вкладке «Ещё»: адрес Бэкенда, токен, очистка истории. */
+/**
+ * Настройки Чата по данным на вкладке «Ещё»: источник ИИ, секреты, модели Ступеней
+ * прямого режима, очистка истории. Источник - пилюли: сервер Somena (по умолчанию,
+ * ключи на сервере) или свой proxyapi напрямую, без сервера.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ChatSettingsSection() {
     val context = LocalContext.current
     val settings = remember { ChatSettings(context) }
+    var mode by remember { mutableStateOf(settings.mode) }
     var url by remember { mutableStateOf(settings.backendUrl) }
     var token by remember { mutableStateOf(settings.appToken) }
+    var apiKey by remember { mutableStateOf(settings.proxyApiKey) }
+    var fastModel by remember { mutableStateOf(settings.proxyFastModel) }
+    var maxModel by remember { mutableStateOf(settings.proxyMaxModel) }
     var status by remember { mutableStateOf<String?>(null) }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Чат по данным", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Адрес Бэкенда-прокси и токен приложения. Без токена чат не работает, " +
-                "остальные вкладки работают всегда.",
-            color = TextMuted,
-            style = MaterialTheme.typography.bodySmall,
-        )
-        OutlinedTextField(
-            value = url,
-            onValueChange = { url = it },
-            label = { Text("Адрес Бэкенда") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = token,
-            onValueChange = { token = it },
-            label = { Text("Токен приложения") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            PeriodChip("Сервер Somena", selected = mode == MODE_SERVER, onClick = { mode = MODE_SERVER })
+            PeriodChip("Свой proxyapi", selected = mode == MODE_DIRECT, onClick = { mode = MODE_DIRECT })
+        }
+        if (mode == MODE_SERVER) {
+            Text(
+                "Бэкенд-прокси владелицы: ключи ИИ живут на сервере, " +
+                    "приложение знает только адрес и токен приложения.",
+                color = TextMuted,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            OutlinedTextField(
+                value = url,
+                onValueChange = { url = it },
+                label = { Text("Адрес Бэкенда") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = token,
+                onValueChange = { token = it },
+                label = { Text("Токен приложения") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        } else {
+            Text(
+                "Приложение ходит в proxyapi напрямую с этим ключом: сервер Somena не нужен. " +
+                    "Ключ хранится только на этом телефоне.",
+                color = TextMuted,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            OutlinedTextField(
+                value = apiKey,
+                onValueChange = { apiKey = it },
+                label = { Text("Ключ proxyapi") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            ModelPicker("Быстрая ступень", ProxyModels.FAST, fastModel) { fastModel = it }
+            ModelPicker("Максимальная ступень", ProxyModels.MAX, maxModel) { maxModel = it }
+        }
         GlowButton(
             "Сохранить",
             onClick = {
+                settings.mode = mode
                 settings.backendUrl = url
                 settings.appToken = token
+                settings.proxyApiKey = apiKey
+                settings.proxyFastModel = fastModel
+                settings.proxyMaxModel = maxModel
                 status = "Сохранено ✓"
             },
-            enabled = url.isBlank() || (url.startsWith("http") && token.isNotBlank()),
+            enabled = if (mode == MODE_DIRECT) {
+                apiKey.isNotBlank() && fastModel.isNotBlank() && maxModel.isNotBlank()
+            } else {
+                url.isBlank() || (url.startsWith("http") && token.isNotBlank())
+            },
             modifier = Modifier.fillMaxWidth(),
         )
         GhostButton(
@@ -923,6 +967,30 @@ fun ChatSettingsSection() {
         status?.let {
             Text(it, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
         }
+    }
+}
+
+/**
+ * Выбор модели Ступени прямого режима: пилюли каталога популярных моделей плюс поле
+ * своего id из списка proxyapi (пилюля подсвечена, пока id совпадает с ней).
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ModelPicker(title: String, catalog: List<String>, value: String, onPick: (String) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(title, style = MaterialTheme.typography.labelSmall, color = TextMuted)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            catalog.forEach { id ->
+                PeriodChip(id, selected = value == id, onClick = { onPick(id) })
+            }
+        }
+        OutlinedTextField(
+            value = value,
+            onValueChange = onPick,
+            label = { Text("ID модели из списка proxyapi") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 

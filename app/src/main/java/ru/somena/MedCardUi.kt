@@ -393,7 +393,7 @@ fun MedFilesScreen(
     val storage = remember { MedStorage(context) }
     val settings = remember { ChatSettings(context) }
     val client = remember {
-        ChatClient(settings.endpoint(), log = { line -> ChatLog.append(context, line) })
+        ChatClient(settings.transport(), log = { line -> ChatLog.append(context, line) })
     }
     var root by remember { mutableStateOf(storage.rootId()) }
     var children by remember { mutableStateOf<Map<String, DirChildren>>(emptyMap()) }
@@ -444,7 +444,7 @@ fun MedFilesScreen(
     fun startFileImport(file: StorageFile) {
         if (busy || fileImport != null) return
         if (!settings.isConfigured) {
-            error = "Разбор требует настроенного Чата: адрес Бэкенда и токен - на вкладке «Ещё»."
+            error = "Разбор требует настроенного Чата: ${settings.notConfiguredHint}."
             return
         }
         busy = true
