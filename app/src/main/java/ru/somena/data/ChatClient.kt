@@ -31,8 +31,7 @@ const val STEP_MAX = "max"
 /**
  * Транспорт Чата по данным: чистые данные, тестируются без Android.
  * Server - Бэкенд-прокси владелицы (ключи ИИ живут на сервере); Direct - свой
- * OpenAI-совместимый ИИ-сервис (адрес, ключ и модели Ступеней выбираются на
- * телефоне), приложение само собирает OpenAI-совместимый запрос, сервер не нужен.
+ * ИИ-сервис: адрес, ключ и модели Ступеней выбираются на телефоне, сервер не нужен.
  */
 sealed interface ChatTransport {
     /** Имя транспорта в строках ошибок: «Бэкенд» или «ИИ-сервис». */
@@ -42,35 +41,42 @@ sealed interface ChatTransport {
         override val label get() = "Бэкенд"
     }
 
+    /** Куда бить запрос Ступени: модель, адрес и протокол у каждой модели свой. */
+    data class ModelTarget(
+        val model: String,
+        val baseUrl: String,
+        val protocol: String = PROTOCOL_OPENAI,
+    )
+
+    /**
+     * Прямой транспорт: у Ступеней свои цели. «Популярные API» берут адрес и протокол
+     * из каталога (Claude живёт на /anthropic/v1, GPT - на OpenAI-совместимом адресе),
+     * «Свой API» ставит обе Ступени на одну вручную заданную модель.
+     */
     data class Direct(
         val apiKey: String,
-        val fastModel: String,
-        val maxModel: String,
-        val baseUrl: String = PROXYAPI_URL,
+        val fast: ModelTarget,
+        val max: ModelTarget,
     ) : ChatTransport {
         override val label get() = "ИИ-сервис"
 
-        /** Модель Ступени: выбирается на телефоне, а не на сервере. */
-        fun modelFor(step: String?): String = if (step == STEP_MAX) maxModel else fastModel
-
-        companion object {
-            /** Адрес по умолчанию: proxyapi (см. README Бэкенда), меняется на вкладке «Ещё». */
-            const val PROXYAPI_URL = "https://api.proxyapi.ru/openai/v1"
-        }
+        fun targetFor(step: String?): ModelTarget = if (step == STEP_MAX) max else fast
     }
 }
 
 /**
  * Клиент ИИ (тикет 07, вложения - спека 0004): одна точка входа для двух транспортов.
  * [ChatTransport.Server] шлёт POST /v1/chat с историей диалога, системным промптом и
- * Ступенью (модель выбирает сервер). [ChatTransport.Direct] сам собирает тот же запрос
- * в OpenAI-совместимом виде и шлёт его прямо в ИИ-сервис Пользователя: сервер не нужен.
+ * Ступенью (модель выбирает сервер). [ChatTransport.Direct] сам собирает запрос и шлёт
+ * его прямо в ИИ-сервис Пользователя в формате модели: OpenAI-совместимом
+ * (POST {адрес}/chat/completions) или родном Anthropic (POST {адрес}/messages,
+ * Claude на proxyapi): сервер не нужен.
  * Контекст данных идёт первым user-сообщением: у Бэкенда жёсткий лимит на system в
  * 4000 символов, а срез за 30 дней в него не помещается. askImport отправляет таблицу
  * Вложения в поле attachment (свой, более широкий лимит) и всегда на Быстрой Ступени;
  * в прямом режиме вложение сворачивается в user-сообщение теми же правилами, что на
  * Бэкенде. О каждом запросе пишет две строки (запрос и исход) в [log] - это журнал на
- * вкладке «Отладка HC»; токен и ключ в журнал не попадают никогда.
+ * экране «Настройки → Отладка»; токен и ключ в журнал не попадают никогда.
  */
 class ChatClient(
     private val transport: ChatTransport,
@@ -164,7 +170,7 @@ class ChatClient(
      */
     fun steps(): Map<String, String>? = when (transport) {
         is ChatTransport.Direct ->
-            mapOf(STEP_FAST to transport.fastModel, STEP_MAX to transport.maxModel)
+            mapOf(STEP_FAST to transport.fast.model, STEP_MAX to transport.max.model)
         is ChatTransport.Server -> try {
             val conn = (URL("${transport.url}/health").openConnection() as HttpURLConnection).apply {
                 connectTimeout = 5000
@@ -185,7 +191,10 @@ class ChatClient(
         when (transport) {
             is ChatTransport.Server -> postJson(
                 "${transport.url}/v1/chat",
-                transport.appToken,
+                listOf(
+                    "Authorization" to "Bearer ${transport.appToken}",
+                    "Content-Type" to "application/json; charset=utf-8",
+                ),
                 json.encodeToString(req),
                 readTimeoutMs,
                 describe,
@@ -196,39 +205,85 @@ class ChatClient(
                 httpError = { code, detail ->
                     when (code) {
                         401 -> "Токен приложения неверный. Нужна строка APP_TOKEN из backend/.env на сервере " +
-                            "(это не ключ proxyapi): проверь вкладку «Ещё» и попробуй снова."
+                            "(это не ключ proxyapi): проверь Настройки → Чат и попробуй снова."
                         400 -> detail ?: "Бэкенд отклонил запрос (HTTP 400): обнови приложение и Бэкенд."
                         else -> "Бэкенд ответил ошибкой (HTTP $code): ${detail ?: "попробуй позже"}."
                     }
                 },
             )
-            is ChatTransport.Direct -> postJson(
-                "${transport.baseUrl}/chat/completions",
-                transport.apiKey,
-                directPayload(transport, req),
-                readTimeoutMs,
-                describe,
-                parse200 = { raw ->
-                    val wire = json.decodeFromString<WireProviderReply>(raw)
-                    (wire.choices.firstOrNull()?.message?.content ?: "") to wire.model
-                },
-                httpError = { code, detail ->
-                    when (code) {
-                        401 -> "Ключ API неверный: проверь его на вкладке «Ещё» и попробуй снова."
-                        429 -> "Сервис ИИ ограничивает частоту запросов: подожди минуту и попробуй снова."
-                        else -> "Сервис ИИ ответил ошибкой (HTTP $code)${detail?.let { ": $it" } ?: ". Попробуй позже."}"
-                    }
-                },
-            )
+            is ChatTransport.Direct -> when (transport.targetFor(req.step).protocol) {
+                PROTOCOL_ANTHROPIC -> anthropicExchange(transport, req, readTimeoutMs, describe)
+                else -> openAiExchange(transport, req, readTimeoutMs, describe)
+            }
         }
 
+    /** OpenAI-совместимый формат: POST {адрес}/chat/completions, ответ в choices. */
+    private fun openAiExchange(
+        transport: ChatTransport.Direct,
+        req: WireRequest,
+        readTimeoutMs: Long,
+        describe: () -> String,
+    ): Result<String> {
+        val t = transport.targetFor(req.step)
+        return postJson(
+            "${t.baseUrl}/chat/completions",
+            listOf(
+                "Authorization" to "Bearer ${transport.apiKey}",
+                "Content-Type" to "application/json; charset=utf-8",
+            ),
+            openAiPayload(t, req),
+            readTimeoutMs,
+            describe,
+            parse200 = { raw ->
+                val wire = json.decodeFromString<WireProviderReply>(raw)
+                (wire.choices.firstOrNull()?.message?.content ?: "") to wire.model
+            },
+            httpError = ::directHttpError,
+        )
+    }
+
     /**
-     * Прямое тело запроса к ИИ-сервису (OpenAI-совместимое): то, что Бэкенд собирает на
-     * своей стороне, здесь собирает приложение. Системный промпт - первым сообщением,
+     * Родной формат Anthropic (Claude на proxyapi живёт на /anthropic/v1): POST
+     * {адрес}/messages, ключ в заголовке x-api-key, ответ - массив блоков content.
+     */
+    private fun anthropicExchange(
+        transport: ChatTransport.Direct,
+        req: WireRequest,
+        readTimeoutMs: Long,
+        describe: () -> String,
+    ): Result<String> {
+        val t = transport.targetFor(req.step)
+        return postJson(
+            "${t.baseUrl}/messages",
+            listOf(
+                "x-api-key" to transport.apiKey,
+                "anthropic-version" to "2023-06-01",
+                "Content-Type" to "application/json; charset=utf-8",
+            ),
+            anthropicPayload(t, req),
+            readTimeoutMs,
+            describe,
+            parse200 = { raw ->
+                val wire = json.decodeFromString<WireAnthropicReply>(raw)
+                (wire.content.filter { it.type == "text" }.mapNotNull { it.text }.joinToString("\n")) to wire.model
+            },
+            httpError = ::directHttpError,
+        )
+    }
+
+    private fun directHttpError(code: Int, detail: String?): String = when (code) {
+        401 -> "Ключ API неверный: проверь его в Настройках → Чат и попробуй снова."
+        429 -> "Сервис ИИ ограничивает частоту запросов: подожди минуту и попробуй снова."
+        else -> "Сервис ИИ ответил ошибкой (HTTP $code)${detail?.let { ": $it" } ?: ". Попробуй позже."}"
+    }
+
+    /**
+     * Тело запроса к ИИ-сервису в OpenAI-формате: то, что Бэкенд собирает на своей
+     * стороне, здесь собирает приложение. Системный промпт - первым сообщением,
      * Вложение - user-сообщением перед вопросом, картинки - multimodal-частями вопроса
      * (спека 0010, ADR-0009).
      */
-    private fun directPayload(t: ChatTransport.Direct, req: WireRequest): String {
+    private fun openAiPayload(t: ChatTransport.ModelTarget, req: WireRequest): String {
         val messages: MutableList<Pair<String, JsonElement>> =
             req.messages.map { it.role to JsonPrimitive(it.content) }.toMutableList()
         req.attachment?.let { text ->
@@ -266,7 +321,7 @@ class ChatClient(
             if (lastUser >= 0) messages[lastUser] = merged else messages.add(merged)
         }
         return buildJsonObject {
-            put("model", t.modelFor(req.step))
+            put("model", t.model)
             put("max_completion_tokens", req.maxTokens)
             put("messages", buildJsonArray {
                 req.system?.let { add(buildJsonObject { put("role", "system"); put("content", it) }) }
@@ -278,14 +333,73 @@ class ChatClient(
     }
 
     /**
-     * Общий POST обоих транспортов: соединение, журнал «запрос/исход», одинаковый перевод
+     * Тело запроса в родном формате Anthropic: системный промпт - отдельное поле
+     * system, картинки - частями {"type":"image","source":{"type":"base64"}} внутри
+     * пользовательского сообщения, вложение и порядок - те же правила, что у OpenAI-формата.
+     */
+    private fun anthropicPayload(t: ChatTransport.ModelTarget, req: WireRequest): String {
+        val messages: MutableList<Pair<String, JsonElement>> =
+            req.messages.map { it.role to JsonPrimitive(it.content) }.toMutableList()
+        req.attachment?.let { text ->
+            val attachment: Pair<String, JsonElement> =
+                ChatMessage.USER to JsonPrimitive("[Приложенная таблица]\n$text")
+            val lastUser = messages.indexOfLast { it.first == ChatMessage.USER }
+            if (lastUser >= 0) messages.add(lastUser, attachment) else messages.add(attachment)
+        }
+        if (!req.images.isNullOrEmpty()) {
+            val lastUser = messages.indexOfLast { it.first == ChatMessage.USER }
+            val parts = buildJsonArray {
+                if (lastUser >= 0) {
+                    add(
+                        buildJsonObject {
+                            put("type", "text")
+                            put("text", messages[lastUser].second.jsonPrimitive.content)
+                        }
+                    )
+                }
+                req.images.forEach { img ->
+                    val dataUri = if (img.startsWith("data:")) img else "data:image/jpeg;base64,$img"
+                    val mime = dataUri.substringAfter("data:").substringBefore(";")
+                    add(
+                        buildJsonObject {
+                            put("type", "image")
+                            put(
+                                "source",
+                                buildJsonObject {
+                                    put("type", "base64")
+                                    put("media_type", mime)
+                                    put("data", dataUri.substringAfter("base64,"))
+                                }
+                            )
+                        }
+                    )
+                }
+            }
+            val merged: Pair<String, JsonElement> = ChatMessage.USER to parts
+            if (lastUser >= 0) messages[lastUser] = merged else messages.add(merged)
+        }
+        return buildJsonObject {
+            put("model", t.model)
+            put("max_tokens", req.maxTokens)
+            req.system?.let { put("system", it) }
+            put("messages", buildJsonArray {
+                messages.forEach { (role, content) ->
+                    add(buildJsonObject { put("role", role); put("content", content) })
+                }
+            })
+        }.toString()
+    }
+
+    /**
+     * Общий POST обоих форматов: соединение, журнал «запрос/исход», одинаковый перевод
      * сетевых ошибок в слова. Ответ 200 разбирает [parse200] (пара «ответ/модель»),
      * прочие коды - [httpError] (текст по коду и телу ошибки; 502/503/504 у обоих
-     * транспортов означают одно - ИИ недоступен).
+     * транспортов означают одно - ИИ недоступен). Заголовки передаются списком:
+     * у формата OpenAI ключ в Authorization, у Anthropic - в x-api-key.
      */
     private fun postJson(
         url: String,
-        bearer: String,
+        headers: List<Pair<String, String>>,
         body: String,
         readTimeoutMs: Long,
         describe: () -> String,
@@ -300,8 +414,7 @@ class ChatClient(
                 connectTimeout = 10_000
                 readTimeout = readTimeoutMs.toInt()
                 doOutput = true
-                setRequestProperty("Authorization", "Bearer $bearer")
-                setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                headers.forEach { (name, value) -> setRequestProperty(name, value) }
             }
             conn.outputStream.use { it.write(body.toByteArray()) }
             fun spent() = "${System.currentTimeMillis() - startedAt} мс"
@@ -333,16 +446,16 @@ class ChatClient(
             fail(
                 if (transport is ChatTransport.Server) {
                     "Адрес, похоже, начинается с https, а сервер работает по http: " +
-                        "убери букву s в адресе Бэкенда на вкладке «Ещё»."
+                        "убери букву s в адресе Бэкенда в Настройках → Чат."
                 } else {
-                    "Соединение с ИИ-сервисом не удалось: проверь адрес и сеть на вкладке «Ещё»."
+                    "Соединение с ИИ-сервисом не удалось: проверь адрес и сеть в Настройках → Чат."
                 },
                 e,
             )
         } catch (e: UnknownHostException) {
             fail(
                 if (transport is ChatTransport.Server) {
-                    "Адрес Бэкенда не разрешается: проверь его на вкладке «Ещё»."
+                    "Адрес Бэкенда не разрешается: проверь его в Настройках → Чат."
                 } else {
                     "Адрес ИИ-сервиса не разрешается: проверь адрес и сеть."
                 },
@@ -351,9 +464,9 @@ class ChatClient(
         } catch (e: java.net.ConnectException) {
             fail(
                 if (transport is ChatTransport.Server) {
-                    "Бэкенд отклонил соединение: проверь адрес Бэкенда на вкладке «Ещё»."
+                    "Бэкенд отклонил соединение: проверь адрес Бэкенда в Настройках → Чат."
                 } else {
-                    "ИИ-сервис отклонил соединение: проверь адрес на вкладке «Ещё»."
+                    "ИИ-сервис отклонил соединение: проверь адрес в Настройках → Чат."
                 },
                 e,
             )
@@ -470,6 +583,16 @@ private data class WireProviderChoice(val message: WireProviderMessage = WirePro
 
 @Serializable
 private data class WireProviderMessage(val content: String? = null)
+
+/** Ответ провайдера в формате Anthropic: текст собирается из блоков content[]. */
+@Serializable
+private data class WireAnthropicReply(
+    val model: String? = null,
+    val content: List<WireAnthropicBlock> = emptyList(),
+)
+
+@Serializable
+private data class WireAnthropicBlock(val type: String? = null, val text: String? = null)
 
 @Serializable
 private data class WireHealth(val steps: Map<String, String>? = null)

@@ -108,12 +108,12 @@ import ru.somena.core.sentenceCaseTyped
 import ru.somena.core.toSlice
 import ru.somena.core.toWellbeing
 import ru.somena.data.ChatClient
-import ru.somena.data.ChatLog
 import ru.somena.data.ChatMessage
 import ru.somena.data.ChatSettings
-import ru.somena.data.ChatTransport
-import ru.somena.data.MODE_DIRECT
-import ru.somena.data.MODE_SERVER
+import ru.somena.data.AppLog
+import ru.somena.data.CatalogModel
+import ru.somena.data.MODE_CUSTOM
+import ru.somena.data.MODE_POPULAR
 import ru.somena.data.MedDocReader
 import ru.somena.data.MedStorage
 import ru.somena.data.PdfPages
@@ -147,7 +147,7 @@ private val SUGGESTIONS = listOf(
  *  из /health, у «Своего proxyapi» - из настроек на телефоне; этот запасной список -
  *  только пока /health не ответит. Общий для Чата и экрана файлов Медкарты. */
 internal val STEP_LABELS = listOf(STEP_FAST to "Быстрая", STEP_MAX to "Максимальная")
-private val STEP_UI_MODELS_FALLBACK = mapOf(STEP_FAST to "gpt-4.1-mini", STEP_MAX to "gpt-5.1")
+private val STEP_UI_MODELS_FALLBACK = mapOf(STEP_FAST to "gpt-4o-mini", STEP_MAX to "gpt-5.1")
 
 /** Цвет метрики на графике ИИ: правило цветов метрик спеки 0002, единое для всех экранов. */
 fun aiMetricColor(m: AiMetric): Color = when (m) {
@@ -199,7 +199,7 @@ fun ChatScreen(m: Modifier) {
     val profileBmr = remember { ProfileStore(context).load().bmrKcal }
     val settings = remember { ChatSettings(context) }
     val client = remember {
-        ChatClient(settings.transport(), log = { line -> ChatLog.append(context, line) })
+        ChatClient(settings.transport(), log = { line -> AppLog.append(context, AppLog.CHAT, line) })
     }
     // Данные для контекста вопроса и графиков ИИ: перечитываются после Разбора таблицы.
     // Самочувствие группируется по дате: отметок в день бывает две.
@@ -526,7 +526,8 @@ fun ChatScreen(m: Modifier) {
             }
             Spacer(Modifier.weight(1f))
             Text(
-                stepModels[step] ?: "",
+                // Каталог знает человекочитаемое имя (Claude Haiku 4.5), иначе - как есть.
+                stepModels[step]?.let { ProxyModels.byId(it)?.title ?: it } ?: "",
                 style = MaterialTheme.typography.labelSmall,
                 color = TextMuted,
             )
@@ -878,9 +879,10 @@ private fun SendButton(enabled: Boolean, onClick: () -> Unit) {
 }
 
 /**
- * Настройки Чата по данным на вкладке «Ещё»: источник ИИ, секреты, модели Ступеней
- * прямого режима, очистка истории. Источник - пилюли: сервер Somena (по умолчанию,
- * ключи на сервере) или свой OpenAI-совместимый ИИ-сервис напрямую, без сервера.
+ * Настройки Чата по данным (Настройки → Чат): пилюля режима и поля под него.
+ * «Популярные API» - каталог proxyapi: адрес и формат запроса подставляются по модели
+ * (Claude живёт на /anthropic/v1), остаётся ввести ключ. «Свой API» - адрес, ключ и
+ * название модели целиком вручную, годится любой OpenAI-совместимый сервис.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -888,56 +890,40 @@ fun ChatSettingsSection() {
     val context = LocalContext.current
     val settings = remember { ChatSettings(context) }
     var mode by remember { mutableStateOf(settings.mode) }
-    var url by remember { mutableStateOf(settings.backendUrl) }
-    var token by remember { mutableStateOf(settings.appToken) }
-    var baseUrl by remember {
-        mutableStateOf(if (settings.proxyBaseUrl == ChatTransport.Direct.PROXYAPI_URL) "" else settings.proxyBaseUrl)
-    }
     var apiKey by remember { mutableStateOf(settings.proxyApiKey) }
-    var fastModel by remember { mutableStateOf(settings.proxyFastModel) }
-    var maxModel by remember { mutableStateOf(settings.proxyMaxModel) }
+    var fastId by remember { mutableStateOf(settings.popularFastId) }
+    var maxId by remember { mutableStateOf(settings.popularMaxId) }
+    var customModel by remember { mutableStateOf(settings.customModel) }
+    var customUrl by remember { mutableStateOf(settings.customBaseUrl) }
+    var showInstruction by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Чат по данным", style = MaterialTheme.typography.titleMedium)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            PeriodChip("Сервер Somena", selected = mode == MODE_SERVER, onClick = { mode = MODE_SERVER })
-            PeriodChip("Свой ИИ-сервис", selected = mode == MODE_DIRECT, onClick = { mode = MODE_DIRECT })
+        if (mode == MODE_SERVER_LEGACY) {
+            Text(
+                "Сейчас Чат работает через сервер Somena (настройка прежней версии). " +
+                    "Любой режим ниже переключит его на твой ключ.",
+                color = TextMuted,
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
-        if (mode == MODE_SERVER) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            PeriodChip("Популярные API", selected = mode == MODE_POPULAR, onClick = { mode = MODE_POPULAR })
+            PeriodChip("Свой API", selected = mode == MODE_CUSTOM, onClick = { mode = MODE_CUSTOM })
+        }
+        if (mode == MODE_CUSTOM) {
             Text(
-                "Бэкенд-прокси владелицы: ключи ИИ живут на сервере, " +
-                    "приложение знает только адрес и токен приложения.",
+                "Любой OpenAI-совместимый сервис: proxyapi, OpenRouter, DeepSeek, локальный " +
+                    "Ollama. Обе Ступени Чата поедут на выбранной модели. Ключ хранится " +
+                    "только на этом телефоне.",
                 color = TextMuted,
                 style = MaterialTheme.typography.bodySmall,
             )
             OutlinedTextField(
-                value = url,
-                onValueChange = { url = it },
-                label = { Text("Адрес Бэкенда") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = token,
-                onValueChange = { token = it },
-                label = { Text("Токен приложения") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        } else {
-            Text(
-                "Приложение ходит в ИИ напрямую: сервер Somena не нужен. Подойдёт любой " +
-                    "OpenAI-совместимый сервис: proxyapi, OpenRouter, DeepSeek, локальный Ollama. " +
-                    "Адрес и ключ хранятся только на этом телефоне.",
-                color = TextMuted,
-                style = MaterialTheme.typography.bodySmall,
-            )
-            OutlinedTextField(
-                value = baseUrl,
-                onValueChange = { baseUrl = it },
+                value = customUrl,
+                onValueChange = { customUrl = it },
                 label = { Text("Адрес API") },
-                placeholder = { Text(ChatTransport.Direct.PROXYAPI_URL) },
+                placeholder = { Text(ProxyModels.OPENAI_URL) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -948,26 +934,58 @@ fun ChatSettingsSection() {
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
-            ModelPicker("Быстрая ступень", ProxyModels.FAST, fastModel) { fastModel = it }
-            ModelPicker("Максимальная ступень", ProxyModels.MAX, maxModel) { maxModel = it }
+            OutlinedTextField(
+                value = customModel,
+                onValueChange = { customModel = it },
+                label = { Text("Название модели") },
+                placeholder = { Text("например, gpt-4o-mini") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        } else {
+            Text(
+                "Модели proxyapi: адрес и формат запроса подставляются сами, нужен только " +
+                    "ключ. Claude ходит на свой адрес /anthropic/v1, GPT - на OpenAI-совместимый.",
+                color = TextMuted,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            OutlinedTextField(
+                value = apiKey,
+                onValueChange = { apiKey = it },
+                label = { Text("Ключ proxyapi") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            GhostButton(
+                "Инструкция: как получить ключ",
+                onClick = { showInstruction = true },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            CatalogPicker("Быстрая ступень", ProxyModels.FAST, fastId) { fastId = it }
+            CatalogPicker("Максимальная ступень", ProxyModels.MAX, maxId) { maxId = it }
+            Text(
+                "Цена в пилюле - за миллион токенов ввода, дешёвые сверху. Обычный вопрос - " +
+                    "несколько тысяч токенов, то есть копейки даже у тяжёлой модели.",
+                color = TextMuted,
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
         GlowButton(
             "Сохранить",
             onClick = {
                 settings.mode = mode
-                settings.backendUrl = url
-                settings.appToken = token
-                settings.proxyBaseUrl = baseUrl
                 settings.proxyApiKey = apiKey
-                settings.proxyFastModel = fastModel
-                settings.proxyMaxModel = maxModel
+                settings.popularFastId = fastId
+                settings.popularMaxId = maxId
+                settings.customModel = customModel
+                settings.customBaseUrl = customUrl
                 status = "Сохранено ✓"
             },
-            enabled = if (mode == MODE_DIRECT) {
-                apiKey.isNotBlank() && fastModel.isNotBlank() && maxModel.isNotBlank() &&
-                    (baseUrl.isBlank() || baseUrl.startsWith("http"))
+            enabled = if (mode == MODE_CUSTOM) {
+                apiKey.isNotBlank() && customModel.isNotBlank() &&
+                    (customUrl.isBlank() || customUrl.startsWith("http"))
             } else {
-                url.isBlank() || (url.startsWith("http") && token.isNotBlank())
+                apiKey.isNotBlank()
             },
             modifier = Modifier.fillMaxWidth(),
         )
@@ -983,30 +1001,69 @@ fun ChatSettingsSection() {
             Text(it, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
         }
     }
+    if (showInstruction) {
+        ProxyApiKeyInstruction(onDismiss = { showInstruction = false })
+    }
 }
 
-/**
- * Выбор модели Ступени прямого режима: пилюли каталога популярных моделей proxyapi
- * плюс поле своего id - у другого сервиса свои имена моделей (пилюля подсвечена,
- * пока id совпадает с ней).
- */
+/** Серверный режим владелицы живёт в ChatSettings, интерфейсом больше не выбирается. */
+private const val MODE_SERVER_LEGACY = "server"
+
+/** Пилюли каталога «Популярных API»: название модели и цена ввода, дешёвые сверху. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ModelPicker(title: String, catalog: List<String>, value: String, onPick: (String) -> Unit) {
+private fun CatalogPicker(
+    title: String,
+    catalog: List<CatalogModel>,
+    selectedId: String,
+    onPick: (String) -> Unit,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(title, style = MaterialTheme.typography.labelSmall, color = TextMuted)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            catalog.forEach { id ->
-                PeriodChip(id, selected = value == id, onClick = { onPick(id) })
+            catalog.forEach { m ->
+                PeriodChip(
+                    "${m.title} · ${ProxyModels.shortPriceLabel(m)}",
+                    selected = selectedId == m.id,
+                    onClick = { onPick(m.id) },
+                )
             }
         }
-        OutlinedTextField(
-            value = value,
-            onValueChange = onPick,
-            label = { Text("ID модели у сервиса") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
+    }
+}
+
+/** Пошаговая инструкция ключа proxyapi для новичка: диалог со стеклом и прокруткой. */
+@Composable
+private fun ProxyApiKeyInstruction(onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        GlassCard(Modifier.fillMaxWidth()) {
+            Column(
+                Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text("Как получить ключ proxyapi", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "1. Открой сайт proxyapi.ru и зарегистрируйся: почта с паролем или вход " +
+                        "через Google.\n\n" +
+                        "2. Пополните баланс: раздел «Оплата». Для Чата по данным хватит " +
+                        "200-500 ₽: при лёгкой модели их хватает на месяцы.\n\n" +
+                        "3. Создай ключ: раздел «API-ключи» → «Создать ключ», придумай имя " +
+                        "(например, Somena) и скопируй показанный ключ целиком.\n\n" +
+                        "4. Вернись сюда, вставь ключ в поле «Ключ proxyapi» и нажми «Сохранить».\n\n" +
+                        "5. Выбери лёгкую и тяжёлую модели - и спрашивай в Чате по данным.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    "Ключ - это как пароль от кошелька: не пересылай его никому и не " +
+                        "публикуй в чатах. Если ключ попал не в те руки - создай новый в том " +
+                        "же разделе, а старый удали. При ошибке «Ключ API неверный» проверь, " +
+                        "что скопирован целиком, без пробелов.",
+                    color = TextMuted,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                GlowButton("Понятно", onClick = onDismiss, modifier = Modifier.fillMaxWidth())
+            }
+        }
     }
 }
 

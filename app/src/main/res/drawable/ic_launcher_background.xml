@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Фон иконки: туманность. Радиальный градиент фиолет→почти чёрный и редкие звёзды.
+     Знак Somena (буква S и орбита точек) - в ic_launcher_foreground. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="54"
+                android:centerY="46"
+                android:gradientRadius="74"
+                android:startColor="#33255F"
+                android:centerColor="#1B1338"
+                android:endColor="#0C0818" />
+        </aapt:attr>
+    </path>
+    <!-- Звёзды: несколько точек разной яркости, как на референсе владелицы. -->
+    <path android:fillColor="#66F1EFFB" android:pathData="M31,30.5m-1.1,0a1.1,1.1 0 1 1,2.2 0a1.1,1.1 0 1 1,-2.2 0" />
+    <path android:fillColor="#40F1EFFB" android:pathData="M80,64m-0.9,0a0.9,0.9 0 1 1,1.8 0a0.9,0.9 0 1 1,-1.8 0" />
+    <path android:fillColor="#33F1EFFB" android:pathData="M24,58m-0.8,0a0.8,0.8 0 1 1,1.6 0a0.8,0.8 0 1 1,-1.6 0" />
+    <path android:fillColor="#2EF1EFFB" android:pathData="M86,35m-1,0a1,1 0 1 1,2 0a1,1 0 1 1,-2 0" />
+    <path android:fillColor="#26F1EFFB" android:pathData="M42,22m-0.7,0a0.7,0.7 0 1 1,1.4 0a0.7,0.7 0 1 1,-1.4 0" />
+    <path android:fillColor="#26F1EFFB" android:pathData="M67,83m-0.7,0a0.7,0.7 0 1 1,1.4 0a0.7,0.7 0 1 1,-1.4 0" />
+    <path android:fillColor="#1FF1EFFB" android:pathData="M22,42m-0.6,0a0.6,0.6 0 1 1,1.2 0a0.6,0.6 0 1 1,-1.2 0" />
+    <path android:fillColor="#1FF1EFFB" android:pathData="M88,50m-0.6,0a0.6,0.6 0 1 1,1.2 0a0.6,0.6 0 1 1,-1.2 0" />
+</vector>

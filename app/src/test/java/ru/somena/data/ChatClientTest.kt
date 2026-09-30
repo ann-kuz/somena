@@ -25,12 +25,20 @@ class ChatClientTest {
     private fun client(url: String) =
         ChatClient(ChatTransport.Server(url, "токен"), log = { lines.add(it) })
 
-    /** Клиент прямого режима: свой ключ proxyapi, модели Ступеней с телефона, сервер не нужен. */
-    private fun directClient(url: String, fast: String = "gpt-4.1-mini", max: String = "gpt-5.1") =
-        ChatClient(
-            ChatTransport.Direct("ключ", fast, max, baseUrl = url),
-            log = { lines.add(it) },
-        )
+    /** Клиент прямого режима: свой ключ, цели Ступеней заданы вручную, сервер не нужен. */
+    private fun directClient(
+        url: String,
+        fast: String = "gpt-4.1-mini",
+        max: String = "gpt-5.1",
+        fastProtocol: String = PROTOCOL_OPENAI,
+    ) = ChatClient(
+        ChatTransport.Direct(
+            "ключ",
+            ChatTransport.ModelTarget(fast, url, fastProtocol),
+            ChatTransport.ModelTarget(max, url, PROTOCOL_OPENAI),
+        ),
+        log = { lines.add(it) },
+    )
 
     /** Консервированный ответ разбора: валидный JSON с пустым массивом дней. */
     private fun importStub(bodies: MutableList<String>) =
@@ -39,12 +47,13 @@ class ChatClientTest {
     /** Как кириллица видна в теле, пойманном стабом (ISO-8859-1 вместо UTF-8). */
     private fun utf8AsIso(s: String) = String(s.toByteArray(Charsets.UTF_8), Charsets.ISO_8859_1)
 
-    /** Минимальный HTTP-стаб: отвечает заданным кодом и JSON-телом на любой POST, тело запроса ловится. */
+    /** Минимальный HTTP-стаб: отвечает заданным кодом и JSON-телом на любой POST, тело и заголовки ловятся. */
     private fun stubServer(
         code: Int,
         json: String,
         bodies: MutableList<String>? = null,
         delayMs: Long = 0,
+        headerLines: MutableList<String>? = null,
     ): ServerSocket =
         ServerSocket(0, 8, InetAddress.getByName("127.0.0.1")).apply {
             thread(isDaemon = true) {
@@ -54,18 +63,25 @@ class ChatClientTest {
                     } catch (e: Exception) {
                         break
                     }
-                    thread(isDaemon = true) { socket.serve(code, json, bodies, delayMs) }
+                    thread(isDaemon = true) { socket.serve(code, json, bodies, delayMs, headerLines) }
                 }
             }
         }
 
-    private fun Socket.serve(code: Int, json: String, bodies: MutableList<String>?, delayMs: Long) {
+    private fun Socket.serve(
+        code: Int,
+        json: String,
+        bodies: MutableList<String>?,
+        delayMs: Long,
+        headerLines: MutableList<String>?,
+    ) {
         use { sock ->
             val reader = BufferedReader(InputStreamReader(sock.getInputStream(), Charsets.ISO_8859_1))
             var contentLength = 0
             while (true) {
                 val line = reader.readLine() ?: return
                 if (line.isEmpty()) break
+                headerLines?.add(line)
                 if (line.startsWith("Content-Length:", ignoreCase = true)) {
                     contentLength = line.substringAfter(':').trim().toInt()
                 }
@@ -359,6 +375,91 @@ class ChatClientTest {
         val r = runBlocking { directClient(s.url()).ask(history, "sys", "контекст", "fast") }
         val msg = r.exceptionOrNull()?.message ?: ""
         assertTrue("сообщение: $msg", msg.contains("пустой ответ"))
+        s.close()
+    }
+
+    // Claude на proxyapi живёт на /anthropic/v1 в родном формате Anthropic.
+
+    /** Ответ провайдера в формате Anthropic: текст в блоках content[]. */
+    private val anthropicReply =
+        "{\"model\":\"claude-sonnet-5-5\",\"content\":[{\"type\":\"text\",\"text\":\"Вес стоит из-за воды.\"}]}"
+
+    @Test
+    fun `claude шлётся родным форматом anthropic на messages`() {
+        val bodies = mutableListOf<String>()
+        val headers = mutableListOf<String>()
+        val s = stubServer(200, anthropicReply, bodies, headerLines = headers)
+        lines.clear()
+        val r = runBlocking {
+            directClient(s.url(), fast = "claude-haiku-4-5-20251001", fastProtocol = PROTOCOL_ANTHROPIC)
+                .ask(history, "sys-промпт", "контекст", "fast")
+        }
+        assertEquals("Вес стоит из-за воды.", r.getOrNull())
+        // Ключ - в x-api-key, а не в Authorization; путь - /messages.
+        // Стаб читает заголовки в ISO-8859-1: кириллический ключ там mojibake, сравниваем в той же кодировке.
+        val keyHeader = "x-api-key: ${utf8AsIso("ключ")}"
+        assertTrue("заголовки: $headers", headers.any { it.equals(keyHeader, ignoreCase = true) })
+        assertTrue("журнал: $lines", lines.first().startsWith("→ POST ${s.url()}/messages"))
+        val body = bodies.single()
+        assertTrue("тело: $body", body.contains("\"model\":\"claude-haiku-4-5-20251001\""))
+        assertTrue("тело: $body", body.contains("\"max_tokens\":3000"))
+        // Системный промпт - отдельным полем system, а не сообщением роли system.
+        assertTrue("тело: $body", body.contains("\"system\":\""))
+        assertTrue("тело: $body", !body.contains("\"role\":\"system\""))
+        assertTrue("тело: $body", !body.contains("max_completion_tokens"))
+        s.close()
+    }
+
+    @Test
+    fun `claude максимальная ступень бьёт в свою цель`() {
+        val bodies = mutableListOf<String>()
+        val s = stubServer(200, anthropicReply, bodies)
+        runBlocking {
+            ChatClient(
+                ChatTransport.Direct(
+                    "ключ",
+                    ChatTransport.ModelTarget("gpt-4o-mini", s.url(), PROTOCOL_OPENAI),
+                    ChatTransport.ModelTarget("claude-opus-5-5", s.url(), PROTOCOL_ANTHROPIC),
+                ),
+            ).ask(history, "sys", "контекст", "max")
+        }
+        assertTrue("тело: ${bodies.single()}", bodies.single().contains("\"model\":\"claude-opus-5-5\""))
+        s.close()
+    }
+
+    @Test
+    fun `claude вкладывает таблицу и картинки теми же правилами`() {
+        val bodies = mutableListOf<String>()
+        val s = stubServer(200, anthropicReply, bodies)
+        val r = runBlocking {
+            directClient(s.url(), fastProtocol = PROTOCOL_ANTHROPIC).askDocumentImport(
+                attachment = "Гемоглобин 134",
+                images = listOf("aGVsbG8="),
+                question = "Что учесть?",
+                step = "fast",
+            )
+        }
+        assertTrue(r.isSuccess)
+        val body = bodies.single()
+        val attachmentAt = body.indexOf(utf8AsIso("[Приложенная таблица]"))
+        val questionAt = body.indexOf(utf8AsIso("Что учесть"))
+        assertTrue("тело: $body", attachmentAt >= 0 && attachmentAt < questionAt)
+        assertTrue("тело: $body", body.contains("\"type\":\"image\""))
+        assertTrue("тело: $body", body.contains("\"media_type\":\"image/jpeg\""))
+        assertTrue("тело: $body", body.contains("\"data\":\"aGVsbG8=\""))
+        s.close()
+    }
+
+    @Test
+    fun `текст ответа anthropic собирается из нескольких блоков`() {
+        val s = stubServer(
+            200,
+            "{\"content\":[{\"type\":\"text\",\"text\":\"Часть 1.\"},{\"type\":\"text\",\"text\":\" Часть 2.\"}]}",
+        )
+        val r = runBlocking {
+            directClient(s.url(), fastProtocol = PROTOCOL_ANTHROPIC).ask(history, "sys", "контекст", "fast")
+        }
+        assertEquals("Часть 1.\n Часть 2.", r.getOrNull())
         s.close()
     }
 }

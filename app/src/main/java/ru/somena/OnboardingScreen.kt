@@ -189,7 +189,7 @@ fun OnboardingScreen(m: Modifier, onDone: () -> Unit) {
         }
         Text(
             "«Готово» можно нажать и если какой-то Источник ещё не подключён: онбординг доступен " +
-                "заново во вкладке «Ещё».",
+                "заново в Настройках → Данные.",
             color = TextMuted,
             style = MaterialTheme.typography.bodySmall,
         )

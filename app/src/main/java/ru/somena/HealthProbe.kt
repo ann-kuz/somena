@@ -61,7 +61,7 @@ object HealthProbe {
             .map { (pkg, rs) -> pkg to rs.sumOf { it.count } }
             .sortedByDescending { it.second }
             .forEach { (pkg, cnt) ->
-                val mark = if (pkg == chosenSteps) " ← выбран в «Ещё»" else ""
+                val mark = if (pkg == chosenSteps) " ← выбран в Настройках → Данные" else ""
                 sb.appendLine("  $pkg: ${fmtInt(cnt)}$mark")
             }
         sb.appendLine()

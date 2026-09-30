@@ -118,6 +118,14 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 7
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    // Контекст для Журнала (Настройки → Отладка): каждая запись базы оставляет строку.
+    private val logContext = context
+
+    /** Запись в Журнал о работе базы: содержимое данных не пишется, только факт записи. */
+    private fun logged(line: String) {
+        AppLog.append(logContext, AppLog.DB, line)
+    }
+
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(SQL_CREATE_DAY_SLICES)
         db.execSQL(SQL_CREATE_WELLBEING)
@@ -158,6 +166,7 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 7
             put("updated_at", System.currentTimeMillis())
         }
         writableDatabase.insertWithOnConflict("day_slices", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+        logged("срез ${slice.date}")
     }
 
     fun get(date: LocalDate): DaySlice? =
@@ -191,6 +200,7 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 7
             put("updated_at", System.currentTimeMillis())
         }
         writableDatabase.insertWithOnConflict("wellbeing", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+        logged("самочувствие ${w.date}, отметка №${w.slot + 1}")
     }
 
     /** Последняя отметка дня: значение дня для напоминания и «Сегодня». */
@@ -255,6 +265,7 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 7
             put("updated_at", System.currentTimeMillis())
         }
         writableDatabase.insertWithOnConflict("cycle_days", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+        logged("запись цикла ${e.date}")
     }
 
     fun getCycleDay(date: LocalDate): ru.somena.core.CycleDay? =
@@ -290,6 +301,7 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 7
     /** Полное снятие отметки дня: отдельный delete, потому что REPLACE не умеет «удалить». */
     fun deleteCycleDay(date: LocalDate) {
         writableDatabase.delete("cycle_days", "date = ?", arrayOf(date.format(ISO_LOCAL_DATE)))
+        logged("запись цикла ${date}: снята")
     }
 
     fun addChatMessage(role: String, content: String) {
@@ -299,6 +311,8 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 7
             put("sent_at", System.currentTimeMillis())
         }
         writableDatabase.insert("chat_messages", null, values)
+        // Содержимое сообщения в Журнал не пишется: только факт строки истории.
+        logged("история чата: +$role")
     }
 
     /** История диалога по возрастанию: то, что показываем и отправляем модели. */
@@ -313,22 +327,27 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 7
 
     fun clearChat() {
         writableDatabase.delete("chat_messages", null, null)
+        logged("история чата очищена")
     }
 
     // ---- Записи Медкарты (спека 0010, ADR-0008) ----
 
     fun insertMed(r: MedRecord): Long {
         val values = medValues(r)
-        return writableDatabase.insert("med_records", null, values)
+        val id = writableDatabase.insert("med_records", null, values)
+        logged("запись Медкарты №$id (${r.kind.label.lowercase()})")
+        return id
     }
 
     fun updateMed(r: MedRecord) {
         writableDatabase.update("med_records", medValues(r), "id = ?", arrayOf(r.id.toString()))
+        logged("запись Медкарты №${r.id} изменена")
     }
 
     /** Удаление записи никогда не трогает файл Хранилища (ADR-0008). */
     fun deleteMed(id: Long) {
         writableDatabase.delete("med_records", "id = ?", arrayOf(id.toString()))
+        logged("запись Медкарты №$id удалена")
     }
 
     /** Все записи Медкарты по убыванию даты: список Медкарты и контекст Чата. */

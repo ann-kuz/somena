@@ -2,18 +2,26 @@ package ru.somena.data
 
 import android.content.Context
 
-/** Источник ИИ Чата по данным: Бэкенд-прокси владелицы (по умолчанию) или свой ИИ-сервис. */
-const val MODE_SERVER = "server"
-const val MODE_DIRECT = "direct"
+/**
+ * Режимы Чата по данным без Бэкенда (Настройки → Чат): «Популярные API» - каталог
+ * proxyapi с адресами и ценами; «Свой API» - адрес, ключ и модель целиком вручную.
+ * Серверный режим владелицы из UI убран, но сохранённые настройки продолжают работать.
+ */
+const val MODE_POPULAR = "popular"
+const val MODE_CUSTOM = "custom"
+
+/** Внутренние режимы прежних версий: читаются, в интерфейсе не показываются. */
+private const val MODE_SERVER = "server"
+private const val MODE_DIRECT = "direct"
 
 /**
- * Настройки Чата по данным (тикет 04/07): сервер-прокси владелицы по умолчанию
- * или свой OpenAI-совместимый ИИ-сервис напрямую (для друзей со своим ключом:
- * сервер не нужен). Пустые настройки не ломают остальное приложение: чат просто
- * сообщает, что не настроен.
+ * Настройки Чата по данным: режим, ключ API и модели Ступеней. Пустые настройки не
+ * ломают остальное приложение: чат просто сообщает, что не настроен.
  */
 class ChatSettings(context: Context) {
     private val prefs = context.getSharedPreferences("somena", Context.MODE_PRIVATE)
+
+    // --- Серверный режим (владелица): ключи ИИ живут на Бэкенде. ----------------
 
     var backendUrl: String
         get() = (prefs.getString(KEY_URL, null) ?: "").trim().trimEnd('/').ifEmpty { DEFAULT_URL }
@@ -23,62 +31,104 @@ class ChatSettings(context: Context) {
         get() = prefs.getString(KEY_TOKEN, "") ?: ""
         set(value) = prefs.edit().putString(KEY_TOKEN, value.trim()).apply()
 
-    /** Источник ИИ: Бэкенд-прокси (по умолчанию) или свой proxyapi напрямую. */
-    var mode: String
-        get() = if (prefs.getString(KEY_MODE, MODE_SERVER) == MODE_DIRECT) MODE_DIRECT else MODE_SERVER
-        set(value) = prefs.edit().putString(KEY_MODE, if (value == MODE_DIRECT) MODE_DIRECT else MODE_SERVER).apply()
+    // --- Режим -------------------------------------------------------------------
 
-    /** Ключ API прямого режима: живёт только на этом телефоне, никуда не отправляется. */
+    /**
+     * Режим Чата: [MODE_POPULAR], [MODE_CUSTOM] или серверный (легаси владелицы:
+     * читается и работает, в настройках больше не выбирается). Прежний «прямой»
+     * режим читается как «Свой API». Новый пользователь начинает с «Популярных API».
+     */
+    var mode: String
+        get() = when (prefs.getString(KEY_MODE, null) ?: MODE_POPULAR) {
+            MODE_SERVER -> MODE_SERVER
+            MODE_CUSTOM -> MODE_CUSTOM
+            MODE_DIRECT -> MODE_CUSTOM
+            else -> MODE_POPULAR
+        }
+        set(value) = prefs.edit().putString(KEY_MODE, if (value == MODE_CUSTOM) MODE_CUSTOM else value).apply()
+
+    /** Ключ API: живёт только на этом телефоне, в журнал не попадает никогда. */
     var proxyApiKey: String
         get() = (prefs.getString(KEY_PROXY_KEY, "") ?: "").trim()
         set(value) = prefs.edit().putString(KEY_PROXY_KEY, value.trim()).apply()
 
+    // --- «Популярные API»: модель каталога приносит свой адрес и протокол. -------
+
+    /** Модель Быстрой Ступени из каталога; незнакомый id читается как умолчание. */
+    var popularFastId: String
+        get() = ProxyModels.byId(prefs.getString(KEY_POPULAR_FAST, null) ?: "")?.id
+            ?: ProxyModels.DEFAULT_FAST_ID
+        set(value) = prefs.edit().putString(KEY_POPULAR_FAST, value.trim()).apply()
+
+    /** Модель Максимальной Ступени из каталога. */
+    var popularMaxId: String
+        get() = ProxyModels.byId(prefs.getString(KEY_POPULAR_MAX, null) ?: "")?.id
+            ?: ProxyModels.DEFAULT_MAX_ID
+        set(value) = prefs.edit().putString(KEY_POPULAR_MAX, value.trim()).apply()
+
+    // --- «Свой API»: всё вручную, обе Ступени на одной модели. -------------------
+
+    /** Название модели у сервиса, например gpt-4o-mini или deepseek-chat. */
+    var customModel: String
+        get() = (prefs.getString(KEY_CUSTOM_MODEL, "") ?: "").trim()
+        set(value) = prefs.edit().putString(KEY_CUSTOM_MODEL, value.trim()).apply()
+
     /**
-     * Адрес API прямого режима: любой OpenAI-совместимый сервис (proxyapi, OpenRouter,
-     * DeepSeek, локальный Ollama). Пустое значение - адрес proxyapi по умолчанию;
-     * случайно вставленный хвост /chat/completions срезается, приложение добавит его само.
+     * Адрес API: любой OpenAI-совместимый сервис (proxyapi, OpenRouter, DeepSeek,
+     * локальный Ollama). Пустое значение - OpenAI-адрес proxyapi; случайно вставленный
+     * хвост /chat/completions срезается, приложение добавит его само.
      */
-    var proxyBaseUrl: String
+    var customBaseUrl: String
         get() = (prefs.getString(KEY_PROXY_URL, null) ?: "")
             .trim().removeSuffix("/chat/completions").trim().trimEnd('/')
-            .ifEmpty { ChatTransport.Direct.PROXYAPI_URL }
+            .ifEmpty { ProxyModels.OPENAI_URL }
         set(value) = prefs.edit().putString(KEY_PROXY_URL, value.trim()).apply()
 
-    /** Модель Быстрой Ступени прямого режима: каталог или свой id из списка proxyapi. */
-    var proxyFastModel: String
-        get() = prefs.getString(KEY_PROXY_FAST, null)?.trim().orEmpty().ifEmpty { ProxyModels.DEFAULT_FAST }
-        set(value) = prefs.edit().putString(KEY_PROXY_FAST, value.trim()).apply()
-
-    /** Модель Максимальной Ступени прямого режима. */
-    var proxyMaxModel: String
-        get() = prefs.getString(KEY_PROXY_MAX, null)?.trim().orEmpty().ifEmpty { ProxyModels.DEFAULT_MAX }
-        set(value) = prefs.edit().putString(KEY_PROXY_MAX, value.trim()).apply()
+    // --- Ступень -----------------------------------------------------------------
 
     /**
-     * Выбранная Ступень (спека 0004): fast или max. Бэкенд и прямой proxyapi сами знают,
-     * какая модель за Ступенью стоит; приложение хранит только выбор. Чужое значение - fast.
+     * Выбранная Ступень (спека 0004): fast или max. Сервис сам знает, какая модель
+     * за Ступенью стоит; приложение хранит только выбор. Чужое значение - fast.
      */
     var modelStep: String
         get() = if (prefs.getString(KEY_STEP, STEP_FAST) == STEP_MAX) STEP_MAX else STEP_FAST
         set(value) = prefs.edit().putString(KEY_STEP, if (value == STEP_MAX) STEP_MAX else STEP_FAST).apply()
 
-    /** Чат готов к работе, когда задан секрет выбранного режима: токен или ключ proxyapi. */
-    val isConfigured: Boolean
-        get() = if (mode == MODE_DIRECT) proxyApiKey.isNotEmpty() else appToken.isNotEmpty()
+    // --- Готовность и транспорт ----------------------------------------------------
 
-    /** Подсказка «чат не настроен» словами выбранного режима: одно место для Чата и Медкарты. */
+    /** Чат готов к работе, когда задан секрет режима (и модель у «Своего API»). */
+    val isConfigured: Boolean
+        get() = when (mode) {
+            MODE_SERVER -> appToken.isNotEmpty()
+            MODE_CUSTOM -> proxyApiKey.isNotEmpty() && customModel.isNotEmpty()
+            else -> proxyApiKey.isNotEmpty()
+        }
+
+    /** Подсказка «чат не настроен» словами режима: одно место для Чата и Медкарты. */
     val notConfiguredHint: String
-        get() = if (mode == MODE_DIRECT) {
-            "введи ключ API на вкладке «Ещё»"
+        get() = if (mode == MODE_SERVER) {
+            "введи токен приложения в Настройках → Чат"
         } else {
-            "введи токен приложения на вкладке «Ещё»"
+            "введи ключ API в Настройках → Чат"
         }
 
     /** Конфигурация одного запроса для ChatClient. */
-    fun transport(): ChatTransport = if (mode == MODE_DIRECT) {
-        ChatTransport.Direct(proxyApiKey, proxyFastModel, proxyMaxModel, proxyBaseUrl)
-    } else {
-        ChatTransport.Server(backendUrl, appToken)
+    fun transport(): ChatTransport = when (mode) {
+        MODE_SERVER -> ChatTransport.Server(backendUrl, appToken)
+        MODE_CUSTOM -> ChatTransport.Direct(
+            proxyApiKey,
+            ChatTransport.ModelTarget(customModel, customBaseUrl),
+            ChatTransport.ModelTarget(customModel, customBaseUrl),
+        )
+        else -> {
+            val fast = ProxyModels.byId(popularFastId) ?: error("нет модели $popularFastId в каталоге")
+            val max = ProxyModels.byId(popularMaxId) ?: error("нет модели $popularMaxId в каталоге")
+            ChatTransport.Direct(
+                proxyApiKey,
+                ChatTransport.ModelTarget(fast.id, fast.baseUrl, fast.protocol),
+                ChatTransport.ModelTarget(max.id, max.baseUrl, max.protocol),
+            )
+        }
     }
 
     private companion object {
@@ -87,27 +137,11 @@ class ChatSettings(context: Context) {
         const val KEY_MODE = "chat_mode"
         const val KEY_PROXY_KEY = "chat_proxy_key"
         const val KEY_PROXY_URL = "chat_proxy_base_url"
-        const val KEY_PROXY_FAST = "chat_proxy_fast_model"
-        const val KEY_PROXY_MAX = "chat_proxy_max_model"
+        const val KEY_POPULAR_FAST = "chat_popular_fast_id"
+        const val KEY_POPULAR_MAX = "chat_popular_max_id"
+        const val KEY_CUSTOM_MODEL = "chat_custom_model"
         const val KEY_STEP = "chat_model_step"
         /** Адрес из README Бэкенда; владелица может поменять на свой при переезде сервера. */
         const val DEFAULT_URL = "http://77.239.99.15:8787"
     }
-}
-
-/**
- * Каталог моделей Ступеней прямого режима: популярные лёгкие и тяжёлые из списка
- * api.proxyapi.ru (сентябрь 2026) - быстрый выбор пилюлями. У другого сервиса свои
- * имена моделей: любой id вписывается полем мимо каталога. У серверного режима
- * каталога нет: там Ступень→модель решает Бэкенд.
- */
-object ProxyModels {
-    /** Лёгкие (Быстрая Ступень): дёшево и быстро на повседневные вопросы. */
-    val FAST: List<String> = listOf("gpt-4.1-mini", "gpt-4o-mini", "gpt-5-mini")
-
-    /** Тяжёлые (Максимальная Ступень): сложный анализ и длинные разборы, дороже и дольше. */
-    val MAX: List<String> = listOf("gpt-5.1", "gpt-4.1", "gpt-5")
-
-    const val DEFAULT_FAST = "gpt-4.1-mini"
-    const val DEFAULT_MAX = "gpt-5.1"
 }

@@ -2,7 +2,6 @@ package ru.somena
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
@@ -21,7 +20,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.MaterialTheme
@@ -40,11 +38,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.health.connect.client.PermissionController
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.BasalMetabolicRateRecord
 import androidx.health.connect.client.records.BodyFatRecord
@@ -69,7 +65,6 @@ import ru.somena.core.parseBirthDate
 import ru.somena.core.parseOptionalDouble
 import ru.somena.core.parseOptionalInt
 import ru.somena.data.HcImporter
-import ru.somena.data.ChatLog
 import ru.somena.data.ProfileStore
 import ru.somena.data.SliceDb
 import ru.somena.ui.CardLabel
@@ -92,6 +87,15 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ru.somena.data.WellbeingReminder.schedule(this, ru.somena.data.WellbeingReminder.isEnabled(this))
+        // Падения пишутся в Журнал (Настройки → Отладка) до передачи системному обработчику.
+        val appContext = applicationContext
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { t, e ->
+            runCatching {
+                ru.somena.data.AppLog.append(appContext, ru.somena.data.AppLog.ERROR, "падение: ${e.javaClass.simpleName}: ${e.message}")
+            }
+            defaultHandler?.uncaughtException(t, e)
+        }
         // Приложение всегда тёмное — системные панели принудительно со светлыми иконками.
         enableEdgeToEdge(
             statusBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
@@ -118,7 +122,7 @@ private val NAV_ITEMS = listOf(
     NavItem(Icons.Filled.DateRange, "Графики"),
     NavItem(ru.somena.ui.ChatBubbleIcon, "Чат"),
     NavItem(Icons.Filled.Favorite, "Медкарта"),
-    NavItem(Icons.Filled.Settings, "Ещё"),
+    NavItem(Icons.Filled.Settings, "Настройки"),
 )
 
 @Composable
@@ -127,8 +131,8 @@ fun App() {
     var onboarding by remember { mutableStateOf(!onboardingCompleted(context)) }
     var tab by remember { mutableIntStateOf(0) }
     var showCycle by remember { mutableStateOf(false) }
-    // Отладка HC переехала с нижней панели в «Ещё» (спека 0010): открывается полноэкранно.
-    var showHcDebug by remember { mutableStateOf(false) }
+    // Подэкран Настроек (null - корневое меню): кнопка «назад» ходит по нему же.
+    var settingsPage by remember { mutableStateOf<String?>(null) }
     // Счётчик правок цикла: карточка на «Сегодня» перечитывает базу, когда он растёт.
     var cycleRevision by remember { mutableIntStateOf(0) }
 
@@ -158,19 +162,18 @@ fun App() {
                         1 -> ChartsScreen(Modifier.padding(pad))
                         2 -> ChatScreen(Modifier.padding(pad))
                         3 -> MedCardScreen(Modifier.padding(pad))
-                        else -> MoreScreen(
+                        else -> SettingsScreen(
                             Modifier.padding(pad),
-                            onRepeatOnboarding = { onboarding = true },
-                            onOpenHcDebug = { showHcDebug = true },
-                        )
-                    }
-                }
-                if (showHcDebug) {
-                    Box(Modifier.fillMaxSize().background(ru.somena.ui.BgBase)) {
-                        NebulaBackground()
-                        HcDebugScreen(
-                            Modifier.fillMaxSize(),
-                            onBack = { showHcDebug = false },
+                            page = settingsPage,
+                            onPage = { settingsPage = it },
+                            onRepeatOnboarding = {
+                                settingsPage = null
+                                onboarding = true
+                            },
+                            onOpenToday = {
+                                settingsPage = null
+                                tab = 0
+                            },
                         )
                     }
                 }
@@ -212,8 +215,13 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
                     val imported = importer.importRecent(context)
                     if (imported == 0) "Новых данных нет"
                     else null
-                } else "Health Connect недоступен: проверь вкладку «Отладка HC»"
+                } else "Health Connect недоступен: проверь Настройки → Отладка"
             } catch (e: Exception) {
+                ru.somena.data.AppLog.append(
+                    context,
+                    ru.somena.data.AppLog.ERROR,
+                    "импорт Health Connect не удался: ${e.message}",
+                )
                 "Импорт не удался: ${e.message}"
             }
             slice = db.get(LocalDate.now())
@@ -325,7 +333,7 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
             )
         }
         Text(
-            "Данные читаются из Health Connect; если пишут несколько приложений, источник выбирается во вкладке «Ещё». «—» значит «данных нет за день».",
+            "Данные читаются из Health Connect; если пишут несколько приложений, источник выбирается в Настройках → Данные. «—» значит «данных нет за день».",
             color = TextMuted,
             style = MaterialTheme.typography.bodySmall,
         )
@@ -335,154 +343,7 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
 private val dateHeaderFormat = DateTimeFormatter.ofPattern("d MMMM, EEEE", Locale("ru", "RU"))
 
 @Composable
-fun HcDebugScreen(m: Modifier, onBack: (() -> Unit)? = null) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var result by remember { mutableStateOf<String?>(null) }
-    var busy by remember { mutableStateOf(false) }
-    var granted by remember { mutableStateOf<Int?>(null) }
-    var chatLog by remember { mutableStateOf(ChatLog.get(context)) }
-    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        PermissionController.createRequestPermissionResultContract()
-    ) {
-        scope.launch { granted = HealthProbe.grantedPermissions(context).size }
-    }
-
-    fun scan() {
-        busy = true
-        scope.launch {
-            result = try {
-                HealthProbe.probe(context)
-            } catch (e: Exception) {
-                "Ошибка: ${e.message}"
-            }
-            granted = HealthProbe.grantedPermissions(context).size
-            busy = false
-        }
-    }
-
-    Column(
-        m.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        ScreenHeader("Отладка Health Connect", "Статус хаба, записи Источников и журнал чата")
-        if (onBack != null) {
-            GhostButton("Назад", onBack, Modifier.fillMaxWidth())
-        }
-        GlassCard(Modifier.fillMaxWidth()) {
-            SelectionContainer {
-                Text(HealthProbe.statusText(context), style = MaterialTheme.typography.bodyMedium)
-            }
-            granted?.let {
-                Text(
-                    "Разрешений выдано: $it из ${HC_PERMISSIONS.size}",
-                    color = TextMuted,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        }
-        GlowButton(
-            "Выдать разрешения",
-            onClick = { permissionLauncher.launch(HC_PERMISSIONS) },
-            enabled = HealthProbe.isAvailable(context),
-            icon = Icons.Filled.Lock,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        GhostButton(
-            if (busy) "Читаю…" else "Сканировать последние 7 дней",
-            onClick = { scan() },
-            enabled = HealthProbe.isAvailable(context) && !busy,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        result?.let {
-            GlassCard(Modifier.fillMaxWidth()) {
-                SelectionContainer {
-                    Text(
-                        it,
-                        fontFamily = FontFamily.Monospace,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextMuted,
-                    )
-                }
-                GhostButton(
-                    "Скопировать скан",
-                    onClick = { clipboard.setText(androidx.compose.ui.text.AnnotatedString(it)) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-        GlassCard(Modifier.fillMaxWidth()) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Журнал чата", style = MaterialTheme.typography.titleMedium)
-                if (chatLog.isBlank()) {
-                    Text(
-                        "Пусто: задай вопрос во вкладке «Чат», и здесь появятся запросы к Бэкенду " +
-                            "с исходами: удобно копировать и переслать при проблемах.",
-                        color = TextMuted,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                } else {
-                    SelectionContainer {
-                        Text(
-                            chatLog,
-                            fontFamily = FontFamily.Monospace,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextMuted,
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        GhostButton(
-                            "Скопировать журнал",
-                            onClick = { clipboard.setText(androidx.compose.ui.text.AnnotatedString(chatLog)) },
-                            modifier = Modifier.weight(1f),
-                        )
-                        GhostButton(
-                            "Очистить",
-                            onClick = {
-                                ChatLog.clear(context)
-                                chatLog = ""
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun MoreScreen(m: Modifier, onRepeatOnboarding: () -> Unit, onOpenHcDebug: () -> Unit) {
-    Column(
-        m.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        ScreenHeader("Ещё", "Профиль и настройки приложения")
-        GlassCard(Modifier.fillMaxWidth()) {
-            GhostButton("Онбординг источников", onRepeatOnboarding, Modifier.fillMaxWidth())
-            GhostButton("Отладка Health Connect", onOpenHcDebug, Modifier.fillMaxWidth())
-        }
-        GlassCard(Modifier.fillMaxWidth()) {
-            ProfileSection()
-        }
-        GlassCard(Modifier.fillMaxWidth()) {
-            SourcesSection()
-        }
-        GlassCard(Modifier.fillMaxWidth()) {
-            ChatSettingsSection()
-        }
-        Text(
-            "Скоро: экспорт/импорт файла, картинка дня для друзей.",
-            color = TextMuted,
-            style = MaterialTheme.typography.bodySmall,
-        )
-    }
-}
-
-@Composable
-private fun ProfileSection() {
+fun ProfileSection() {
     val context = LocalContext.current
     val store = remember { ProfileStore(context) }
     val saved = remember { store.load() }

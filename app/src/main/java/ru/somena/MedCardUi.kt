@@ -66,7 +66,7 @@ import ru.somena.core.parseMedReply
 import ru.somena.core.parseOptionalDouble
 import ru.somena.core.treeRows
 import ru.somena.data.ChatClient
-import ru.somena.data.ChatLog
+import ru.somena.data.AppLog
 import ru.somena.data.ChatMessage
 import ru.somena.data.ChatSettings
 import ru.somena.data.MedDocReader
@@ -393,7 +393,7 @@ fun MedFilesScreen(
     val storage = remember { MedStorage(context) }
     val settings = remember { ChatSettings(context) }
     val client = remember {
-        ChatClient(settings.transport(), log = { line -> ChatLog.append(context, line) })
+        ChatClient(settings.transport(), log = { line -> AppLog.append(context, AppLog.CHAT, line) })
     }
     var root by remember { mutableStateOf(storage.rootId()) }
     var children by remember { mutableStateOf<Map<String, DirChildren>>(emptyMap()) }
