@@ -462,4 +462,72 @@ class ChatClientTest {
         assertEquals("Часть 1.\n Часть 2.", r.getOrNull())
         s.close()
     }
+
+    // Gemini на proxyapi живёт на /google/v1beta в родном формате Google.
+
+    /** Ответ провайдера в формате Google: текст в candidates[0].content.parts[]. */
+    private val geminiReply =
+        "{\"modelVersion\":\"gemini-2.5-flash\",\"candidates\":[{\"content\":" +
+            "{\"role\":\"model\",\"parts\":[{\"text\":\"Вес стоит из-за воды.\"}]}}]}"
+
+    @Test
+    fun `gemini шлётся родным форматом google на models-model-generateContent`() {
+        val bodies = mutableListOf<String>()
+        val headers = mutableListOf<String>()
+        val s = stubServer(200, geminiReply, bodies, headerLines = headers)
+        lines.clear()
+        val r = runBlocking {
+            directClient(s.url(), fast = "gemini-2.5-flash", fastProtocol = PROTOCOL_GEMINI)
+                .ask(history, "sys-промпт", "контекст", "fast")
+        }
+        assertEquals("Вес стоит из-за воды.", r.getOrNull())
+        // Ключ - в x-goog-api-key, не в URL и не в Authorization: Журнал ключа не увидит.
+        val keyHeader = "x-goog-api-key: ${utf8AsIso("ключ")}"
+        assertTrue("заголовки: $headers", headers.any { it.equals(keyHeader, ignoreCase = true) })
+        assertTrue("журнал: $lines", lines.first().startsWith("→ POST ${s.url()}/models/gemini-2.5-flash:generateContent"))
+        val body = bodies.single()
+        assertTrue("тело: $body", body.contains("\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":"))
+        // Системный промпт - полем systemInstruction, роли - только user и model.
+        assertTrue("тело: $body", body.contains("\"systemInstruction\":{\"parts\":[{\"text\":"))
+        assertTrue("тело: $body", !body.contains("\"role\":\"system\""))
+        assertTrue("тело: $body", !body.contains("\"role\":\"assistant\""))
+        assertTrue("тело: $body", body.contains("\"maxOutputTokens\":3000"))
+        assertTrue("тело: $body", !body.contains("max_completion_tokens"))
+        s.close()
+    }
+
+    @Test
+    fun `gemini вкладывает таблицу и картинки теми же правилами`() {
+        val bodies = mutableListOf<String>()
+        val s = stubServer(200, geminiReply, bodies)
+        val r = runBlocking {
+            directClient(s.url(), fastProtocol = PROTOCOL_GEMINI).askDocumentImport(
+                attachment = "Гемоглобин 134",
+                images = listOf("aGVsbG8="),
+                question = "Что учесть?",
+                step = "fast",
+            )
+        }
+        assertTrue(r.isSuccess)
+        val body = bodies.single()
+        val attachmentAt = body.indexOf(utf8AsIso("[Приложенная таблица]"))
+        val questionAt = body.indexOf(utf8AsIso("Что учесть"))
+        assertTrue("тело: $body", attachmentAt >= 0 && attachmentAt < questionAt)
+        assertTrue("тело: $body", body.contains("\"inlineData\":{\"mimeType\":\"image/jpeg\",\"data\":\"aGVsbG8=\""))
+        assertTrue("тело: $body", !body.contains("\"images\":["))
+        s.close()
+    }
+
+    @Test
+    fun `текст ответа gemini собирается из нескольких частей`() {
+        val s = stubServer(
+            200,
+            "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Часть 1.\"},{\"text\":\" Часть 2.\"}]}}]}",
+        )
+        val r = runBlocking {
+            directClient(s.url(), fastProtocol = PROTOCOL_GEMINI).ask(history, "sys", "контекст", "fast")
+        }
+        assertEquals("Часть 1.\n Часть 2.", r.getOrNull())
+        s.close()
+    }
 }

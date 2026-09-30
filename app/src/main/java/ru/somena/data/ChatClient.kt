@@ -11,6 +11,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -69,8 +70,9 @@ sealed interface ChatTransport {
  * [ChatTransport.Server] шлёт POST /v1/chat с историей диалога, системным промптом и
  * Ступенью (модель выбирает сервер). [ChatTransport.Direct] сам собирает запрос и шлёт
  * его прямо в ИИ-сервис Пользователя в формате модели: OpenAI-совместимом
- * (POST {адрес}/chat/completions) или родном Anthropic (POST {адрес}/messages,
- * Claude на proxyapi): сервер не нужен.
+ * (POST {адрес}/chat/completions), родном Anthropic (POST {адрес}/messages,
+ * Claude на proxyapi) или родном Google (POST {адрес}/models/{модель}:generateContent,
+ * Gemini на proxyapi): сервер не нужен.
  * Контекст данных идёт первым user-сообщением: у Бэкенда жёсткий лимит на system в
  * 4000 символов, а срез за 30 дней в него не помещается. askImport отправляет таблицу
  * Вложения в поле attachment (свой, более широкий лимит) и всегда на Быстрой Ступени;
@@ -213,6 +215,7 @@ class ChatClient(
             )
             is ChatTransport.Direct -> when (transport.targetFor(req.step).protocol) {
                 PROTOCOL_ANTHROPIC -> anthropicExchange(transport, req, readTimeoutMs, describe)
+                PROTOCOL_GEMINI -> geminiExchange(transport, req, readTimeoutMs, describe)
                 else -> openAiExchange(transport, req, readTimeoutMs, describe)
             }
         }
@@ -275,6 +278,37 @@ class ChatClient(
         401 -> "Ключ API неверный: проверь его в Настройках → Чат и попробуй снова."
         429 -> "Сервис ИИ ограничивает частоту запросов: подожди минуту и попробуй снова."
         else -> "Сервис ИИ ответил ошибкой (HTTP $code)${detail?.let { ": $it" } ?: ". Попробуй позже."}"
+    }
+
+    /**
+     * Родной формат Google (Gemini на proxyapi живёт на /google/v1beta): POST
+     * {адрес}/models/{модель}:generateContent, ключ в заголовке x-goog-api-key -
+     * не в URL, чтобы Журнал его не увидел. Ответ собирается из
+     * candidates[].content.parts[].
+     */
+    private fun geminiExchange(
+        transport: ChatTransport.Direct,
+        req: WireRequest,
+        readTimeoutMs: Long,
+        describe: () -> String,
+    ): Result<String> {
+        val t = transport.targetFor(req.step)
+        return postJson(
+            "${t.baseUrl.trimEnd('/')}/models/${t.model}:generateContent",
+            listOf(
+                "x-goog-api-key" to transport.apiKey,
+                "Content-Type" to "application/json; charset=utf-8",
+            ),
+            geminiPayload(t, req),
+            readTimeoutMs,
+            describe,
+            parse200 = { raw ->
+                val wire = json.decodeFromString<WireGeminiReply>(raw)
+                (wire.candidates.firstOrNull()?.content?.parts
+                    ?.mapNotNull { it.text }?.joinToString("\n") ?: "") to wire.model
+            },
+            httpError = ::directHttpError,
+        )
     }
 
     /**
@@ -387,6 +421,69 @@ class ChatClient(
                     add(buildJsonObject { put("role", role); put("content", content) })
                 }
             })
+        }.toString()
+    }
+
+    /**
+     * Тело запроса в родном формате Google: роль assistant называется model,
+     * системный промпт - полем systemInstruction, картинки - частями inlineData;
+     * Вложение и порядок сообщений - те же правила, что у двух других форматов.
+     */
+    private fun geminiPayload(t: ChatTransport.ModelTarget, req: WireRequest): String {
+        val messages: MutableList<Pair<String, JsonElement>> =
+            req.messages.map { (if (it.role == ChatMessage.ASSISTANT) "model" else "user") to JsonPrimitive(it.content) }
+                .toMutableList()
+        req.attachment?.let { text ->
+            val attachment: Pair<String, JsonElement> =
+                ChatMessage.USER to JsonPrimitive("[Приложенная таблица]\n$text")
+            val lastUser = messages.indexOfLast { it.first == ChatMessage.USER }
+            if (lastUser >= 0) messages.add(lastUser, attachment) else messages.add(attachment)
+        }
+        if (!req.images.isNullOrEmpty()) {
+            val lastUser = messages.indexOfLast { it.first == ChatMessage.USER }
+            val parts = buildJsonArray {
+                if (lastUser >= 0) {
+                    add(buildJsonObject { put("text", messages[lastUser].second.jsonPrimitive.content) })
+                }
+                req.images.forEach { img ->
+                    val dataUri = if (img.startsWith("data:")) img else "data:image/jpeg;base64,$img"
+                    val mime = dataUri.substringAfter("data:").substringBefore(";")
+                    add(
+                        buildJsonObject {
+                            put(
+                                "inlineData",
+                                buildJsonObject {
+                                    put("mimeType", mime)
+                                    put("data", dataUri.substringAfter("base64,"))
+                                }
+                            )
+                        }
+                    )
+                }
+            }
+            val merged: Pair<String, JsonElement> = ChatMessage.USER to parts
+            if (lastUser >= 0) messages[lastUser] = merged else messages.add(merged)
+        }
+        return buildJsonObject {
+            req.system?.let {
+                put("systemInstruction", buildJsonObject {
+                    put("parts", buildJsonArray { add(buildJsonObject { put("text", it) }) })
+                })
+            }
+            put("contents", buildJsonArray {
+                messages.forEach { (role, content) ->
+                    add(buildJsonObject {
+                        put("role", role)
+                        put(
+                            "parts",
+                            if (content is JsonArray) content else buildJsonArray {
+                                add(buildJsonObject { put("text", content.jsonPrimitive.content) })
+                            },
+                        )
+                    })
+                }
+            })
+            put("generationConfig", buildJsonObject { put("maxOutputTokens", req.maxTokens) })
         }.toString()
     }
 
@@ -593,6 +690,22 @@ private data class WireAnthropicReply(
 
 @Serializable
 private data class WireAnthropicBlock(val type: String? = null, val text: String? = null)
+
+/** Ответ провайдера в формате Google: текст собирается из parts[] ответа-кандидата. */
+@Serializable
+private data class WireGeminiReply(
+    @SerialName("modelVersion") val model: String? = null,
+    val candidates: List<WireGeminiCandidate> = emptyList(),
+)
+
+@Serializable
+private data class WireGeminiCandidate(val content: WireGeminiContent = WireGeminiContent())
+
+@Serializable
+private data class WireGeminiContent(val parts: List<WireGeminiPart> = emptyList())
+
+@Serializable
+private data class WireGeminiPart(val text: String? = null)
 
 @Serializable
 private data class WireHealth(val steps: Map<String, String>? = null)

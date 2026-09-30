@@ -31,7 +31,8 @@ fun decodeTableBytes(bytes: ByteArray): String? =
     if (bytes.size >= 2 && bytes[0] == 0x50.toByte() && bytes[1] == 0x4B.toByte()) decodeXlsxText(bytes)
     else decodeTableText(bytes)
 
-private fun zipEntries(bytes: ByteArray): Map<String, ByteArray> {
+/** Записи zip-архива целиком: общая у xlsx- и docx-ридеров. */
+internal fun zipEntries(bytes: ByteArray): Map<String, ByteArray> {
     val out = mutableMapOf<String, ByteArray>()
     ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
         while (true) {
@@ -138,5 +139,6 @@ private fun columnIndex(ref: String): Int {
     return (idx - 1).coerceAtLeast(0)
 }
 
-private fun parseXml(bytes: ByteArray): Element =
+/** Разбор XML-записи: общая у xlsx- и docx-ридеров. */
+internal fun parseXml(bytes: ByteArray): Element =
     DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(ByteArrayInputStream(bytes)).documentElement

@@ -117,6 +117,9 @@ import ru.somena.data.MODE_POPULAR
 import ru.somena.data.MedDocReader
 import ru.somena.data.MedStorage
 import ru.somena.data.PdfPages
+import ru.somena.data.PROTOCOL_ANTHROPIC
+import ru.somena.data.PROTOCOL_GEMINI
+import ru.somena.data.PROTOCOL_OPENAI
 import ru.somena.data.ProfileStore
 import ru.somena.data.ProxyModels
 import ru.somena.data.SliceDb
@@ -243,16 +246,15 @@ fun ChatScreen(m: Modifier) {
         if (uri != null) scope.launch(Dispatchers.IO) {
             val name = fileNameOf(context, uri)
             val mime = runCatching { context.contentResolver.getType(uri) }.getOrNull()
-            val isPdf = mime == "application/pdf" || name.endsWith(".pdf", ignoreCase = true)
-            val isImage = mime?.startsWith("image/") == true ||
-                listOf("png", "jpg", "jpeg", "webp", "heic").any { name.endsWith(it, ignoreCase = true) }
+            // Документы (pdf, docx, txt, картинки) - в Разбор документа, таблицы - в Разбор таблицы.
+            val isDoc = MedDocReader.kindOf(name, mime) != MedDocReader.Kind.OTHER
             val bytes = runCatching {
                 context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
             }.getOrNull()
             when {
                 bytes == null -> error = "Не удалось прочитать файл: выбери его заново."
-                isPdf || isImage -> {
-                    // Один конвейер обоих входов (ADR-0009): текст прежде зрения.
+                isDoc -> {
+                    // Один конвейер всех входов (ADR-0009): текст прежде зрения.
                     MedDocReader.read(context, uri, name, mime).fold(
                         onSuccess = { parts ->
                             error = null
@@ -646,8 +648,10 @@ fun ChatScreen(m: Modifier) {
                             "text/comma-separated-values",
                             "text/tab-separated-values",
                             "text/plain",
+                            "text/markdown",
                             "application/csv",
                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                             "application/pdf",
                             "image/*",
                         )
@@ -881,8 +885,9 @@ private fun SendButton(enabled: Boolean, onClick: () -> Unit) {
 /**
  * Настройки Чата по данным (Настройки → Чат): пилюля режима и поля под него.
  * «Популярные API» - каталог proxyapi: адрес и формат запроса подставляются по модели
- * (Claude живёт на /anthropic/v1), остаётся ввести ключ. «Свой API» - адрес, ключ и
- * название модели целиком вручную, годится любой OpenAI-совместимый сервис.
+ * (Claude живёт на /anthropic/v1), остаётся ввести ключ. «Свой API» - формат запроса,
+ * адрес, ключ и название модели целиком вручную: OpenAI (включая Qwen и DeepSeek на
+ * /openrouter/v1), Claude или Gemini.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -893,6 +898,7 @@ fun ChatSettingsSection() {
     var apiKey by remember { mutableStateOf(settings.proxyApiKey) }
     var fastId by remember { mutableStateOf(settings.popularFastId) }
     var maxId by remember { mutableStateOf(settings.popularMaxId) }
+    var customProtocol by remember { mutableStateOf(settings.customProtocol) }
     var customModel by remember { mutableStateOf(settings.customModel) }
     var customUrl by remember { mutableStateOf(settings.customBaseUrl) }
     var showInstruction by remember { mutableStateOf(false) }
@@ -912,10 +918,25 @@ fun ChatSettingsSection() {
             PeriodChip("Свой API", selected = mode == MODE_CUSTOM, onClick = { mode = MODE_CUSTOM })
         }
         if (mode == MODE_CUSTOM) {
+            Text("Формат запроса", style = MaterialTheme.typography.labelSmall, color = TextMuted)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                PROTOCOL_CHOICES.forEach { (key, label) ->
+                    PeriodChip(
+                        label,
+                        selected = customProtocol == key,
+                        onClick = {
+                            // Пустой или умолчальный адрес прошлого формата меняется сам.
+                            if (customUrl.isBlank() || customUrl == ProxyModels.defaultUrlFor(customProtocol)) {
+                                customUrl = ProxyModels.defaultUrlFor(key)
+                            }
+                            customProtocol = key
+                        },
+                    )
+                }
+            }
             Text(
-                "Любой OpenAI-совместимый сервис: proxyapi, OpenRouter, DeepSeek, локальный " +
-                    "Ollama. Обе Ступени Чата поедут на выбранной модели. Ключ хранится " +
-                    "только на этом телефоне.",
+                "${protocolHint(customProtocol)} Обе Ступени Чата поедут на выбранной " +
+                    "модели, ключ хранится только на этом телефоне.",
                 color = TextMuted,
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -923,7 +944,7 @@ fun ChatSettingsSection() {
                 value = customUrl,
                 onValueChange = { customUrl = it },
                 label = { Text("Адрес API") },
-                placeholder = { Text(ProxyModels.OPENAI_URL) },
+                placeholder = { Text(ProxyModels.defaultUrlFor(customProtocol)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -938,7 +959,7 @@ fun ChatSettingsSection() {
                 value = customModel,
                 onValueChange = { customModel = it },
                 label = { Text("Название модели") },
-                placeholder = { Text("например, gpt-4o-mini") },
+                placeholder = { Text(modelPlaceholder(customProtocol)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -964,8 +985,10 @@ fun ChatSettingsSection() {
             CatalogPicker("Быстрая ступень", ProxyModels.FAST, fastId) { fastId = it }
             CatalogPicker("Максимальная ступень", ProxyModels.MAX, maxId) { maxId = it }
             Text(
-                "Цена в пилюле - за миллион токенов ввода, дешёвые сверху. Обычный вопрос - " +
-                    "несколько тысяч токенов, то есть копейки даже у тяжёлой модели.",
+                "Цена в пилюле - за миллион токенов ввода, дешёвые сверху; тарифы proxyapi " +
+                    "на 30.09.2026. Обычный вопрос - несколько тысяч токенов, а разбор pdf на " +
+                    "десять страниц - примерно 15 тысяч: скан без текстового слоя уходит " +
+                    "картинками и стоит дороже.",
                 color = TextMuted,
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -977,6 +1000,7 @@ fun ChatSettingsSection() {
                 settings.proxyApiKey = apiKey
                 settings.popularFastId = fastId
                 settings.popularMaxId = maxId
+                settings.customProtocol = customProtocol
                 settings.customModel = customModel
                 settings.customBaseUrl = customUrl
                 status = "Сохранено ✓"
@@ -1009,6 +1033,30 @@ fun ChatSettingsSection() {
 /** Серверный режим владелицы живёт в ChatSettings, интерфейсом больше не выбирается. */
 private const val MODE_SERVER_LEGACY = "server"
 
+/** Пилюли формата «Своего API»: формат решает, как клиент собирает запрос. */
+private val PROTOCOL_CHOICES = listOf(
+    PROTOCOL_OPENAI to "OpenAI",
+    PROTOCOL_ANTHROPIC to "Claude",
+    PROTOCOL_GEMINI to "Gemini",
+)
+
+/** Подсказка формата «Своего API»: где какие модели живут у proxyapi и у самих вендоров. */
+private fun protocolHint(protocol: String): String = when (protocol) {
+    PROTOCOL_ANTHROPIC -> "Родной формат Anthropic: Claude на /anthropic/v1 у proxyapi " +
+        "или api.anthropic.com/v1 у Anthropic."
+    PROTOCOL_GEMINI -> "Родной формат Google: Gemini на /google/v1beta у proxyapi " +
+        "или generativelanguage.googleapis.com/v1beta у Google."
+    else -> "GPT живёт на /openai/v1, Qwen, DeepSeek и Grok - на /openrouter/v1; " +
+        "годится и другой OpenAI-совместимый сервис (OpenRouter, Ollama)."
+}
+
+/** Пример названия модели по формату: из тех, что реально отвечают. */
+private fun modelPlaceholder(protocol: String): String = when (protocol) {
+    PROTOCOL_ANTHROPIC -> "например, claude-sonnet-5-5"
+    PROTOCOL_GEMINI -> "например, gemini-2.5-flash"
+    else -> "gpt-4o-mini или qwen/qwen3.8-27b"
+}
+
 /** Пилюли каталога «Популярных API»: название модели и цена ввода, дешёвые сверху. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -1032,19 +1080,38 @@ private fun CatalogPicker(
     }
 }
 
-/** Пошаговая инструкция ключа proxyapi для новичка: диалог со стеклом и прокруткой. */
+/** Пошаговая инструкция ключа proxyapi для новичка: плотная подложка, настройки под ней не просвечивают. */
 @Composable
 private fun ProxyApiKeyInstruction(onDismiss: () -> Unit) {
-    Dialog(onDismissRequest = onDismiss) {
-        GlassCard(Modifier.fillMaxWidth()) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        // Скрим на весь экран и плотная карточка Темы: стеклянный диалог пропускал
+        // текст настроек сквозь себя, а системного затемнения не хватало.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.62f))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onDismiss() },
+            contentAlignment = Alignment.Center,
+        ) {
             Column(
-                Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                Modifier
+                    .padding(20.dp)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(BgBase)
+                    .border(BorderStroke(1.dp, CardBorder), RoundedCornerShape(24.dp))
+                    .pointerInput(Unit) { detectTapGestures { } }
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text("Как получить ключ proxyapi", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "1. Открой сайт proxyapi.ru и зарегистрируйся: почта с паролем или вход " +
-                        "через Google.\n\n" +
+                    "1. Открой сайт https://proxyapi.ru и зарегистрируйся: почта с паролем " +
+                        "или вход через Google.\n\n" +
                         "2. Пополните баланс: раздел «Оплата». Для Чата по данным хватит " +
                         "200-500 ₽: при лёгкой модели их хватает на месяцы.\n\n" +
                         "3. Создай ключ: раздел «API-ключи» → «Создать ключ», придумай имя " +

@@ -2,14 +2,17 @@ package ru.somena.data
 
 /**
  * Каталог «Популярных API»: модели proxyapi с их адресами и протоколами запроса.
- * proxyapi держит провайдеров на разных адресах: семейство GPT - на OpenAI-совместимом
- * /openai/v1, Claude - на /anthropic/v1 в родном формате Anthropic (проверено живыми
- * вызовами, 30.09.2026; /openrouter/v1 и /openai/v1 чужие модели не пускают).
- * Протокол решает клиент: [PROTOCOL_OPENAI] - POST {адрес}/chat/completions,
- * [PROTOCOL_ANTHROPIC] - POST {адрес}/messages.
+ * proxyapi держит провайдеров на разных адресах: семейство GPT - на /openai/v1,
+ * Claude - на /anthropic/v1 в родном формате Anthropic, Gemini - на /google/v1beta
+ * в родном формате Google, прочие модели (Qwen, DeepSeek, Grok и другие) - на
+ * /openrouter/v1 в OpenAI-формате (проверено живыми вызовами, 30.09.2026;
+ * /openai/v1 чужие модели не пускает). Протокол решает клиент: [PROTOCOL_OPENAI] -
+ * POST {адрес}/chat/completions, [PROTOCOL_ANTHROPIC] - POST {адрес}/messages,
+ * [PROTOCOL_GEMINI] - POST {адрес}/models/{модель}:generateContent.
  */
 const val PROTOCOL_OPENAI = "openai"
 const val PROTOCOL_ANTHROPIC = "anthropic"
+const val PROTOCOL_GEMINI = "gemini"
 
 /** Модель каталога: id у proxyapi, цена в ₽ за 1М токенов (ввод/вывод), адрес и протокол. */
 data class CatalogModel(
@@ -30,6 +33,22 @@ object ProxyModels {
 
     const val OPENAI_URL = "https://api.proxyapi.ru/openai/v1"
     const val ANTHROPIC_URL = "https://api.proxyapi.ru/anthropic/v1"
+    const val GEMINI_URL = "https://api.proxyapi.ru/google/v1beta"
+    const val OPENROUTER_URL = "https://api.proxyapi.ru/openrouter/v1"
+
+    /** Адрес proxyapi по протоколу: умолчание и подсказка адреса в «Своём API». */
+    fun defaultUrlFor(protocol: String): String = when (protocol) {
+        PROTOCOL_ANTHROPIC -> ANTHROPIC_URL
+        PROTOCOL_GEMINI -> GEMINI_URL
+        else -> OPENAI_URL
+    }
+
+    /** Известный протокол по сохранённому значению: незнакомое читается как OpenAI. */
+    fun protocolOf(stored: String?): String = when (stored) {
+        PROTOCOL_ANTHROPIC -> PROTOCOL_ANTHROPIC
+        PROTOCOL_GEMINI -> PROTOCOL_GEMINI
+        else -> PROTOCOL_OPENAI
+    }
 
     private fun gpt(id: String, title: String, input: Double, output: Double) =
         CatalogModel(id, title, input, output, PROTOCOL_OPENAI, OPENAI_URL)

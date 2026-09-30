@@ -52,4 +52,23 @@ class ProxyModelsTest {
         assertEquals("13 ₽", ProxyModels.shortPriceLabel(ProxyModels.byId("gpt-5-nano")!!))
         assertEquals("1 520 ₽", ProxyModels.shortPriceLabel(ProxyModels.byId("gpt-5.5")!!))
     }
+
+    @Test
+    fun `адрес-умолчание соответствует протоколу - незнакомый читается как openai`() {
+        assertEquals(ProxyModels.OPENAI_URL, ProxyModels.defaultUrlFor(PROTOCOL_OPENAI))
+        assertEquals(ProxyModels.ANTHROPIC_URL, ProxyModels.defaultUrlFor(PROTOCOL_ANTHROPIC))
+        assertEquals(ProxyModels.GEMINI_URL, ProxyModels.defaultUrlFor(PROTOCOL_GEMINI))
+        assertEquals(ProxyModels.OPENAI_URL, ProxyModels.defaultUrlFor("чего-то-нет"))
+        // Qwen и прочие не-OpenAI модели proxyapi живут на /openrouter/v1 в OpenAI-формате.
+        assertTrue(ProxyModels.OPENROUTER_URL.startsWith("https://api.proxyapi.ru/"))
+    }
+
+    @Test
+    fun `сохранённый протокол нормализуется - незнакомое и пустое читаются как openai`() {
+        assertEquals(PROTOCOL_OPENAI, ProxyModels.protocolOf(null))
+        assertEquals(PROTOCOL_OPENAI, ProxyModels.protocolOf(""))
+        assertEquals(PROTOCOL_OPENAI, ProxyModels.protocolOf("direct"))
+        assertEquals(PROTOCOL_ANTHROPIC, ProxyModels.protocolOf(PROTOCOL_ANTHROPIC))
+        assertEquals(PROTOCOL_GEMINI, ProxyModels.protocolOf(PROTOCOL_GEMINI))
+    }
 }

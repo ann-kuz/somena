@@ -68,20 +68,35 @@ class ChatSettings(context: Context) {
 
     // --- «Свой API»: всё вручную, обе Ступени на одной модели. -------------------
 
-    /** Название модели у сервиса, например gpt-4o-mini или deepseek-chat. */
+    /**
+     * Формат запроса «Своего API»: OpenAI, Anthropic (Claude) или Google (Gemini).
+     * Решает, как клиент собирает запрос; незнакомое сохранённое читается как OpenAI.
+     */
+    var customProtocol: String
+        get() = ProxyModels.protocolOf(prefs.getString(KEY_CUSTOM_PROTOCOL, null))
+        set(value) = prefs.edit().putString(KEY_CUSTOM_PROTOCOL, ProxyModels.protocolOf(value)).apply()
+
+    /** Название модели у сервиса, например gpt-4o-mini или qwen/qwen3.8-27b. */
     var customModel: String
         get() = (prefs.getString(KEY_CUSTOM_MODEL, "") ?: "").trim()
         set(value) = prefs.edit().putString(KEY_CUSTOM_MODEL, value.trim()).apply()
 
     /**
-     * Адрес API: любой OpenAI-совместимый сервис (proxyapi, OpenRouter, DeepSeek,
-     * локальный Ollama). Пустое значение - OpenAI-адрес proxyapi; случайно вставленный
-     * хвост /chat/completions срезается, приложение добавит его само.
+     * Адрес API: у каждого формата своё умолчание proxyapi, подойдёт и сторонний
+     * сервис того же формата (Qwen и DeepSeek у proxyapi - на /openrouter/v1).
+     * Пустое значение - умолчание формата; случайно вставленный хвост пути
+     * (/chat/completions, /messages или /models/…:generateContent) срезается,
+     * приложение добавит его само.
      */
     var customBaseUrl: String
         get() = (prefs.getString(KEY_PROXY_URL, null) ?: "")
-            .trim().removeSuffix("/chat/completions").trim().trimEnd('/')
-            .ifEmpty { ProxyModels.OPENAI_URL }
+            .trim()
+            .removeSuffix("/chat/completions")
+            .removeSuffix("/messages")
+            .substringBefore("/models/")
+            .removeSuffix(":generateContent")
+            .trim().trimEnd('/')
+            .ifEmpty { ProxyModels.defaultUrlFor(customProtocol) }
         set(value) = prefs.edit().putString(KEY_PROXY_URL, value.trim()).apply()
 
     // --- Ступень -----------------------------------------------------------------
@@ -117,8 +132,8 @@ class ChatSettings(context: Context) {
         MODE_SERVER -> ChatTransport.Server(backendUrl, appToken)
         MODE_CUSTOM -> ChatTransport.Direct(
             proxyApiKey,
-            ChatTransport.ModelTarget(customModel, customBaseUrl),
-            ChatTransport.ModelTarget(customModel, customBaseUrl),
+            ChatTransport.ModelTarget(customModel, customBaseUrl, customProtocol),
+            ChatTransport.ModelTarget(customModel, customBaseUrl, customProtocol),
         )
         else -> {
             val fast = ProxyModels.byId(popularFastId) ?: error("нет модели $popularFastId в каталоге")
@@ -139,6 +154,7 @@ class ChatSettings(context: Context) {
         const val KEY_PROXY_URL = "chat_proxy_base_url"
         const val KEY_POPULAR_FAST = "chat_popular_fast_id"
         const val KEY_POPULAR_MAX = "chat_popular_max_id"
+        const val KEY_CUSTOM_PROTOCOL = "chat_custom_protocol"
         const val KEY_CUSTOM_MODEL = "chat_custom_model"
         const val KEY_STEP = "chat_model_step"
         /** Адрес из README Бэкенда; владелица может поменять на свой при переезде сервера. */
