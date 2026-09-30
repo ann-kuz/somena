@@ -2,14 +2,15 @@ package ru.somena.data
 
 import android.content.Context
 
-/** Источник ИИ Чата по данным: Бэкенд-прокси владелицы (по умолчанию) или свой proxyapi. */
+/** Источник ИИ Чата по данным: Бэкенд-прокси владелицы (по умолчанию) или свой ИИ-сервис. */
 const val MODE_SERVER = "server"
 const val MODE_DIRECT = "direct"
 
 /**
- * Источник ИИ для Чата по данным (тикет 04/07): сервер-прокси владелицы по умолчанию
- * или свой ключ proxyapi напрямую (для друзей со своим ключом: сервер не нужен).
- * Пустые настройки не ломают остальное приложение: чат просто сообщает, что не настроен.
+ * Настройки Чата по данным (тикет 04/07): сервер-прокси владелицы по умолчанию
+ * или свой OpenAI-совместимый ИИ-сервис напрямую (для друзей со своим ключом:
+ * сервер не нужен). Пустые настройки не ломают остальное приложение: чат просто
+ * сообщает, что не настроен.
  */
 class ChatSettings(context: Context) {
     private val prefs = context.getSharedPreferences("somena", Context.MODE_PRIVATE)
@@ -27,10 +28,21 @@ class ChatSettings(context: Context) {
         get() = if (prefs.getString(KEY_MODE, MODE_SERVER) == MODE_DIRECT) MODE_DIRECT else MODE_SERVER
         set(value) = prefs.edit().putString(KEY_MODE, if (value == MODE_DIRECT) MODE_DIRECT else MODE_SERVER).apply()
 
-    /** Ключ proxyapi прямого режима: живёт только на этом телефоне, никуда не отправляется. */
+    /** Ключ API прямого режима: живёт только на этом телефоне, никуда не отправляется. */
     var proxyApiKey: String
         get() = (prefs.getString(KEY_PROXY_KEY, "") ?: "").trim()
         set(value) = prefs.edit().putString(KEY_PROXY_KEY, value.trim()).apply()
+
+    /**
+     * Адрес API прямого режима: любой OpenAI-совместимый сервис (proxyapi, OpenRouter,
+     * DeepSeek, локальный Ollama). Пустое значение - адрес proxyapi по умолчанию;
+     * случайно вставленный хвост /chat/completions срезается, приложение добавит его само.
+     */
+    var proxyBaseUrl: String
+        get() = (prefs.getString(KEY_PROXY_URL, null) ?: "")
+            .trim().removeSuffix("/chat/completions").trim().trimEnd('/')
+            .ifEmpty { ChatTransport.Direct.PROXYAPI_URL }
+        set(value) = prefs.edit().putString(KEY_PROXY_URL, value.trim()).apply()
 
     /** Модель Быстрой Ступени прямого режима: каталог или свой id из списка proxyapi. */
     var proxyFastModel: String
@@ -57,14 +69,14 @@ class ChatSettings(context: Context) {
     /** Подсказка «чат не настроен» словами выбранного режима: одно место для Чата и Медкарты. */
     val notConfiguredHint: String
         get() = if (mode == MODE_DIRECT) {
-            "введи ключ proxyapi на вкладке «Ещё»"
+            "введи ключ API на вкладке «Ещё»"
         } else {
             "введи токен приложения на вкладке «Ещё»"
         }
 
     /** Конфигурация одного запроса для ChatClient. */
     fun transport(): ChatTransport = if (mode == MODE_DIRECT) {
-        ChatTransport.Direct(proxyApiKey, proxyFastModel, proxyMaxModel)
+        ChatTransport.Direct(proxyApiKey, proxyFastModel, proxyMaxModel, proxyBaseUrl)
     } else {
         ChatTransport.Server(backendUrl, appToken)
     }
@@ -74,6 +86,7 @@ class ChatSettings(context: Context) {
         const val KEY_TOKEN = "chat_app_token"
         const val KEY_MODE = "chat_mode"
         const val KEY_PROXY_KEY = "chat_proxy_key"
+        const val KEY_PROXY_URL = "chat_proxy_base_url"
         const val KEY_PROXY_FAST = "chat_proxy_fast_model"
         const val KEY_PROXY_MAX = "chat_proxy_max_model"
         const val KEY_STEP = "chat_model_step"
@@ -83,9 +96,10 @@ class ChatSettings(context: Context) {
 }
 
 /**
- * Каталог моделей Ступеней для «Своего proxyapi»: популярные лёгкие и тяжёлые модели
- * из списка api.proxyapi.ru (сентябрь 2026). Свой id из списка можно вписать и мимо
- * каталога. У серверного режима каталога нет: там Ступень→модель решает Бэкенд.
+ * Каталог моделей Ступеней прямого режима: популярные лёгкие и тяжёлые из списка
+ * api.proxyapi.ru (сентябрь 2026) - быстрый выбор пилюлями. У другого сервиса свои
+ * имена моделей: любой id вписывается полем мимо каталога. У серверного режима
+ * каталога нет: там Ступень→модель решает Бэкенд.
  */
 object ProxyModels {
     /** Лёгкие (Быстрая Ступень): дёшево и быстро на повседневные вопросы. */

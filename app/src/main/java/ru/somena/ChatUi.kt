@@ -111,6 +111,7 @@ import ru.somena.data.ChatClient
 import ru.somena.data.ChatLog
 import ru.somena.data.ChatMessage
 import ru.somena.data.ChatSettings
+import ru.somena.data.ChatTransport
 import ru.somena.data.MODE_DIRECT
 import ru.somena.data.MODE_SERVER
 import ru.somena.data.MedDocReader
@@ -879,7 +880,7 @@ private fun SendButton(enabled: Boolean, onClick: () -> Unit) {
 /**
  * Настройки Чата по данным на вкладке «Ещё»: источник ИИ, секреты, модели Ступеней
  * прямого режима, очистка истории. Источник - пилюли: сервер Somena (по умолчанию,
- * ключи на сервере) или свой proxyapi напрямую, без сервера.
+ * ключи на сервере) или свой OpenAI-совместимый ИИ-сервис напрямую, без сервера.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -889,6 +890,9 @@ fun ChatSettingsSection() {
     var mode by remember { mutableStateOf(settings.mode) }
     var url by remember { mutableStateOf(settings.backendUrl) }
     var token by remember { mutableStateOf(settings.appToken) }
+    var baseUrl by remember {
+        mutableStateOf(if (settings.proxyBaseUrl == ChatTransport.Direct.PROXYAPI_URL) "" else settings.proxyBaseUrl)
+    }
     var apiKey by remember { mutableStateOf(settings.proxyApiKey) }
     var fastModel by remember { mutableStateOf(settings.proxyFastModel) }
     var maxModel by remember { mutableStateOf(settings.proxyMaxModel) }
@@ -898,7 +902,7 @@ fun ChatSettingsSection() {
         Text("Чат по данным", style = MaterialTheme.typography.titleMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             PeriodChip("Сервер Somena", selected = mode == MODE_SERVER, onClick = { mode = MODE_SERVER })
-            PeriodChip("Свой proxyapi", selected = mode == MODE_DIRECT, onClick = { mode = MODE_DIRECT })
+            PeriodChip("Свой ИИ-сервис", selected = mode == MODE_DIRECT, onClick = { mode = MODE_DIRECT })
         }
         if (mode == MODE_SERVER) {
             Text(
@@ -923,15 +927,24 @@ fun ChatSettingsSection() {
             )
         } else {
             Text(
-                "Приложение ходит в proxyapi напрямую с этим ключом: сервер Somena не нужен. " +
-                    "Ключ хранится только на этом телефоне.",
+                "Приложение ходит в ИИ напрямую: сервер Somena не нужен. Подойдёт любой " +
+                    "OpenAI-совместимый сервис: proxyapi, OpenRouter, DeepSeek, локальный Ollama. " +
+                    "Адрес и ключ хранятся только на этом телефоне.",
                 color = TextMuted,
                 style = MaterialTheme.typography.bodySmall,
             )
             OutlinedTextField(
+                value = baseUrl,
+                onValueChange = { baseUrl = it },
+                label = { Text("Адрес API") },
+                placeholder = { Text(ChatTransport.Direct.PROXYAPI_URL) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
                 value = apiKey,
                 onValueChange = { apiKey = it },
-                label = { Text("Ключ proxyapi") },
+                label = { Text("Ключ API") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -944,13 +957,15 @@ fun ChatSettingsSection() {
                 settings.mode = mode
                 settings.backendUrl = url
                 settings.appToken = token
+                settings.proxyBaseUrl = baseUrl
                 settings.proxyApiKey = apiKey
                 settings.proxyFastModel = fastModel
                 settings.proxyMaxModel = maxModel
                 status = "Сохранено ✓"
             },
             enabled = if (mode == MODE_DIRECT) {
-                apiKey.isNotBlank() && fastModel.isNotBlank() && maxModel.isNotBlank()
+                apiKey.isNotBlank() && fastModel.isNotBlank() && maxModel.isNotBlank() &&
+                    (baseUrl.isBlank() || baseUrl.startsWith("http"))
             } else {
                 url.isBlank() || (url.startsWith("http") && token.isNotBlank())
             },
@@ -971,8 +986,9 @@ fun ChatSettingsSection() {
 }
 
 /**
- * Выбор модели Ступени прямого режима: пилюли каталога популярных моделей плюс поле
- * своего id из списка proxyapi (пилюля подсвечена, пока id совпадает с ней).
+ * Выбор модели Ступени прямого режима: пилюли каталога популярных моделей proxyapi
+ * плюс поле своего id - у другого сервиса свои имена моделей (пилюля подсвечена,
+ * пока id совпадает с ней).
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -987,7 +1003,7 @@ private fun ModelPicker(title: String, catalog: List<String>, value: String, onP
         OutlinedTextField(
             value = value,
             onValueChange = onPick,
-            label = { Text("ID модели из списка proxyapi") },
+            label = { Text("ID модели у сервиса") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )

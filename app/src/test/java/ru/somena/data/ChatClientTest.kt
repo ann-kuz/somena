@@ -266,6 +266,7 @@ class ChatClientTest {
     fun `прямой режим шлёт OpenAI-совместимый запрос с моделью ступени`() {
         val bodies = mutableListOf<String>()
         val s = stubServer(200, providerReply, bodies)
+        lines.clear()
         val r = runBlocking {
             directClient(s.url()).ask(history, "sys-промпт", "контекст", "max")
         }
@@ -277,6 +278,8 @@ class ChatClientTest {
         assertTrue("тело: $body", body.startsWith("{\"model\":\"gpt-5.1\",\"max_completion_tokens\":3000,\"messages\":[{\"role\":\"system\""))
         assertTrue("тело: $body", !body.contains("\"step\""))
         assertTrue("тело: $body", !body.contains("\"attachment\""))
+        // Запрос идёт по адресу сервиса (любому, не только proxyapi), хвост добавляет приложение.
+        assertTrue("журнал: $lines", lines.first() == "→ POST ${s.url()}/chat/completions (сообщений в истории: 1, ступень: max)")
         s.close()
     }
 
@@ -331,11 +334,11 @@ class ChatClientTest {
     }
 
     @Test
-    fun `401 в прямом режиме объясняет про ключ proxyapi а не про токен приложения`() {
+    fun `401 в прямом режиме объясняет про ключ API а не про токен приложения`() {
         val s = stubServer(401, "{\"error\":{\"message\":\"Incorrect API key\"}}")
         val r = runBlocking { directClient(s.url()).ask(history, "sys", "контекст", "fast") }
         val msg = r.exceptionOrNull()?.message ?: ""
-        assertTrue("сообщение: $msg", msg.contains("Ключ proxyapi"))
+        assertTrue("сообщение: $msg", msg.contains("Ключ API"))
         assertTrue("сообщение: $msg", !msg.contains("APP_TOKEN"))
         s.close()
     }
