@@ -105,4 +105,54 @@ class LatestValuesTest {
         val none: MetricLatest<Double>? = null
         assertEquals(0.0, none.todayOrZero(d30), 0.0)
     }
+
+    @Test
+    fun `бжу берется только из сегодняшнего среза - вчерашнее не подтекает`() {
+        // Сегодня калории без БЖУ: подстрочник пуст, вчерашние 100/70/250 не показываются.
+        val nutrition = DaySlice(d30, eatenKcal = 450.0).todayNutrition()
+        assertEquals(450.0, nutrition.kcal, 0.0)
+        assertNull(nutrition.macros)
+        assertTrue(nutrition.hasEaten)
+    }
+
+    @Test
+    fun `сегодняшнее бжу показывается с нулями вместо пропусков`() {
+        val nutrition = DaySlice(d30, eatenKcal = 450.0, proteinG = 30.0).todayNutrition()
+        val macros = nutrition.macros!!
+        assertEquals(30.0, macros.proteinG, 0.0)
+        assertEquals(0.0, macros.fatG, 0.0)
+        assertEquals(0.0, macros.carbsG, 0.0)
+    }
+
+    @Test
+    fun `без еды сегодня калории ноль и плашка не свежая`() {
+        val noSlice: DaySlice? = null
+        val nutrition = noSlice.todayNutrition()
+        assertEquals(0.0, nutrition.kcal, 0.0)
+        assertNull(nutrition.macros)
+        assertTrue("нулевые калории - не свежее значение", !nutrition.hasEaten)
+    }
+
+    @Test
+    fun `записанный ноль калорий тоже не подсвечивает плашку`() {
+        val nutrition = DaySlice(d30, eatenKcal = 0.0).todayNutrition()
+        assertEquals(0.0, nutrition.kcal, 0.0)
+        assertTrue(!nutrition.hasEaten)
+    }
+
+    @Test
+    fun `бжу сегодня без калорий честно показывается`() {
+        val nutrition = DaySlice(d30, proteinG = 30.0).todayNutrition()
+        assertEquals(0.0, nutrition.kcal, 0.0)
+        assertTrue(!nutrition.hasEaten)
+        assertEquals(30.0, nutrition.macros!!.proteinG, 0.0)
+    }
+
+    @Test
+    fun `сожжено сегодня - из среза, без среза и ноль - ноль`() {
+        assertEquals(1800.0, DaySlice(d30, burnedKcal = 1800.0).todayBurned(), 0.0)
+        val noSlice: DaySlice? = null
+        assertEquals(0.0, noSlice.todayBurned(), 0.0)
+        assertEquals(0.0, DaySlice(d30, burnedKcal = 0.0).todayBurned(), 0.0)
+    }
 }

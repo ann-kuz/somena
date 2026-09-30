@@ -5,15 +5,17 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -36,11 +38,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.BasalMetabolicRateRecord
 import androidx.health.connect.client.records.BodyFatRecord
@@ -55,36 +56,36 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import ru.somena.core.MetricLatest
+import ru.somena.core.DaySlice
 import ru.somena.core.Profile
 import ru.somena.core.ProfileValidator
 import ru.somena.core.Sex
+import ru.somena.core.TodayLayout
+import ru.somena.core.TodayPlate
 import ru.somena.core.birthDateFieldError
+import ru.somena.core.hiddenAs
+import ru.somena.core.isMetric
 import ru.somena.core.latestValues
+import ru.somena.core.manualMetric
 import ru.somena.core.numericFieldError
 import ru.somena.core.parseBirthDate
 import ru.somena.core.parseOptionalDouble
 import ru.somena.core.parseOptionalInt
-import ru.somena.core.todayOrZero
+import ru.somena.core.todayPlatesFor
 import ru.somena.data.HcImporter
 import ru.somena.data.ProfileStore
 import ru.somena.data.SliceDb
-import ru.somena.ui.CardLabel
+import ru.somena.data.TodayLayoutStore
 import ru.somena.ui.GhostButton
 import ru.somena.ui.GlassCard
 import ru.somena.ui.GlowButton
-import ru.somena.ui.Gold
-import ru.somena.ui.MetricCard
 import ru.somena.ui.NebulaBackground
 import ru.somena.ui.NavItem
 import ru.somena.ui.PeriodChip
 import ru.somena.ui.ScreenHeader
 import ru.somena.ui.SomenaNavBar
 import ru.somena.ui.SomenaTheme
-import ru.somena.ui.Sparkline
 import ru.somena.ui.TextMuted
-import ru.somena.ui.Violet
-import ru.somena.ui.neonHalo
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -201,20 +202,40 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
     val scope = rememberCoroutineScope()
     val db = remember { SliceDb(context) }
     val importer = remember { HcImporter(db) }
+    // Календарь цикла скрыт для пола «м»: пол читается один раз при входе на экран.
+    val sex = remember { ProfileStore(context).load().sex }
+    // Порядок и скрытость плашек - настройка Пользователя, хранится локально.
+    val plates = remember { todayPlatesFor(sex == Sex.MALE) }
+    val layoutStore = remember { TodayLayoutStore(context) }
+    var layout by remember { mutableStateOf(layoutStore.load(plates)) }
+    fun saveLayout(l: TodayLayout) {
+        layout = l
+        layoutStore.save(l)
+    }
+
     // Последние известные значения: каждая метрика из своего самого позднего дня,
-    // свежесть (получено сегодня) решает подсветку карточек.
+    // свежесть (получено сегодня) решает подсветку карточек. Суточные (Съедено
+    // с БЖУ, Сожжено) читаются только из сегодняшнего среза - вчерашнее не подтекает.
+    val today = remember { LocalDate.now() }
     var latest by remember { mutableStateOf(latestValues(db.all())) }
+    var todaySlice by remember { mutableStateOf<DaySlice?>(db.get(today)) }
+    var weekSteps by remember { mutableStateOf(db.all().takeLast(7).map { it.steps?.toDouble() }) }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
     var wellbeing by remember { mutableStateOf(db.dayWellbeing(LocalDate.now())) }
     var showWellbeingEditor by remember { mutableStateOf(false) }
-    val weekSteps = remember(db) { db.all().takeLast(7).map { it.steps?.toDouble() } }
-    // Календарь цикла скрыт для пола «м»: пол читается один раз при входе на экран.
-    val sex = remember { ProfileStore(context).load().sex }
-    val today = remember { LocalDate.now() }
 
-    /** День метрики, если значение получено не сегодня (иначе null - свежее). */
-    fun staleOn(m: MetricLatest<*>?): LocalDate? = m?.on?.takeIf { it != today }
+    // Меню плашки, окошко ручного ввода и режим переноса.
+    var menuPlate by remember { mutableStateOf<TodayPlate?>(null) }
+    var entryPlate by remember { mutableStateOf<TodayPlate?>(null) }
+    var reorder by remember { mutableStateOf(false) }
+
+    fun reload() {
+        latest = latestValues(db.all())
+        todaySlice = db.get(today)
+        weekSteps = db.all().takeLast(7).map { it.steps?.toDouble() }
+        wellbeing = db.dayWellbeing(today)
+    }
 
     fun refresh() {
         busy = true
@@ -222,8 +243,7 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
             status = try {
                 if (HealthProbe.isAvailable(context)) {
                     val imported = importer.importRecent(context)
-                    if (imported == 0) "Новых данных нет"
-                    else null
+                    if (imported == 0) "Новых данных нет" else null
                 } else "Health Connect недоступен: проверь Настройки → Отладка"
             } catch (e: Exception) {
                 ru.somena.data.AppLog.append(
@@ -233,8 +253,7 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
                 )
                 "Импорт не удался: ${e.message}"
             }
-            latest = latestValues(db.all())
-            wellbeing = db.dayWellbeing(LocalDate.now())
+            reload()
             busy = false
         }
     }
@@ -265,104 +284,60 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
         if (latest.isEmpty) {
             GlassCard(Modifier.fillMaxWidth(), padding = 28.dp) {
                 Text(
-                    if (busy) "Читаю Health Connect…" else "Данных пока нет: нажми «Обновить»",
+                    if (busy) "Читаю Health Connect…" else "Данных пока нет: нажми «Обновить» " +
+                        "или внеси сама через меню плашки",
                     color = TextMuted,
                     style = MaterialTheme.typography.bodyLarge,
                 )
             }
-        } else {
-            // Главная карточка: шаги + мини-график недели; свежие шаги подсвечены
-            // ореолом плашки, устаревшие приглушены (правило «светящееся = активное»).
-            val stepsStale = staleOn(latest.steps)
-            val stepsFresh = latest.steps != null && stepsStale == null
-            GlassCard(
-                Modifier
-                    .fillMaxWidth()
-                    .then(
-                        if (stepsFresh) {
-                            Modifier.neonHalo(Gold, cornerRadius = 20.dp, glow = 7.dp, alpha = 0.12f)
-                        } else {
-                            Modifier
-                        }
+        }
+        // Плашки в порядке Пользователя: метрики идут парами одного размера,
+        // Самочувствие и Цикл - полными строками на своих местах порядка.
+        val visible = layout.visible
+        var i = 0
+        while (i < visible.size) {
+            val plate = visible[i]
+            if (!plate.isMetric) {
+                if (plate == TodayPlate.WELLBEING) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(20.dp))
+                            .clickable(onClickLabel = "открыть меню плашки") { menuPlate = plate },
+                    ) {
+                        WellbeingSection(wellbeing, onEdit = { showWellbeingEditor = true })
+                    }
+                } else {
+                    CycleCard(
+                        db = db,
+                        revision = cycleRevision,
+                        onOpen = { menuPlate = plate },
+                        onChanged = onCycleChanged,
                     )
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        CardLabel("Шаги", if (stepsFresh) Gold else Gold.copy(alpha = 0.45f))
-                        Text(
-                            latest.steps?.value?.let { "%,d".format(it) } ?: "—",
-                            fontSize = 40.sp,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = (-1).sp,
-                            color = if (stepsFresh) Color.Unspecified else TextMuted,
+                }
+                i++
+            } else {
+                val row = mutableListOf(plate)
+                i++
+                if (i < visible.size && visible[i].isMetric) {
+                    row += visible[i]
+                    i++
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    row.forEach {
+                        MetricPlate(
+                            plate = it,
+                            latest = latest,
+                            todaySlice = todaySlice,
+                            weekSteps = weekSteps,
+                            today = today,
+                            onOpenMenu = { menuPlate = it },
+                            modifier = Modifier.weight(1f),
                         )
-                        stepsStale?.let {
-                            Text(
-                                "на ${it.format(staleFormat)}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = TextMuted,
-                            )
-                        }
                     }
-                    if (weekSteps.count { it != null } >= 2) {
-                        Sparkline(weekSteps, Modifier.size(width = 96.dp, height = 56.dp), color = Gold)
-                    }
+                    if (row.size == 1) Spacer(Modifier.weight(1f))
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MetricCard(
-                    "Сон", latest.sleepMinutes?.value?.let { "${it / 60}" }, Modifier.weight(1f),
-                    accent = Violet,
-                    unit = latest.sleepMinutes?.value?.let { "ч %02d мин".format(it % 60) } ?: "",
-                    staleOn = staleOn(latest.sleepMinutes),
-                )
-                // Сожжено копится за день: новым днём - ноль, вчерашнее не показывается.
-                MetricCard(
-                    "Сожжено",
-                    "%,.0f".format(latest.burnedKcal.todayOrZero(today)),
-                    Modifier.weight(1f),
-                    accent = Violet, unit = "ккал",
-                    muted = latest.burnedKcal?.on != today,
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                // Съедено - тоже суточное: без приёмов за сегодня показывается ноль,
-                // БЖУ-подстрочник живёт только со свежим днём.
-                val eatenToday = latest.eatenKcal?.on == today
-                MetricCard(
-                    "Съедено",
-                    "%,.0f".format(latest.eatenKcal.todayOrZero(today)),
-                    Modifier.weight(1f),
-                    accent = Gold, unit = "ккал",
-                    sub = if (eatenToday && (latest.proteinG != null || latest.fatG != null || latest.carbsG != null)) {
-                        "Б %,.0f · Ж %,.0f · У %,.0f".format(
-                            latest.proteinG?.value ?: 0.0,
-                            latest.fatG?.value ?: 0.0,
-                            latest.carbsG?.value ?: 0.0,
-                        )
-                    } else null,
-                    muted = !eatenToday,
-                )
-                MetricCard(
-                    "Вес", latest.weightKg?.value?.let { "%,.1f".format(it) }, Modifier.weight(1f),
-                    accent = Violet, unit = "кг",
-                    staleOn = staleOn(latest.weightKg),
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MetricCard(
-                    "Процент жира", latest.bodyFatPct?.value?.let { "%,.1f".format(it) }, Modifier.weight(1f),
-                    accent = Violet, unit = "%", staleOn = staleOn(latest.bodyFatPct),
-                )
-                MetricCard(
-                    "Костная масса", latest.boneMassKg?.value?.let { "%,.1f".format(it) }, Modifier.weight(1f),
-                    accent = Violet, unit = "кг", staleOn = staleOn(latest.boneMassKg),
-                )
-            }
-            MetricCard(
-                "Базовый расход", latest.bmrKcal?.value?.let { "%,.0f".format(it) }, Modifier.fillMaxWidth(),
-                accent = Violet, unit = "ккал/дн", staleOn = staleOn(latest.bmrKcal),
-            )
         }
         GlowButton(
             if (busy) "Обновляю…" else "Обновить",
@@ -374,28 +349,78 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
         status?.let {
             SelectionContainer { Text(it, color = TextMuted, style = MaterialTheme.typography.bodySmall) }
         }
-        WellbeingSection(wellbeing, onEdit = { showWellbeingEditor = true })
-        if (sex != Sex.MALE) {
-            CycleCard(
-                db = db,
-                revision = cycleRevision,
-                onOpen = onOpenCycle,
-                onChanged = onCycleChanged,
-            )
-        }
         Text(
             "Данные читаются из Health Connect; если пишут несколько приложений, источник " +
-                "выбирается в Настройках → Данные. Карточки показывают последние известные " +
-                "значения: светящиеся получены сегодня, серые с подписью «на ДД.ММ» - раньше. " +
-                "Съедено и Сожжено копятся за день и новым днём начинаются с нуля.",
+                "выбирается в Настройках → Данные. Светящиеся плашки получены сегодня, серые " +
+                "с подписью «на ДД.ММ» - раньше; Съедено и Сожжено копятся за день и новым " +
+                "днём начинаются с нуля. Нажатие на плашку открывает меню: внести данные, " +
+                "скрыть или переместить; скрытые собираются внизу экрана.",
             color = TextMuted,
             style = MaterialTheme.typography.bodySmall,
         )
+        HiddenPlatesSection(
+            hiddenPlates = layout.order.filter { it in layout.hidden },
+            onOpenMenu = { menuPlate = it },
+        )
+    }
+
+    menuPlate?.let { plate ->
+        PlateMenuDialog(
+            plate = plate,
+            isHidden = plate in layout.hidden,
+            onEnterData = {
+                menuPlate = null
+                when (plate) {
+                    TodayPlate.WELLBEING -> showWellbeingEditor = true
+                    TodayPlate.CYCLE -> onOpenCycle()
+                    else -> entryPlate = plate
+                }
+            },
+            onMove = {
+                menuPlate = null
+                reorder = true
+            },
+            onHide = {
+                saveLayout(layout.hiddenAs(plate, hide = true))
+                menuPlate = null
+            },
+            onShow = {
+                saveLayout(layout.hiddenAs(plate, hide = false))
+                menuPlate = null
+            },
+            onDismiss = { menuPlate = null },
+        )
+    }
+
+    entryPlate?.let { plate ->
+        plate.manualMetric()?.let { metric ->
+            PlateEntryDialog(
+                metric = metric,
+                db = db,
+                onSaved = {
+                    entryPlate = null
+                    reload()
+                },
+                onDismiss = { entryPlate = null },
+            )
+        }
+    }
+
+    if (reorder) {
+        Box(Modifier.fillMaxSize().background(ru.somena.ui.BgBase)) {
+            NebulaBackground()
+            ReorderPlatesScreen(
+                initial = layout,
+                onDone = {
+                    saveLayout(it)
+                    reorder = false
+                },
+            )
+        }
     }
 }
 
 private val dateHeaderFormat = DateTimeFormatter.ofPattern("d MMMM, EEEE", Locale("ru", "RU"))
-private val staleFormat = DateTimeFormatter.ofPattern("dd.MM")
 
 @Composable
 fun ProfileSection() {

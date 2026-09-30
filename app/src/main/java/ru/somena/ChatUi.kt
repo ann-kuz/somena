@@ -92,6 +92,7 @@ import ru.somena.core.describe
 import ru.somena.core.fmt
 import ru.somena.core.isDataEntryRequest
 import ru.somena.core.lastDays
+import ru.somena.core.manualOldValue
 import ru.somena.core.manualProblem
 import ru.somena.core.manualSlicePreview
 import ru.somena.core.manualWellbeingPreview
@@ -130,6 +131,7 @@ import ru.somena.ui.GhostButton
 import ru.somena.ui.GlassCard
 import ru.somena.ui.GlowButton
 import ru.somena.ui.Gold
+import ru.somena.ui.ImportPreviewCard
 import ru.somena.ui.Indigo
 import ru.somena.ui.PeriodChip
 import ru.somena.ui.ScreenHeader
@@ -767,65 +769,6 @@ fun AiChartCard(spec: AiChartSpec, anchor: LocalDate, data: DayData, profileBmr:
     )
 }
 
-/** Карточка Предпросмотра (спеки 0004 и 0006): ничего не записано, пока не нажато «Записать». */
-@Composable
-private fun ImportPreviewCard(preview: ImportPreview, onConfirm: () -> Unit, onCancel: () -> Unit) {
-    GlassCard(Modifier.fillMaxWidth()) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                buildString {
-                    append("Предпросмотр: разобрано дней ${preview.entries.size}")
-                    if (preview.wellbeing.isNotEmpty()) append(", самочувствия ${preview.wellbeing.size}")
-                },
-                style = MaterialTheme.typography.titleSmall,
-            )
-            Text(
-                buildString {
-                    append("Новых: ${preview.entries.size - preview.replacedCount}, замен: ${preview.replacedCount}")
-                    if (preview.wellbeing.isNotEmpty()) {
-                        append(", самочувствия замен: ${preview.wellbeingReplacedCount}")
-                    }
-                    if (preview.rejected.isNotEmpty()) append(", не разобрано: ${preview.rejected.size}")
-                },
-                color = TextMuted,
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Column(
-                Modifier
-                    .heightIn(max = 280.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                val fmt = DateTimeFormatter.ofPattern("dd.MM.yyyy")
-                preview.entries.forEach { entry ->
-                    val was = if (entry.old == ImportValues()) "" else " (было: ${entry.old.describe()})"
-                    Text("${entry.date.format(fmt)}: ${entry.values.describe()}$was", style = MaterialTheme.typography.bodyMedium)
-                }
-                preview.wellbeing.forEach { entry ->
-                    val was = if (entry.old == ImportWellbeing()) "" else " (было: ${entry.old.describe()})"
-                    Text("${entry.date.format(fmt)}: ${entry.values.describe()}$was", style = MaterialTheme.typography.bodyMedium)
-                }
-                preview.rejected.forEach { row ->
-                    Text(
-                        "Не разобрано: ${row.raw.take(60)} - ${row.reason}",
-                        color = TextMuted,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                GlowButton(
-                    "Записать",
-                    onClick = onConfirm,
-                    enabled = preview.entries.isNotEmpty() || preview.wellbeing.isNotEmpty(),
-                    modifier = Modifier.weight(1f),
-                )
-                GhostButton("Отмена", onClick = onCancel, modifier = Modifier.weight(1f))
-            }
-        }
-    }
-}
-
 /** Круглая кнопка-скрепка: то же неоновое стекло, что у отправки. */
 @Composable
 private fun AttachButton(enabled: Boolean, onClick: () -> Unit) {
@@ -1295,14 +1238,7 @@ private fun ManualEntryDialog(
                     val d = date!!
                     // Что сейчас в базе: замена видна до ввода, а не после «Записать».
                     if (m != ManualMetric.WELLBEING) {
-                        val oldField = sliceAt(d)
-                        val oldLine = when (m) {
-                            ManualMetric.BURNED -> oldField?.burnedKcal
-                            ManualMetric.EATEN -> oldField?.eatenKcal
-                            ManualMetric.WEIGHT -> oldField?.weightKg
-                            ManualMetric.STEPS -> oldField?.steps?.toDouble()
-                            else -> oldField?.sleepMinutes?.let { it / 60.0 }
-                        }
+                        val oldLine = sliceAt(d).manualOldValue(m)
                         if (oldLine != null) {
                             Text(
                                 "Сейчас в базе: ${fmt(oldLine)} ${m.unitHint}",

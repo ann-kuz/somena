@@ -86,8 +86,69 @@ class ManualEntryTest {
     @Test
     fun `категории накрывают показатели среза и самочувствие`() {
         val keys = ManualMetric.entries.map { it.wireKey }
-        listOf("burned_kcal", "eaten_kcal", "weight", "steps", "sleep_h").forEach {
+        listOf("burned_kcal", "eaten_kcal", "weight", "steps", "sleep_h", "body_fat", "bone", "bmr").forEach {
             assertTrue("категория $it", keys.contains(it))
         }
+    }
+
+    @Test
+    fun `состав тела и базовый расход проверяются своими диапазонами`() {
+        assertNull(manualProblem(ManualMetric.BODY_FAT, "27.5"))
+        assertNotNull("процента жира меньше одного не бывает", manualProblem(ManualMetric.BODY_FAT, "0.5"))
+        assertNull(manualProblem(ManualMetric.BONE, "2.6"))
+        assertNotNull(manualProblem(ManualMetric.BONE, "0.3"))
+        assertNull(manualProblem(ManualMetric.BMR, "1450"))
+        assertNotNull("базового расхода меньше пятисот не бывает", manualProblem(ManualMetric.BMR, "100"))
+    }
+
+    @Test
+    fun `сейчас в базе читается по категории среза`() {
+        val slice = DaySlice(
+            date = d27, burnedKcal = 50.0, eatenKcal = 1800.0, weightKg = 62.0,
+            steps = 7000, sleepMinutes = 420, bodyFatPct = 28.1, boneMassKg = 2.6, bmrKcal = 1400.0,
+        )
+        assertEquals(50.0, slice.manualOldValue(ManualMetric.BURNED)!!, 0.01)
+        assertEquals(1800.0, slice.manualOldValue(ManualMetric.EATEN)!!, 0.01)
+        assertEquals(62.0, slice.manualOldValue(ManualMetric.WEIGHT)!!, 0.01)
+        assertEquals(7000.0, slice.manualOldValue(ManualMetric.STEPS)!!, 0.01)
+        assertEquals("сон вводится часами", 7.0, slice.manualOldValue(ManualMetric.SLEEP)!!, 0.01)
+        assertEquals(28.1, slice.manualOldValue(ManualMetric.BODY_FAT)!!, 0.01)
+        assertEquals(2.6, slice.manualOldValue(ManualMetric.BONE)!!, 0.01)
+        assertEquals(1400.0, slice.manualOldValue(ManualMetric.BMR)!!, 0.01)
+        assertNull(slice.manualOldValue(ManualMetric.WELLBEING))
+        val none: DaySlice? = null
+        assertNull(none.manualOldValue(ManualMetric.WEIGHT))
+    }
+
+    @Test
+    fun `граммы бжу необязательны и проверяются своим диапазоном`() {
+        assertNull(manualMacroProblem(""))
+        assertNull(manualMacroProblem("90"))
+        assertNull(manualMacroProblem("90,5"))
+        assertNotNull("двух тысяч грамм не бывает", manualMacroProblem("2500"))
+        assertNotNull(manualMacroProblem("примерно девяносто"))
+    }
+
+    @Test
+    fun `съедено с бжу попадает в предпросмотр с прежним питанием дня`() {
+        val existing = DaySlice(date = d27, eatenKcal = 1200.0, proteinG = 60.0, fatG = 40.0, carbsG = 150.0)
+        val preview = manualEatenPreview(
+            kcal = 1800.0, proteinG = 90.0, fatG = null, carbsG = 70.0, date = d27, existing = existing,
+        )
+        val entry = preview.entries.single()
+        assertEquals(1800.0, entry.values.eatenKcal!!, 0.01)
+        assertEquals(90.0, entry.values.proteinG!!, 0.01)
+        assertNull("пустое поле - не ноль", entry.values.fatG)
+        assertEquals(70.0, entry.values.carbsG!!, 0.01)
+        assertEquals(1200.0, entry.old.eatenKcal!!, 0.01)
+        assertEquals(60.0, entry.old.proteinG!!, 0.01)
+        assertEquals(1, preview.replacedCount)
+    }
+
+    @Test
+    fun `базовый расход попадает в предпросмотр и строку значений`() {
+        val preview = manualSlicePreview(ManualMetric.BMR, 1450.0, d27, existing = null)
+        assertEquals(1450.0, preview.entries.single().values.bmrKcal!!, 0.01)
+        assertEquals("базовый расход 1450 ккал/дн", preview.entries.single().values.describe())
     }
 }

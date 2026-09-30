@@ -36,6 +36,14 @@ class TableImportTest {
     }
 
     @Test
+    fun `базовый расход пишется в срез и не трогает чужие поля`() {
+        val entry = ImportEntry(jan5, ImportValues(bmrKcal = 1450.0), ImportValues())
+        val merged = entry.toSlice(DaySlice(date = jan5, steps = 5000))
+        assertEquals(1450.0, merged.bmrKcal!!, 1e-9)
+        assertEquals(5000L, merged.steps)
+    }
+
+    @Test
     fun `шаги расход и сон разбираются в значения дня`() {
         // ADR-0007: таблица восполняет измерения задним числом для дней без Источника.
         val preview = parseImportReply(

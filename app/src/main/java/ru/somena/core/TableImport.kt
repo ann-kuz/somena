@@ -24,6 +24,7 @@ data class ImportValues(
     val carbsG: Double? = null,
     val bodyFatPct: Double? = null,
     val boneMassKg: Double? = null,
+    val bmrKcal: Double? = null,
     val steps: Long? = null,
     val burnedKcal: Double? = null,
     val sleepMinutes: Long? = null,
@@ -275,6 +276,7 @@ fun ImportEntry.toSlice(existing: DaySlice?): DaySlice =
         carbsG = values.carbsG ?: existing?.carbsG,
         bodyFatPct = values.bodyFatPct ?: existing?.bodyFatPct,
         boneMassKg = values.boneMassKg ?: existing?.boneMassKg,
+        bmrKcal = values.bmrKcal ?: existing?.bmrKcal,
         steps = values.steps ?: existing?.steps,
         burnedKcal = values.burnedKcal ?: existing?.burnedKcal,
         sleepMinutes = values.sleepMinutes ?: existing?.sleepMinutes,
@@ -306,6 +308,7 @@ fun ImportValues.describe(): String {
     }
     bodyFatPct?.let { parts += "процент жира ${fmt(it)}%" }
     boneMassKg?.let { parts += "костная масса ${fmt(it)} кг" }
+    bmrKcal?.let { parts += "базовый расход ${fmt(it)} ккал/дн" }
     steps?.let { parts += "шаги ${fmt(it.toDouble())}" }
     burnedKcal?.let { parts += "сожжено ${fmt(it)} ккал" }
     sleepMinutes?.let { parts += "сон ${fmt(it / 60.0)} ч" }

@@ -16,9 +16,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -39,14 +41,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.time.format.DateTimeFormatter
+import ru.somena.core.ImportPreview
+import ru.somena.core.ImportValues
+import ru.somena.core.ImportWellbeing
+import ru.somena.core.describe
 
 private val NavDim = Color(0xFF837FA3)
 
-/** Стеклянная карточка: полупрозрачная поверхность с тонким бордером. */
+/**
+ * Стеклянная карточка: полупрозрачная поверхность с тонким бордером.
+ * С onClick вся карточка нажимается (меню плашки на «Сегодня»): клик встаёт
+ * после бордера, но до отступа - отклик ограничен формой карточки.
+ */
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
     padding: Dp = 16.dp,
+    onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(
@@ -54,6 +66,10 @@ fun GlassCard(
             .clip(RoundedCornerShape(20.dp))
             .background(Color.White.copy(alpha = 0.045f))
             .border(androidx.compose.foundation.BorderStroke(1.dp, CardBorder), RoundedCornerShape(20.dp))
+            .then(
+                if (onClick != null) Modifier.clickable(onClickLabel = "открыть меню плашки", onClick = onClick)
+                else Modifier
+            )
             .padding(padding),
         content = content,
     )
@@ -80,11 +96,11 @@ fun CardLabel(text: String, accent: Color = Violet) {
 }
 
 /**
- * Карточка показателя: заголовок, крупная цифра, единица, подстрочник.
- * Свежее значение (staleOn = null и muted = false) подсвечено неоновым ореолом
- * самой плашки - правило «светящееся = активное» спеки 0002. Устаревшее
- * (staleOn - день получения, не сегодня) или суточно обнулённое (muted) показано
- * приглушённым с подписью «на ДД.ММ» у устаревшего.
+ * Карточка показателя: заголовок, крупная цифра, единица, подстрочник, необязательный
+ * низ (мини-график недели у Шагов). Свежее значение (staleOn = null и muted = false)
+ * подсвечено неоновым ореолом самой плашки - правило «светящееся = активное» спеки 0002.
+ * Устаревшее (staleOn - день получения, не сегодня) или суточно обнулённое (muted)
+ * показано приглушённым с подписью «на ДД.ММ» у устаревшего.
  */
 @Composable
 fun MetricCard(
@@ -96,6 +112,8 @@ fun MetricCard(
     sub: String? = null,
     staleOn: java.time.LocalDate? = null,
     muted: Boolean = false,
+    onClick: (() -> Unit)? = null,
+    bottom: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     val fresh = value != null && staleOn == null && !muted
     val cardModifier = if (fresh) {
@@ -103,7 +121,7 @@ fun MetricCard(
     } else {
         modifier
     }
-    GlassCard(cardModifier) {
+    GlassCard(cardModifier, onClick = onClick) {
         CardLabel(label, if (fresh) accent else accent.copy(alpha = 0.45f))
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             Text(
@@ -130,6 +148,7 @@ fun MetricCard(
                 color = TextMuted,
             )
         }
+        bottom?.invoke(this)
     }
 }
 
@@ -335,6 +354,73 @@ fun StepBadge(n: Int) {
 }
 
 data class NavItem(val icon: ImageVector, val label: String)
+
+/**
+ * Карточка Предпросмотра (спеки 0004 и 0006): ничего не записано, пока не нажато
+ * «Записать». Общая для Разбора таблицы, внесения из Чата и ручного ввода с «Сегодня».
+ */
+@Composable
+fun ImportPreviewCard(
+    preview: ImportPreview,
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit,
+    cancelLabel: String = "Отмена",
+) {
+    GlassCard(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                buildString {
+                    append("Предпросмотр: разобрано дней ${preview.entries.size}")
+                    if (preview.wellbeing.isNotEmpty()) append(", самочувствия ${preview.wellbeing.size}")
+                },
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                buildString {
+                    append("Новых: ${preview.entries.size - preview.replacedCount}, замен: ${preview.replacedCount}")
+                    if (preview.wellbeing.isNotEmpty()) {
+                        append(", самочувствия замен: ${preview.wellbeingReplacedCount}")
+                    }
+                    if (preview.rejected.isNotEmpty()) append(", не разобрано: ${preview.rejected.size}")
+                },
+                color = TextMuted,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Column(
+                Modifier
+                    .heightIn(max = 280.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                val fmt = DateTimeFormatter.ofPattern("dd.MM.yyyy")
+                preview.entries.forEach { entry ->
+                    val was = if (entry.old == ImportValues()) "" else " (было: ${entry.old.describe()})"
+                    Text("${entry.date.format(fmt)}: ${entry.values.describe()}$was", style = MaterialTheme.typography.bodyMedium)
+                }
+                preview.wellbeing.forEach { entry ->
+                    val was = if (entry.old == ImportWellbeing()) "" else " (было: ${entry.old.describe()})"
+                    Text("${entry.date.format(fmt)}: ${entry.values.describe()}$was", style = MaterialTheme.typography.bodyMedium)
+                }
+                preview.rejected.forEach { row ->
+                    Text(
+                        "Не разобрано: ${row.raw.take(60)} - ${row.reason}",
+                        color = TextMuted,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                GlowButton(
+                    "Записать",
+                    onClick = onConfirm,
+                    enabled = preview.entries.isNotEmpty() || preview.wellbeing.isNotEmpty(),
+                    modifier = Modifier.weight(1f),
+                )
+                GhostButton(cancelLabel, onClick = onCancel, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
 
 /** Нижняя навигация: тёмное стекло, пилюля-индикатор градиентом у выбранной вкладки. */
 @Composable

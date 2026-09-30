@@ -60,3 +60,28 @@ fun latestValues(all: List<DaySlice>): LatestValues {
  */
 fun MetricLatest<Double>?.todayOrZero(today: LocalDate): Double =
     if (this != null && on == today) value else 0.0
+
+/** БЖУ сегодняшнего дня: отсутствующий показатель - ноль, а не вчерашнее значение. */
+data class TodayMacros(val proteinG: Double, val fatG: Double, val carbsG: Double)
+
+/**
+ * Суточное питание «Сегодня» из среза за сегодня: и калории, и БЖУ берутся только
+ * из него - вчерашний итог не подтекает ни в цифру, ни в подстрочник. Калорий ноль,
+ * если сегодня еды не записано; пока калорий ноль, плашка не считается свежей
+ * (правило «светящееся = активное», спека 0002).
+ */
+data class TodayNutrition(val kcal: Double, val macros: TodayMacros?) {
+    val hasEaten: Boolean get() = kcal > 0.0
+}
+
+fun DaySlice?.todayNutrition(): TodayNutrition = TodayNutrition(
+    kcal = this?.eatenKcal ?: 0.0,
+    macros = if (this == null || (proteinG == null && fatG == null && carbsG == null)) {
+        null
+    } else {
+        TodayMacros(proteinG ?: 0.0, fatG ?: 0.0, carbsG ?: 0.0)
+    },
+)
+
+/** Сожжено сегодня: ноль без сегодняшней записи; ноль - не свежее значение. */
+fun DaySlice?.todayBurned(): Double = this?.burnedKcal ?: 0.0
