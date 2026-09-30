@@ -1,6 +1,5 @@
 package ru.somena.ui
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,10 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -96,11 +92,13 @@ fun CardLabel(text: String, accent: Color = Violet) {
 }
 
 /**
- * Карточка показателя: заголовок, крупная цифра, единица, подстрочник, необязательный
- * низ (мини-график недели у Шагов). Свежее значение (staleOn = null и muted = false)
- * подсвечено неоновым ореолом самой плашки - правило «светящееся = активное» спеки 0002.
- * Устаревшее (staleOn - день получения, не сегодня) или суточно обнулённое (muted)
- * показано приглушённым с подписью «на ДД.ММ» у устаревшего.
+ * Карточка показателя: заголовок, крупная цифра, единица, подстрочник. Все
+ * метрические плашки одной минимальной высоты - подстрочник БЖУ или «на ДД.ММ»
+ * не делает плашку выше соседних. Свежее значение (staleOn = null и muted =
+ * false) подсвечено неоновым ореолом самой плашки - правило «светящееся =
+ * активное» спеки 0002. Устаревшее (staleOn - день получения, не сегодня) или
+ * суточно обнулённое (muted) показано приглушённым с подписью «на ДД.ММ» у
+ * устаревшего.
  */
 @Composable
 fun MetricCard(
@@ -113,14 +111,17 @@ fun MetricCard(
     staleOn: java.time.LocalDate? = null,
     muted: Boolean = false,
     onClick: (() -> Unit)? = null,
-    bottom: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     val fresh = value != null && staleOn == null && !muted
-    val cardModifier = if (fresh) {
-        modifier.neonHalo(accent, cornerRadius = 20.dp, glow = 7.dp, alpha = 0.12f)
-    } else {
-        modifier
-    }
+    val cardModifier = modifier
+        .heightIn(min = MetricCardHeight)
+        .then(
+            if (fresh) {
+                Modifier.neonHalo(accent, cornerRadius = 20.dp, glow = 7.dp, alpha = 0.12f)
+            } else {
+                Modifier
+            }
+        )
     GlassCard(cardModifier, onClick = onClick) {
         CardLabel(label, if (fresh) accent else accent.copy(alpha = 0.45f))
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -148,9 +149,11 @@ fun MetricCard(
                 color = TextMuted,
             )
         }
-        bottom?.invoke(this)
     }
 }
+
+/** Единая высота метрических плашек: заголовок + цифра + строка подстрочника. */
+private val MetricCardHeight = 96.dp
 
 /** Заголовок экрана: крупное имя и приглушённый подзаголовок. */
 @Composable
@@ -188,34 +191,6 @@ fun Modifier.neonSurface(active: Boolean, cornerRadius: Dp, glow: Dp = 10.dp): M
         .clip(shape)
         .background(fill)
         .border(stroke, shape)
-}
-
-/** Мини-график последних дней для главной карточки. */
-@Composable
-fun Sparkline(values: List<Double?>, modifier: Modifier = Modifier, color: Color = Violet) {
-    Canvas(modifier) {
-        val pts = values.mapIndexedNotNull { i, v -> v?.let { i to it } }
-        if (pts.size < 2) return@Canvas
-        val lo = pts.minOf { it.second }
-        val hi = pts.maxOf { it.second }
-        val span = (hi - lo).takeIf { it > 0 } ?: 1.0
-        fun px(i: Int) = size.width * i / (values.size - 1)
-        fun py(v: Double) = 5f + (size.height - 10f) * (1f - ((v - lo) / span).toFloat())
-
-        val line = Path()
-        pts.forEachIndexed { k, (i, v) ->
-            if (k == 0) line.moveTo(px(i), py(v)) else line.lineTo(px(i), py(v))
-        }
-        val area = Path().apply {
-            moveTo(px(pts.first().first), size.height)
-            pts.forEachIndexed { k, (i, v) -> lineTo(px(i), py(v)) }
-            lineTo(px(pts.last().first), size.height)
-            close()
-        }
-        drawPath(area, brush = Brush.verticalGradient(listOf(color.copy(alpha = 0.30f), Color.Transparent), endY = size.height))
-        drawPath(line, color = color.copy(alpha = 0.25f), style = Stroke(width = 9f, cap = StrokeCap.Round))
-        drawPath(line, color = color, style = Stroke(width = 4f, cap = StrokeCap.Round))
-    }
 }
 
 /** Главная кнопка: неоновое стекло — полупрозрачный фиолет, светящийся бордер, рисованное свечение. */

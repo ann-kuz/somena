@@ -7,10 +7,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Раскладка плашек «Сегодня»: порядок, скрытость и перенос - чистая логика,
- * хранилище хранит только идентификаторы.
+ * Раскладка карточек (плашки «Сегодня», графики «Графиков»): порядок, скрытость
+ * и перенос - чистая логика, хранилище хранит только идентификаторы.
  */
-class TodayLayoutTest {
+class CardLayoutTest {
 
     private val available = todayPlatesFor(male = false)
 
@@ -121,5 +121,42 @@ class TodayLayoutTest {
         assertEquals(listOf("а", "в", "б", "г"), list.moved("в", 1))
         assertEquals(listOf("б", "а", "в", "г"), list.moved("б", 0))
         assertEquals("за границами - без изменений", list, list.moved("б", 9))
+    }
+
+    // ---- Графики «Графиков» ----
+
+    @Test
+    fun `порядок графиков по умолчанию - от главного к деталям (спека 0005)`() {
+        val layout = chartLayout(emptyList(), emptySet())
+        assertEquals(
+            listOf(
+                ChartCard.DEFICIT, ChartCard.CALORIES, ChartCard.WEIGHT, ChartCard.MACROS,
+                ChartCard.STEPS, ChartCard.SLEEP, ChartCard.WELLBEING, ChartCard.BODY_FAT,
+                ChartCard.BONE, ChartCard.BMR,
+            ),
+            layout.order,
+        )
+    }
+
+    @Test
+    fun `раскладка графиков чинит хранимый порядок как плашечная`() {
+        val layout = chartLayout(listOf("sleep", "no-such-chart"), setOf("no-such-chart"), )
+        assertEquals(ChartCard.SLEEP, layout.order[0])
+        assertEquals(ChartCard.DEFICIT, layout.order[1])
+        assertTrue(layout.hidden.isEmpty())
+    }
+
+    @Test
+    fun `у составных графиков ручного ввода нет у одиночных - своя категория`() {
+        assertNull("дефицит производный", ChartCard.DEFICIT.manualMetric())
+        assertNull("калории составные", ChartCard.CALORIES.manualMetric())
+        assertNull("бжу составные", ChartCard.MACROS.manualMetric())
+        assertNull("самочувствие правится редактором", ChartCard.WELLBEING.manualMetric())
+        assertEquals(ManualMetric.WEIGHT, ChartCard.WEIGHT.manualMetric())
+        assertEquals(ManualMetric.STEPS, ChartCard.STEPS.manualMetric())
+        assertEquals(ManualMetric.SLEEP, ChartCard.SLEEP.manualMetric())
+        assertEquals(ManualMetric.BODY_FAT, ChartCard.BODY_FAT.manualMetric())
+        assertEquals(ManualMetric.BONE, ChartCard.BONE.manualMetric())
+        assertEquals(ManualMetric.BMR, ChartCard.BMR.manualMetric())
     }
 }

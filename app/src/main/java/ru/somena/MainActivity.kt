@@ -75,7 +75,7 @@ import ru.somena.core.todayPlatesFor
 import ru.somena.data.HcImporter
 import ru.somena.data.ProfileStore
 import ru.somena.data.SliceDb
-import ru.somena.data.TodayLayoutStore
+import ru.somena.data.CardLayoutStore
 import ru.somena.ui.GhostButton
 import ru.somena.ui.GlassCard
 import ru.somena.ui.GlowButton
@@ -206,7 +206,7 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
     val sex = remember { ProfileStore(context).load().sex }
     // Порядок и скрытость плашек - настройка Пользователя, хранится локально.
     val plates = remember { todayPlatesFor(sex == Sex.MALE) }
-    val layoutStore = remember { TodayLayoutStore(context) }
+    val layoutStore = remember { CardLayoutStore(context, "today_order", "today_hidden", TodayPlate::byId) }
     var layout by remember { mutableStateOf(layoutStore.load(plates)) }
     fun saveLayout(l: TodayLayout) {
         layout = l
@@ -216,10 +216,10 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
     // Последние известные значения: каждая метрика из своего самого позднего дня,
     // свежесть (получено сегодня) решает подсветку карточек. Суточные (Съедено
     // с БЖУ, Сожжено) читаются только из сегодняшнего среза - вчерашнее не подтекает.
-    val today = remember { LocalDate.now() }
+    // День не кэшируется: полночь посреди сеанса не оставляет вчерашнюю свежесть.
+    val today = LocalDate.now()
     var latest by remember { mutableStateOf(latestValues(db.all())) }
-    var todaySlice by remember { mutableStateOf<DaySlice?>(db.get(today)) }
-    var weekSteps by remember { mutableStateOf(db.all().takeLast(7).map { it.steps?.toDouble() }) }
+    var todaySlice by remember(today) { mutableStateOf<DaySlice?>(db.get(today)) }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
     var wellbeing by remember { mutableStateOf(db.dayWellbeing(LocalDate.now())) }
@@ -233,7 +233,6 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
     fun reload() {
         latest = latestValues(db.all())
         todaySlice = db.get(today)
-        weekSteps = db.all().takeLast(7).map { it.steps?.toDouble() }
         wellbeing = db.dayWellbeing(today)
     }
 
@@ -329,7 +328,6 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
                             plate = it,
                             latest = latest,
                             todaySlice = todaySlice,
-                            weekSteps = weekSteps,
                             today = today,
                             onOpenMenu = { menuPlate = it },
                             modifier = Modifier.weight(1f),
@@ -358,16 +356,17 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
             color = TextMuted,
             style = MaterialTheme.typography.bodySmall,
         )
-        HiddenPlatesSection(
-            hiddenPlates = layout.order.filter { it in layout.hidden },
+        HiddenCardsSection(
+            hiddenCards = layout.order.filter { it in layout.hidden },
             onOpenMenu = { menuPlate = it },
         )
     }
 
     menuPlate?.let { plate ->
-        PlateMenuDialog(
-            plate = plate,
+        CardMenuDialog(
+            card = plate,
             isHidden = plate in layout.hidden,
+            canEnter = true,
             onEnterData = {
                 menuPlate = null
                 when (plate) {
@@ -409,7 +408,7 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
     if (reorder) {
         Box(Modifier.fillMaxSize().background(ru.somena.ui.BgBase)) {
             NebulaBackground()
-            ReorderPlatesScreen(
+            ReorderCardsScreen(
                 initial = layout,
                 onDone = {
                     saveLayout(it)

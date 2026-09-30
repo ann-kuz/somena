@@ -1,6 +1,7 @@
 package ru.somena
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -42,17 +43,23 @@ import java.util.Locale
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 import ru.somena.core.AiMetric
+import ru.somena.core.ChartCard
+import ru.somena.core.ChartLayout
 import ru.somena.core.DayData
 import ru.somena.core.DaySlice
 import ru.somena.core.Wellbeing
 import ru.somena.core.lastDays
 import ru.somena.core.clampWindowEnd
+import ru.somena.core.hiddenAs
+import ru.somena.core.manualMetric
 import ru.somena.core.metricSeries
 import ru.somena.core.PanAccumulator
 import ru.somena.core.weightTrend
+import ru.somena.data.CardLayoutStore
 import ru.somena.data.ProfileStore
 import ru.somena.data.SliceDb
 import ru.somena.ui.GlassCard
+import ru.somena.ui.NebulaBackground
 import ru.somena.ui.PeriodChip
 import ru.somena.ui.TextMuted
 
@@ -68,15 +75,21 @@ private fun fmtNum(v: Double): String =
 
 private fun fmtDate(d: LocalDate): String = d.format(DateTimeFormatter.ofPattern("dd.MM"))
 
-/** Экран «Графики»: окно 7/31 день или всё, перетаскивание, оси, тап по точке. */
+/**
+ * Экран «Графики»: окно 7/31 день или всё, перетаскивание, оси, тап по точке.
+ * Долгое нажатие на графике открывает меню карточки (спека 0011): внести данные,
+ * скрыть, переместить; порядок и скрытость - настройка Пользователя.
+ */
 @Composable
 fun ChartsScreen(m: Modifier) {
     val context = LocalContext.current
     val db = remember { SliceDb(context) }
     // Ручной базовый расход из Профиля: запас для Дефицита, пока весы не передают свой.
     val profileBmr = remember { ProfileStore(context).load().bmrKcal }
-    val slices = remember { db.all() }
-    val wellbeing = remember { db.allWellbeing() }
+    // Запись из меню графика растит ревизию: срезы и Самочувствие перечитываются.
+    var revision by remember { mutableIntStateOf(0) }
+    val slices = remember(revision) { db.all() }
+    val wellbeing = remember(revision) { db.allWellbeing() }
     val byDate = remember(slices) { slices.associateBy { it.date } }
     val data = remember(slices, wellbeing) {
         DayData(byDate, wellbeing.groupBy { it.date })
@@ -84,6 +97,19 @@ fun ChartsScreen(m: Modifier) {
     val today = LocalDate.now()
     var windowDays by remember { mutableIntStateOf(WEEK_DAYS) }
     var windowEnd by remember { mutableStateOf(today) }
+
+    // Порядок и скрытость графиков - настройка Пользователя, хранится локально.
+    val layoutStore = remember { CardLayoutStore(context, "charts_order", "charts_hidden", ChartCard::byId) }
+    var layout by remember { mutableStateOf(layoutStore.load(ChartCard.entries.toList())) }
+    fun saveLayout(l: ChartLayout) {
+        layout = l
+        layoutStore.save(l)
+    }
+
+    var menuChart by remember { mutableStateOf<ChartCard?>(null) }
+    var entryChart by remember { mutableStateOf<ChartCard?>(null) }
+    var reorder by remember { mutableStateOf(false) }
+    var showWellbeingEditor by remember { mutableStateOf(false) }
 
     val firstDataDate = listOfNotNull(slices.firstOrNull()?.date, wellbeing.firstOrNull()?.date)
         .minOrNull() ?: today
@@ -99,21 +125,6 @@ fun ChartsScreen(m: Modifier) {
             windowEnd = clampWindowEnd(windowEnd.plusDays(deltaDays.toLong()), today, firstDataDate)
         }
     }
-
-    val daySlices: List<DaySlice?> = days.map { byDate[it] }
-    fun values(f: (DaySlice) -> Double?): List<Double?> = daySlices.map { it?.let(f) }
-
-    val steps = values { it.steps?.toDouble() }
-    val sleepH = values { it.sleepMinutes?.div(60.0) }
-    val burn = values { it.burnedKcal }
-    val eaten = values { it.eatenKcal }
-    val weight = values { it.weightKg }
-    val protein = values { it.proteinG }
-    val fat = values { it.fatG }
-    val carbs = values { it.carbsG }
-    val bodyFat = values { it.bodyFatPct }
-    val bone = values { it.boneMassKg }
-    val bmr = values { it.bmrKcal }
 
     Column(
         m.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
@@ -146,116 +157,208 @@ fun ChartsScreen(m: Modifier) {
             if (windowDays != ALL_DAYS) {
                 Text(
                     "Окно: ${fmtDate(days.first())} - ${fmtDate(days.last())}. Тяни графики влево/вправо, " +
-                        "коснись точки: покажу значение.",
+                        "коснись точки: покажу значение. Удержание - меню графика.",
                     color = TextMuted,
                     style = MaterialTheme.typography.bodySmall
                 )
             } else {
                 Text(
-                    "Весь период: ${fmtDate(days.first())} - ${fmtDate(days.last())}. Коснись точки: покажу значение.",
+                    "Весь период: ${fmtDate(days.first())} - ${fmtDate(days.last())}. Коснись точки: покажу " +
+                        "значение. Удержание - меню графика.",
                     color = TextMuted,
                     style = MaterialTheme.typography.bodySmall
                 )
             }
-            ChartCard {
-                LineChart(
-                    "Дефицит", days,
-                    listOf(
-                        ChartSeries(
-                            "Дефицит", metricSeries(AiMetric.DEFICIT, days, data, profileBmr),
-                            MaterialTheme.colorScheme.primary, "ккал"
-                        ),
-                    ),
-                    onPan = ::shift,
-                    caption = "Сожжено + базовый расход - съедено",
-                )
+            layout.visible.forEach { chart ->
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .pointerInput(chart) {
+                            // Долгое нажатие - меню карточки; тап по точке и перетаскивание
+                            // окна живут в самом графике и не мешают удержанию.
+                            detectTapGestures(onLongPress = { menuChart = chart }) { }
+                        }
+                ) {
+                    GlassCard(Modifier.fillMaxWidth()) {
+                        ChartByCard(chart, days, data, profileBmr, ::shift) { menuChart = chart }
+                    }
+                }
             }
-            ChartCard {
-                LineChart(
-                    "Калории", days,
-                    listOf(
-                        ChartSeries("Съедено", eaten, MaterialTheme.colorScheme.tertiary, "ккал"),
-                        ChartSeries("Сожжено", burn, MaterialTheme.colorScheme.primary, "ккал"),
-                    ),
-                    onPan = ::shift,
-                )
-            }
-            ChartCard {
-                LineChart(
-                    "Вес и тренд", days,
-                    listOf(
-                        ChartSeries("Вес", weight, MaterialTheme.colorScheme.primary, "кг"),
-                        ChartSeries("Тренд", weightTrend(weight), MaterialTheme.colorScheme.secondary, "кг"),
-                    ),
-                    onPan = ::shift,
-                )
-            }
-            ChartCard {
-                LineChart(
-                    "БЖУ", days,
-                    listOf(
-                        ChartSeries("Белки", protein, MaterialTheme.colorScheme.primary, "г"),
-                        ChartSeries("Жиры", fat, MaterialTheme.colorScheme.tertiary, "г"),
-                        ChartSeries("Углеводы", carbs, MaterialTheme.colorScheme.secondary, "г"),
-                    ),
-                    onPan = ::shift,
-                )
-            }
-            ChartCard {
-                LineChart(
-                    "Шаги", days,
-                    listOf(ChartSeries("Шаги", steps, MaterialTheme.colorScheme.tertiary, "шаг.")),
-                    onPan = ::shift,
-                )
-            }
-            ChartCard {
-                LineChart(
-                    "Сон", days,
-                    listOf(ChartSeries("Сон", sleepH, MaterialTheme.colorScheme.primary, "ч")),
-                    onPan = ::shift,
-                )
-            }
-            ChartCard {
-                LineChart(
-                    "Самочувствие", days,
-                    listOf(
-                        ChartSeries("Энергия", metricSeries(AiMetric.ENERGY, days, data), MaterialTheme.colorScheme.primary, "из 10"),
-                        ChartSeries("Настроение", metricSeries(AiMetric.MOOD, days, data), MaterialTheme.colorScheme.secondary, "из 10"),
-                        ChartSeries("Качество сна", metricSeries(AiMetric.SLEEP_QUALITY, days, data), TextMuted, "из 10"),
-                    ),
-                    onPan = ::shift,
-                    yMin = Wellbeing.MIN.toDouble(),
-                    yMax = Wellbeing.MAX.toDouble(),
-                )
-            }
-            ChartCard {
-                LineChart(
-                    "Процент жира", days,
-                    listOf(ChartSeries("Процент жира", bodyFat, MaterialTheme.colorScheme.primary, "%")),
-                    onPan = ::shift,
-                )
-            }
-            ChartCard {
-                LineChart(
-                    "Костная масса", days,
-                    listOf(ChartSeries("Костная масса", bone, MaterialTheme.colorScheme.primary, "кг")),
-                    onPan = ::shift,
-                )
-            }
-            ChartCard {
-                LineChart(
-                    "Базовый расход", days,
-                    listOf(ChartSeries("Базовый расход", bmr, MaterialTheme.colorScheme.primary, "ккал/дн")),
-                    onPan = ::shift,
-                )
-            }
+        }
+        HiddenCardsSection(
+            hiddenCards = layout.order.filter { it in layout.hidden },
+            onOpenMenu = { menuChart = it },
+        )
+    }
+
+    menuChart?.let { chart ->
+        CardMenuDialog(
+            card = chart,
+            isHidden = chart in layout.hidden,
+            canEnter = chart == ChartCard.WELLBEING || chart.manualMetric() != null,
+            onEnterData = {
+                menuChart = null
+                if (chart == ChartCard.WELLBEING) {
+                    showWellbeingEditor = true
+                } else if (chart.manualMetric() != null) {
+                    entryChart = chart
+                }
+            },
+            onMove = {
+                menuChart = null
+                reorder = true
+            },
+            onHide = {
+                saveLayout(layout.hiddenAs(chart, hide = true))
+                menuChart = null
+            },
+            onShow = {
+                saveLayout(layout.hiddenAs(chart, hide = false))
+                menuChart = null
+            },
+            onDismiss = { menuChart = null },
+        )
+    }
+
+    entryChart?.let { chart ->
+        chart.manualMetric()?.let { metric ->
+            PlateEntryDialog(
+                metric = metric,
+                db = db,
+                onSaved = {
+                    entryChart = null
+                    revision++
+                },
+                onDismiss = { entryChart = null },
+            )
+        }
+    }
+
+    if (showWellbeingEditor) {
+        val markedFirst = wellbeing.any { it.date == today && it.slot == Wellbeing.SLOT_FIRST }
+        WellbeingEditorDialog(
+            db = db,
+            initialDate = today,
+            initialSlot = if (markedFirst) Wellbeing.SLOT_SECOND else Wellbeing.SLOT_FIRST,
+            onDismiss = {
+                showWellbeingEditor = false
+                revision++
+            },
+        )
+    }
+
+    if (reorder) {
+        Box(Modifier.fillMaxSize().background(ru.somena.ui.BgBase)) {
+            NebulaBackground()
+            ReorderCardsScreen(
+                initial = layout,
+                onDone = {
+                    saveLayout(it)
+                    reorder = false
+                },
+            )
         }
     }
 }
 
+/** Значения показателя по датам окна: день без среза даёт пустоту, не ноль (спека 0001). */
+private fun seriesOf(days: List<LocalDate>, data: DayData, selector: (DaySlice) -> Double?): List<Double?> =
+    days.map { d -> data.slicesByDate[d]?.let(selector) }
+
+/** График по карточке: составные (Дефицит, Калории, БЖУ) рисуют свои серии. */
 @Composable
-private fun ChartCard(content: @Composable () -> Unit) {
-    GlassCard(Modifier.fillMaxWidth()) { content() }
+private fun ChartByCard(
+    chart: ChartCard,
+    days: List<LocalDate>,
+    data: DayData,
+    profileBmr: Double?,
+    onPan: (Int) -> Unit,
+    onLongPress: () -> Unit,
+) {
+    when (chart) {
+        ChartCard.DEFICIT -> LineChart(
+            chart.title, days,
+            listOf(
+                ChartSeries(
+                    "Дефицит", metricSeries(AiMetric.DEFICIT, days, data, profileBmr),
+                    MaterialTheme.colorScheme.primary, "ккал"
+                ),
+            ),
+            onPan = onPan,
+            onLongPress = onLongPress,
+            caption = "Сожжено + базовый расход - съедено",
+        )
+        ChartCard.CALORIES -> LineChart(
+            chart.title, days,
+            listOf(
+                ChartSeries("Съедено", seriesOf(days, data) { it.eatenKcal }, MaterialTheme.colorScheme.tertiary, "ккал"),
+                ChartSeries("Сожжено", seriesOf(days, data) { it.burnedKcal }, MaterialTheme.colorScheme.primary, "ккал"),
+            ),
+            onPan = onPan,
+            onLongPress = onLongPress,
+        )
+        ChartCard.WEIGHT -> LineChart(
+            chart.title, days,
+            listOf(
+                ChartSeries("Вес", seriesOf(days, data) { it.weightKg }, MaterialTheme.colorScheme.primary, "кг"),
+                ChartSeries("Тренд", weightTrend(seriesOf(days, data) { it.weightKg }), MaterialTheme.colorScheme.secondary, "кг"),
+            ),
+            onPan = onPan,
+            onLongPress = onLongPress,
+        )
+        ChartCard.MACROS -> LineChart(
+            chart.title, days,
+            listOf(
+                ChartSeries("Белки", seriesOf(days, data) { it.proteinG }, MaterialTheme.colorScheme.primary, "г"),
+                ChartSeries("Жиры", seriesOf(days, data) { it.fatG }, MaterialTheme.colorScheme.tertiary, "г"),
+                ChartSeries("Углеводы", seriesOf(days, data) { it.carbsG }, MaterialTheme.colorScheme.secondary, "г"),
+            ),
+            onPan = onPan,
+            onLongPress = onLongPress,
+        )
+        ChartCard.STEPS -> LineChart(
+            chart.title, days,
+            listOf(ChartSeries("Шаги", seriesOf(days, data) { it.steps?.toDouble() }, MaterialTheme.colorScheme.tertiary, "шаг.")),
+            onPan = onPan,
+            onLongPress = onLongPress,
+        )
+        ChartCard.SLEEP -> LineChart(
+            chart.title, days,
+            listOf(ChartSeries("Сон", seriesOf(days, data) { it.sleepMinutes?.div(60.0) }, MaterialTheme.colorScheme.primary, "ч")),
+            onPan = onPan,
+            onLongPress = onLongPress,
+        )
+        ChartCard.WELLBEING -> LineChart(
+            chart.title, days,
+            listOf(
+                ChartSeries("Энергия", metricSeries(AiMetric.ENERGY, days, data), MaterialTheme.colorScheme.primary, "из 10"),
+                ChartSeries("Настроение", metricSeries(AiMetric.MOOD, days, data), MaterialTheme.colorScheme.secondary, "из 10"),
+                ChartSeries("Качество сна", metricSeries(AiMetric.SLEEP_QUALITY, days, data), TextMuted, "из 10"),
+            ),
+            onPan = onPan,
+            onLongPress = onLongPress,
+            yMin = Wellbeing.MIN.toDouble(),
+            yMax = Wellbeing.MAX.toDouble(),
+        )
+        ChartCard.BODY_FAT -> LineChart(
+            chart.title, days,
+            listOf(ChartSeries("Процент жира", seriesOf(days, data) { it.bodyFatPct }, MaterialTheme.colorScheme.primary, "%")),
+            onPan = onPan,
+            onLongPress = onLongPress,
+        )
+        ChartCard.BONE -> LineChart(
+            chart.title, days,
+            listOf(ChartSeries("Костная масса", seriesOf(days, data) { it.boneMassKg }, MaterialTheme.colorScheme.primary, "кг")),
+            onPan = onPan,
+            onLongPress = onLongPress,
+        )
+        ChartCard.BMR -> LineChart(
+            chart.title, days,
+            listOf(ChartSeries("Базовый расход", seriesOf(days, data) { it.bmrKcal }, MaterialTheme.colorScheme.primary, "ккал/дн")),
+            onPan = onPan,
+            onLongPress = onLongPress,
+        )
+    }
 }
 
 data class ChartSeries(
@@ -266,8 +369,9 @@ data class ChartSeries(
 )
 
 /**
- * Линейный график с осями (числа слева, даты снизу), перетаскиванием и тапом по точке.
- * При отсутствии данных точка отсутствует, но линия не рвётся — соединяется с ближайшей имеющейся.
+ * Линейный график с осями (числа слева, даты снизу), перетаскиванием, тапом по точке
+ * и долгим нажатием (меню карточки). При отсутствии данных точка отсутствует,
+ * но линия не рвётся — соединяется с ближайшей имеющейся.
  * [yMin]/[yMax] фиксируют ось: шкалы Самочувствия всегда рисуются 0–10.
  */
 @Composable
@@ -276,6 +380,7 @@ fun LineChart(
     dates: List<LocalDate>,
     seriesList: List<ChartSeries>,
     onPan: (Int) -> Unit = {},
+    onLongPress: () -> Unit = {},
     yMin: Double? = null,
     yMax: Double? = null,
     caption: String? = null,
@@ -335,7 +440,9 @@ fun LineChart(
                     .weight(1f)
                     .height(120.dp)
                     .pointerInput(dates, seriesList) {
-                        detectTapGestures { pos ->
+                        detectTapGestures(
+                            onLongPress = { onLongPress() },
+                        ) { pos ->
                             selected = if (n == 1) 0
                             else ((pos.x / size.width) * (n - 1)).roundToInt().coerceIn(0, n - 1)
                         }

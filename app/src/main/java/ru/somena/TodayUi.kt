@@ -8,17 +8,18 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -45,6 +46,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -52,12 +54,13 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
 import kotlin.math.roundToInt
+import ru.somena.core.CardLayout
 import ru.somena.core.DaySlice
 import ru.somena.core.ImportPreview
 import ru.somena.core.LatestValues
+import ru.somena.core.LayoutCard
 import ru.somena.core.ManualMetric
 import ru.somena.core.MetricLatest
-import ru.somena.core.TodayLayout
 import ru.somena.core.TodayPlate
 import ru.somena.core.fmt
 import ru.somena.core.manualEatenPreview
@@ -83,15 +86,19 @@ import ru.somena.ui.Gold
 import ru.somena.ui.ImportPreviewCard
 import ru.somena.ui.MetricCard
 import ru.somena.ui.ScreenHeader
-import ru.somena.ui.Sparkline
 import ru.somena.ui.TextMuted
 import ru.somena.ui.Violet
 
-/** Диалог меню плашки «Сегодня»: внести данные, переместить, скрыть; у скрытой - показать. */
+/**
+ * Диалог меню карточки (плашки «Сегодня», графика «Графиков»): внести данные,
+ * переместить, скрыть; у скрытой - показать. «Внести данные» есть только у
+ * карточек со своим показателем.
+ */
 @Composable
-fun PlateMenuDialog(
-    plate: TodayPlate,
+fun <T : LayoutCard> CardMenuDialog(
+    card: T,
     isHidden: Boolean,
+    canEnter: Boolean,
     onEnterData: () -> Unit,
     onMove: () -> Unit,
     onHide: () -> Unit,
@@ -104,7 +111,7 @@ fun PlateMenuDialog(
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.62f))
                 .clickable(
-                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                 ) { onDismiss() },
             contentAlignment = Alignment.Center,
@@ -120,11 +127,13 @@ fun PlateMenuDialog(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(plate.title, style = MaterialTheme.typography.titleSmall)
+                Text(card.title, style = MaterialTheme.typography.titleSmall)
                 if (isHidden) {
                     GlowButton("Показать", onClick = onShow, modifier = Modifier.fillMaxWidth())
                 } else {
-                    GlowButton("Внести данные", onClick = onEnterData, modifier = Modifier.fillMaxWidth())
+                    if (canEnter) {
+                        GlowButton("Внести данные", onClick = onEnterData, modifier = Modifier.fillMaxWidth())
+                    }
                     GhostButton("Переместить", onClick = onMove, modifier = Modifier.fillMaxWidth())
                     GhostButton("Скрыть", onClick = onHide, modifier = Modifier.fillMaxWidth())
                 }
@@ -134,8 +143,8 @@ fun PlateMenuDialog(
 }
 
 /**
- * Окошко ручного ввода с плашки «Сегодня»: категория уже выбрана плашкой, сверху
- * переключается дата, итог идёт тем же Предпросмотром, запись - по явному «Записать».
+ * Окошко ручного ввода с карточки: категория уже выбрана, сверху переключается
+ * дата, итог идёт тем же Предпросмотром, запись - по явному «Записать».
  */
 @Composable
 fun PlateEntryDialog(
@@ -168,7 +177,7 @@ fun PlateEntryDialog(
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.62f))
                 .clickable(
-                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                 ) { onDismiss() },
             contentAlignment = Alignment.Center,
@@ -280,36 +289,41 @@ fun PlateEntryDialog(
 }
 
 /**
- * Режим переноса плашек: полный экран, плашки одной колонкой, перетаскивание
+ * Режим переноса карточек: полный экран, карточки одной колонкой, перетаскивание
  * удержанием за любую точку строки; остальные сдвигаются, освобождая место.
- * Порядок применяётся по «Готово» (системное «назад» делает то же).
+ * Перетаскиваемая строка не анимирует своё место (иначе палец и карточка
+ * расходятся), а шаг переноса считает отступ между строками. Порядок
+ * применяется по «Подтвердить» (системное «назад» делает то же).
  */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun ReorderPlatesScreen(initial: TodayLayout, onDone: (TodayLayout) -> Unit) {
+fun <T : LayoutCard> ReorderCardsScreen(initial: CardLayout<T>, onDone: (CardLayout<T>) -> Unit) {
     var order by remember { mutableStateOf(initial.order) }
     val hidden = initial.hidden
-    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-    var dragging by remember { mutableStateOf<TodayPlate?>(null) }
+    val listState = rememberLazyListState()
+    var dragging by remember { mutableStateOf<T?>(null) }
     var dragOffset by remember { mutableFloatStateOf(0f) }
     var rowHeight by remember { mutableStateOf(0) }
+    val spacingPx = with(LocalDensity.current) { RowSpacing.toPx() }
 
-    fun finish() = onDone(TodayLayout(order, hidden))
+    fun finish() = onDone(CardLayout(order, hidden))
     BackHandler { finish() }
 
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ScreenHeader("Перенос плашек", "удерживай плашку и тащи на новое место")
+        ScreenHeader("Перенос карточек", "удерживай карточку и тащи на новое место")
         LazyColumn(
             state = listState,
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(RowSpacing),
         ) {
-            items(order, key = { it.id }) { plate ->
-                val isDragging = dragging == plate
+            items(order, key = { it.id }) { card ->
+                val isDragging = dragging == card
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .animateItemPlacement()
+                        // Анимация места - только у остальных: перетаскиваемая
+                        // должна слушаться пальца, а не прыгать сама.
+                        .then(if (isDragging) Modifier else Modifier.animateItemPlacement())
                         .zIndex(if (isDragging) 1f else 0f)
                         .graphicsLayer { translationY = if (isDragging) dragOffset else 0f }
                         .onSizeChanged { rowHeight = it.height }
@@ -319,21 +333,24 @@ fun ReorderPlatesScreen(initial: TodayLayout, onDone: (TodayLayout) -> Unit) {
                         .pointerInput(Unit) {
                             detectDragGesturesAfterLongPress(
                                 onDragStart = {
-                                    dragging = plate
+                                    dragging = card
                                     dragOffset = 0f
                                 },
                                 onDrag = { change, amount ->
                                     change.consume()
                                     dragOffset += amount.y
-                                    if (rowHeight <= 0) return@detectDragGesturesAfterLongPress
-                                    val shift = (dragOffset / rowHeight).roundToInt()
-                                    if (shift != 0) {
-                                        val to = (order.indexOf(plate) + shift).coerceIn(0, order.lastIndex)
-                                        if (to != order.indexOf(plate)) {
-                                            order = order.moved(plate, to)
-                                            dragOffset -= shift * rowHeight
-                                        } else {
-                                            dragOffset = 0f
+                                    // Шаг = высота строки + отступ между строками.
+                                    val stride = rowHeight + spacingPx
+                                    if (stride > 0) {
+                                        val shift = (dragOffset / stride).roundToInt()
+                                        if (shift != 0) {
+                                            val to = (order.indexOf(card) + shift).coerceIn(0, order.lastIndex)
+                                            if (to != order.indexOf(card)) {
+                                                order = order.moved(card, to)
+                                                dragOffset -= shift * stride
+                                            } else {
+                                                dragOffset = 0f
+                                            }
                                         }
                                     }
                                 },
@@ -350,27 +367,30 @@ fun ReorderPlatesScreen(initial: TodayLayout, onDone: (TodayLayout) -> Unit) {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Icon(Icons.Filled.Menu, "Перетащить плашку", tint = TextMuted, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Filled.Menu, "Перетащить карточку", tint = TextMuted, modifier = Modifier.size(20.dp))
                     Text(
-                        plate.title,
+                        card.title,
                         Modifier.weight(1f),
                         style = MaterialTheme.typography.titleMedium,
-                        color = if (plate in hidden) TextMuted else Color.Unspecified,
+                        color = if (card in hidden) TextMuted else Color.Unspecified,
                     )
-                    if (plate in hidden) {
+                    if (card in hidden) {
                         Icon(EyeOffIcon, "Скрыта", tint = TextMuted, modifier = Modifier.size(18.dp))
                     }
                 }
             }
         }
-        GlowButton("Готово", onClick = { finish() }, modifier = Modifier.fillMaxWidth())
+        GlowButton("Подтвердить", onClick = { finish() }, modifier = Modifier.fillMaxWidth())
     }
 }
 
-/** Скрытые плашки внизу экрана: только название и глаз; нажатие открывает меню с «Показать». */
+/** Отступ между строками режима переноса; шаг переноса считается вместе с ним. */
+private val RowSpacing = 8.dp
+
+/** Скрытые карточки внизу экрана: только название и глаз; нажатие открывает меню с «Показать». */
 @Composable
-fun HiddenPlatesSection(hiddenPlates: List<TodayPlate>, onOpenMenu: (TodayPlate) -> Unit) {
-    if (hiddenPlates.isEmpty()) return
+fun <T : LayoutCard> HiddenCardsSection(hiddenCards: List<T>, onOpenMenu: (T) -> Unit) {
+    if (hiddenCards.isEmpty()) return
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             Icon(EyeIcon, contentDescription = null, tint = TextMuted, modifier = Modifier.size(16.dp))
@@ -381,15 +401,15 @@ fun HiddenPlatesSection(hiddenPlates: List<TodayPlate>, onOpenMenu: (TodayPlate)
                 color = TextMuted,
             )
         }
-        hiddenPlates.forEach { plate ->
+        hiddenCards.forEach { card ->
             GlassCard(
                 Modifier.fillMaxWidth(),
                 padding = 12.dp,
-                onClick = { onOpenMenu(plate) },
+                onClick = { onOpenMenu(card) },
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        plate.title,
+                        card.title,
                         Modifier.weight(1f),
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Medium,
@@ -402,16 +422,16 @@ fun HiddenPlatesSection(hiddenPlates: List<TodayPlate>, onOpenMenu: (TodayPlate)
 }
 
 /**
- * Метрическая плашка «Сегодня» по идентификатору: все одного размера, свежие
- * светятся, суточные (Съедено, Сожжено) живут только сегодняшним срезом.
- * Самочувствие и Цикл - не метрические, экран рисует их сам.
+ * Метрическая плашка «Сегодня» по идентификатору: все одного размера и высоты,
+ * свежие светятся, суточные (Съедено, Сожжено) живут только сегодняшним срезом -
+ * нулевые калории плашку не подсвечивают. Самочувствие и Цикл - не метрические,
+ * экран рисует их сам.
  */
 @Composable
 fun MetricPlate(
     plate: TodayPlate,
     latest: LatestValues,
     todaySlice: DaySlice?,
-    weekSteps: List<Double?>,
     today: LocalDate,
     onOpenMenu: () -> Unit,
     modifier: Modifier = Modifier,
@@ -423,11 +443,6 @@ fun MetricPlate(
             accent = Gold,
             staleOn = staleOn(latest.steps),
             onClick = onOpenMenu,
-            bottom = if (weekSteps.count { it != null } >= 2) {
-                { Sparkline(weekSteps, Modifier.fillMaxWidth().heightIn(min = 40.dp), Gold) }
-            } else {
-                null
-            },
         )
         TodayPlate.SLEEP -> MetricCard(
             "Сон", latest.sleepMinutes?.value?.let { "${it / 60}" }, modifier,
