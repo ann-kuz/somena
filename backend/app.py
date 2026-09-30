@@ -15,6 +15,7 @@ import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 load_dotenv(Path(__file__).parent / ".env")
@@ -182,3 +183,10 @@ async def chat(req: ChatRequest, authorization: str = Header(default="")) -> dic
         raise HTTPException(status_code=502, detail="Неожиданный ответ ИИ-провайдера")
 
     return {"reply": reply, "model": model}
+
+
+# Лендинг (спека 0012): статика в корне, монтируется последним, чтобы API-роуты
+# (/health, /apk/*, /v1/chat) всегда выигрывали матчинг. version.json лежит в site/.
+SITE_DIR = Path(__file__).resolve().parent.parent / "site"
+if SITE_DIR.is_dir():
+    app.mount("/", StaticFiles(directory=str(SITE_DIR), html=True), name="site")

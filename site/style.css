@@ -1,0 +1,372 @@
+/* Somena: Лендинг. Тема-туманность по спеке 0002: одна всегда-тёмная тема,
+   стеклянные карточки, неоновые пилюли, статичные свечения, без тире в копирайте. */
+
+:root {
+  --bg: #0A0912;
+  --primary: #8B7CFF;
+  --secondary: #46AEFF;
+  --tertiary: #FFC94D;
+  --pink: #FF6B9E;
+  --text: #F1EFFB;
+  --text-2: #A8A4C4;
+  --glass-fill: rgba(255, 255, 255, 0.045);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --radius: 20px;
+  --content: 1060px;
+}
+
+* { box-sizing: border-box; }
+
+html { color-scheme: dark; scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color: var(--text);
+  background-color: var(--bg);
+  /* Туманность: фиолет сверху справа, синий слева по центру, слабое золото снизу (0002) */
+  background-image:
+    radial-gradient(900px 620px at 82% -6%, rgba(139, 124, 255, 0.17), transparent 65%),
+    radial-gradient(760px 560px at -8% 42%, rgba(70, 174, 255, 0.12), transparent 65%),
+    radial-gradient(820px 480px at 50% 108%, rgba(255, 201, 77, 0.05), transparent 60%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 { line-height: 1.15; margin: 0; }
+p { margin: 0; }
+img { display: block; }
+
+a { color: var(--primary); text-decoration: none; }
+a:hover { color: #A79BFF; }
+
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+
+/* Шапка */
+
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  height: 64px;
+  padding: 0 clamp(16px, 4vw, 40px);
+  background: rgba(10, 9, 18, 0.78);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--text);
+}
+
+.nav-brand img { border-radius: 8px; }
+
+.nav-links {
+  display: flex;
+  gap: 22px;
+  margin-left: auto;
+  font-size: 0.95rem;
+}
+
+.nav-links a { color: var(--text-2); }
+.nav-links a:hover { color: var(--text); }
+
+.nav-cta { margin-left: 8px; min-height: 40px; padding: 0 18px; font-size: 0.9rem; }
+
+/* Кнопки: интерактив всегда пилюля (замок форм 0002) */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  padding: 0 28px;
+  border-radius: 999px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Неоновая кнопка: полупрозрачный градиент фиолет→синий, свечение, светлая кромка сверху */
+.btn-primary {
+  color: #F6F4FF;
+  text-shadow: 0 0 14px rgba(241, 239, 251, 0.3);
+  background: linear-gradient(135deg, rgba(139, 124, 255, 0.3), rgba(70, 174, 255, 0.16));
+  border: 1px solid rgba(200, 195, 255, 0.35);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 0 22px rgba(139, 124, 255, 0.28);
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, rgba(139, 124, 255, 0.38), rgba(70, 174, 255, 0.22));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 0 30px rgba(139, 124, 255, 0.38);
+  color: #F6F4FF;
+}
+
+/* Вторичная: тёмное стекло без свечения */
+.btn-secondary {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.btn-secondary:hover { background: rgba(255, 255, 255, 0.07); color: var(--text); }
+
+.btn-block { width: 100%; }
+
+/* Hero */
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: clamp(64px, 10vh, 104px) 20px 72px;
+}
+
+.hero-icon {
+  width: 128px;
+  height: 128px;
+  border-radius: 28px;
+  margin-bottom: 28px;
+  filter: drop-shadow(0 0 44px rgba(139, 124, 255, 0.4));
+}
+
+.hero h1 {
+  font-size: clamp(2.6rem, 7vw, 4rem);
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+
+.hero-sub {
+  max-width: 46ch;
+  margin-top: 16px;
+  font-size: clamp(1.05rem, 2.5vw, 1.2rem);
+  color: var(--text-2);
+}
+
+.hero-cta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 36px;
+}
+
+/* Секции */
+
+.section {
+  max-width: var(--content);
+  margin: 0 auto;
+  padding: clamp(48px, 8vh, 84px) 20px;
+}
+
+.section h2 {
+  font-size: clamp(1.7rem, 4vw, 2.2rem);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.section-sub {
+  max-width: 65ch;
+  margin-top: 14px;
+  color: var(--text-2);
+}
+
+/* Стеклянные карточки */
+
+.glass {
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+}
+
+.cards, .cards-download, .setup-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 28px;
+}
+
+.card { padding: 20px; }
+
+.card img { margin-bottom: 12px; }
+
+.card h3 { font-size: 1.05rem; font-weight: 600; }
+
+.card p { margin-top: 6px; font-size: 0.95rem; color: var(--text-2); }
+
+.card-wide {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 20px;
+  margin-top: 16px;
+}
+
+.card-wide img { margin: 2px 0 0; flex: none; }
+
+/* Карточки скачивания: подпись капсом, крупная цифра версии (как карточка метрики) */
+
+.card-download {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 24px;
+}
+
+.card-caption {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.card-value {
+  margin-top: 10px;
+  font-size: 2.7rem;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+}
+
+.card-note { margin: 6px 0 20px; font-size: 0.9rem; color: var(--text-2); }
+
+.card-download .btn { margin-top: auto; }
+
+/* Настройка */
+
+.block { padding: 24px; }
+
+.block h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.block h3 img { flex: none; }
+
+.rows {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+}
+
+.rows li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 0;
+}
+
+.rows li + li { border-top: 1px solid var(--glass-border); }
+
+.rows span { font-size: 0.92rem; color: var(--text-2); }
+
+.block-note { margin-top: 14px; font-size: 0.9rem; color: var(--text-2); }
+
+/* Установка */
+
+.steps {
+  list-style: none;
+  counter-reset: step;
+  margin: 28px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+  max-width: 720px;
+}
+
+.steps li {
+  counter-increment: step;
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 18px 20px;
+}
+
+.steps li::before {
+  content: counter(step);
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #F6F4FF;
+  background: linear-gradient(135deg, rgba(139, 124, 255, 0.3), rgba(70, 174, 255, 0.16));
+  border: 1px solid rgba(200, 195, 255, 0.35);
+}
+
+/* Подвал */
+
+.footer {
+  max-width: var(--content);
+  margin: 40px auto 0;
+  padding: 32px 20px 48px;
+  border-top: 1px solid var(--glass-border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 32px;
+  align-items: center;
+  font-size: 0.9rem;
+  color: var(--text-2);
+}
+
+.footer-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.footer-brand img { border-radius: 6px; }
+
+.footer-versions { margin-right: auto; }
+
+.footer-links { display: flex; gap: 20px; }
+
+/* Телефон */
+
+@media (max-width: 720px) {
+  .nav-links { display: none; }
+  .nav { gap: 16px; }
+  .nav-cta { margin-left: auto; }
+  .cards, .cards-download, .setup-grid { grid-template-columns: 1fr; }
+  .card-value { font-size: 2.3rem; }
+  .hero-cta .btn { width: min(320px, 100%); }
+}
+
+/* Движение только лёгкое и по делу: свечение статично (0002) */
+
+@media (prefers-reduced-motion: no-preference) {
+  .btn, a { transition: background-color 0.25s ease, box-shadow 0.25s ease, color 0.25s ease, transform 0.1s ease; }
+  .btn:active { transform: translateY(1px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
