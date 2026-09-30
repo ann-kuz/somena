@@ -81,8 +81,10 @@ fun CardLabel(text: String, accent: Color = Violet) {
 
 /**
  * Карточка показателя: заголовок, крупная цифра, единица, подстрочник.
- * Устаревшее значение (staleOn - день получения, не сегодня) показывается
- * приглушённым с подписью «на ДД.ММ»; свежее подсвечено как обычно.
+ * Свежее значение (staleOn = null и muted = false) подсвечено неоновым ореолом
+ * самой плашки - правило «светящееся = активное» спеки 0002. Устаревшее
+ * (staleOn - день получения, не сегодня) или суточно обнулённое (muted) показано
+ * приглушённым с подписью «на ДД.ММ» у устаревшего.
  */
 @Composable
 fun MetricCard(
@@ -93,16 +95,23 @@ fun MetricCard(
     unit: String = "",
     sub: String? = null,
     staleOn: java.time.LocalDate? = null,
+    muted: Boolean = false,
 ) {
-    GlassCard(modifier) {
-        CardLabel(label, accent)
+    val fresh = value != null && staleOn == null && !muted
+    val cardModifier = if (fresh) {
+        modifier.neonHalo(accent, cornerRadius = 20.dp, glow = 7.dp, alpha = 0.12f)
+    } else {
+        modifier
+    }
+    GlassCard(cardModifier) {
+        CardLabel(label, if (fresh) accent else accent.copy(alpha = 0.45f))
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             Text(
                 value ?: "—",
                 fontSize = 25.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = (-0.5).sp,
-                color = if (value == null || staleOn != null) TextMuted else Color.Unspecified,
+                color = if (fresh) Color.Unspecified else TextMuted,
             )
             if (unit.isNotEmpty() && value != null) {
                 Text(

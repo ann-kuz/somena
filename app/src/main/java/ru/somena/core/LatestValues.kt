@@ -52,3 +52,11 @@ fun latestValues(all: List<DaySlice>): LatestValues {
     }
     return out
 }
+
+/**
+ * Суточная метрика (Съедено, Сожжено): показатели копятся за день и обнуляются
+ * к началу нового. Нет данных за сегодня - значит ноль, вчерашний итог не
+ * показывается вовсе.
+ */
+fun MetricLatest<Double>?.todayOrZero(today: LocalDate): Double =
+    if (this != null && on == today) value else 0.0

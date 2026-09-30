@@ -65,6 +65,7 @@ import ru.somena.core.numericFieldError
 import ru.somena.core.parseBirthDate
 import ru.somena.core.parseOptionalDouble
 import ru.somena.core.parseOptionalInt
+import ru.somena.core.todayOrZero
 import ru.somena.data.HcImporter
 import ru.somena.data.ProfileStore
 import ru.somena.data.SliceDb
@@ -83,6 +84,7 @@ import ru.somena.ui.SomenaTheme
 import ru.somena.ui.Sparkline
 import ru.somena.ui.TextMuted
 import ru.somena.ui.Violet
+import ru.somena.ui.neonHalo
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -269,19 +271,32 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
                 )
             }
         } else {
-            // Главная карточка: шаги + мини-график недели
-            GlassCard(Modifier.fillMaxWidth()) {
+            // Главная карточка: шаги + мини-график недели; свежие шаги подсвечены
+            // ореолом плашки, устаревшие приглушены (правило «светящееся = активное»).
+            val stepsStale = staleOn(latest.steps)
+            val stepsFresh = latest.steps != null && stepsStale == null
+            GlassCard(
+                Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (stepsFresh) {
+                            Modifier.neonHalo(Gold, cornerRadius = 20.dp, glow = 7.dp, alpha = 0.12f)
+                        } else {
+                            Modifier
+                        }
+                    )
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        CardLabel("Шаги", Gold)
+                        CardLabel("Шаги", if (stepsFresh) Gold else Gold.copy(alpha = 0.45f))
                         Text(
                             latest.steps?.value?.let { "%,d".format(it) } ?: "—",
                             fontSize = 40.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = (-1).sp,
-                            color = if (latest.steps == null || staleOn(latest.steps) != null) TextMuted else Color.Unspecified,
+                            color = if (stepsFresh) Color.Unspecified else TextMuted,
                         )
-                        staleOn(latest.steps)?.let {
+                        stepsStale?.let {
                             Text(
                                 "на ${it.format(staleFormat)}",
                                 style = MaterialTheme.typography.labelSmall,
@@ -301,24 +316,32 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
                     unit = latest.sleepMinutes?.value?.let { "ч %02d мин".format(it % 60) } ?: "",
                     staleOn = staleOn(latest.sleepMinutes),
                 )
+                // Сожжено копится за день: новым днём - ноль, вчерашнее не показывается.
                 MetricCard(
-                    "Сожжено", latest.burnedKcal?.value?.let { "%,.0f".format(it) }, Modifier.weight(1f),
+                    "Сожжено",
+                    "%,.0f".format(latest.burnedKcal.todayOrZero(today)),
+                    Modifier.weight(1f),
                     accent = Violet, unit = "ккал",
-                    staleOn = staleOn(latest.burnedKcal),
+                    muted = latest.burnedKcal?.on != today,
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Съедено - тоже суточное: без приёмов за сегодня показывается ноль,
+                // БЖУ-подстрочник живёт только со свежим днём.
+                val eatenToday = latest.eatenKcal?.on == today
                 MetricCard(
-                    "Съедено", latest.eatenKcal?.value?.let { "%,.0f".format(it) }, Modifier.weight(1f),
+                    "Съедено",
+                    "%,.0f".format(latest.eatenKcal.todayOrZero(today)),
+                    Modifier.weight(1f),
                     accent = Gold, unit = "ккал",
-                    sub = if (latest.proteinG != null || latest.fatG != null || latest.carbsG != null) {
+                    sub = if (eatenToday && (latest.proteinG != null || latest.fatG != null || latest.carbsG != null)) {
                         "Б %,.0f · Ж %,.0f · У %,.0f".format(
                             latest.proteinG?.value ?: 0.0,
                             latest.fatG?.value ?: 0.0,
                             latest.carbsG?.value ?: 0.0,
                         )
                     } else null,
-                    staleOn = staleOn(latest.eatenKcal),
+                    muted = !eatenToday,
                 )
                 MetricCard(
                     "Вес", latest.weightKg?.value?.let { "%,.1f".format(it) }, Modifier.weight(1f),
@@ -363,7 +386,8 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
         Text(
             "Данные читаются из Health Connect; если пишут несколько приложений, источник " +
                 "выбирается в Настройках → Данные. Карточки показывают последние известные " +
-                "значения: без подписи получены сегодня, серые с подписью «на ДД.ММ» - раньше.",
+                "значения: светящиеся получены сегодня, серые с подписью «на ДД.ММ» - раньше. " +
+                "Съедено и Сожжено копятся за день и новым днём начинаются с нуля.",
             color = TextMuted,
             style = MaterialTheme.typography.bodySmall,
         )

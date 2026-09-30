@@ -101,6 +101,22 @@ class DailyAggregatorTest {
     }
 
     @Test
+    fun `вес и состав тела пришли в разное время одного дня`() {
+        // Весы пишут показатели отдельными записями: вес в 8:00, костная масса и
+        // прочее - своим временем чуть позже. День сохраняет и то и другое.
+        val slice = build(
+            body = listOf(
+                BodyEntry(at(8), weightKg = 74.5, bodyFatPct = null, boneMassKg = null, bmrKcalPerDay = null),
+                BodyEntry(at(8, 5), weightKg = null, bodyFatPct = 36.5, boneMassKg = 2.9, bmrKcalPerDay = 1454.0),
+            )
+        )
+        assertEquals(74.5, slice.weightKg!!, 0.001)
+        assertEquals(36.5, slice.bodyFatPct!!, 0.001)
+        assertEquals(2.9, slice.boneMassKg!!, 0.001)
+        assertEquals(1454.0, slice.bmrKcal!!, 0.001)
+    }
+
+    @Test
     fun `записи соседнего дня не попадают в срез`() {
         val otherDayStart = day.plusDays(1).atStartOfDay(zone).toInstant()
         val slice = build(
