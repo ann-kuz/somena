@@ -29,17 +29,25 @@ systemctl restart somena-ai       # после правки .env или app.py
 
 Адрес: `http://77.239.99.15:8787` (HTTP; HTTPS — на поддомене, см. ниже).
 
-## Лендинг и поддомен somena.elunaris-vitrail.strangled.net (спека 0012)
+## Лендинг, зеркало на GitHub и недоступность из РФ (спека 0012, дополнение)
 
-Лендинг отвечает в корне `http://77.239.99.15:8787/` уже сейчас. Красивый адрес
-`https://somena.elunaris-vitrail.strangled.net` появится через nginx, когда владелица
-создаст A-запись `somena → 77.239.99.15` в панели DNS `strangled.net`. Тогда:
+Сервер из России напрямую не открывается (хостинг ассоциирован с VPN-трафиком):
+без VPN не работают лендинг и раздача APK, а также режим чата «через сервер
+Somena» (режимы «Популярные API» и «Свой API» ходят из приложения напрямую к
+провайдеру и работают). Поэтому публичные адреса — зеркала на GitHub:
 
-1. `certbot --expand -d elunaris-vitrail.strangled.net -d info.elunaris-vitrail.strangled.net -d items.elunaris-vitrail.strangled.net -d somena.elunaris-vitrail.strangled.net`
-   (webroot `/var/www/html`, как в текущем renewal-конфиге);
-2. добавить `somena.…` в `server_name` блока порта 80;
-3. добавить server-блок на 127.0.0.1:444 с `server_name somena.…` и
-   `location / { proxy_pass http://127.0.0.1:8787; }` (заголовки Host/X-Forwarded-Proto);
+- Лендинг: https://ann-kuz.github.io/somena/ (зеркало здесь: http://77.239.99.15:8787/)
+- Стабильный APK: https://github.com/ann-kuz/somena/releases/latest/download/somena.apk
+  (тег `v<версия>` собирает релиз в GitHub Actions)
+
+Идея HTTPS-поддомена somena.elunaris-vitrail.strangled.net закрыта: зона
+strangled.net и сам IP недоступны из РФ. Исторические инструкции по nginx ниже —
+наследие, если домен когда-нибудь появится (свой домен + Cloudflare решит и
+доступность чата из РФ):
+
+1. `certbot --expand -d <имена>+somena.<домен>` (webroot `/var/www/html`);
+2. добавить имя в `server_name` блока порта 80;
+3. server-блок на 127.0.0.1:444 с `proxy_pass http://127.0.0.1:8787`;
 4. `nginx -t && systemctl reload nginx`.
 
 **Нельзя трогать:** стрим-блок 443 (SNI-маршрутизация), страницы-легенды

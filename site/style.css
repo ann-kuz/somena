@@ -252,6 +252,14 @@ a:hover { color: #A79BFF; }
 
 .card-download .btn { margin-top: auto; }
 
+.backup-link {
+  margin-top: 12px;
+  font-size: 0.82rem;
+  color: var(--text-2);
+}
+
+a.backup-link:hover { color: #A79BFF; }
+
 /* Настройка */
 
 .block { padding: 24px; }
