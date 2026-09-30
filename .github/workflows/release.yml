@@ -29,5 +29,5 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           name: Somena ${{ github.ref_name }}
-          body: Стабильная сборка ${{ github.ref_name }}. Описание и инструкция: https://ann-kuz.github.io/somena/
+          body: "Стабильная сборка ${{ github.ref_name }}. Описание и инструкция на сайте: https://ann-kuz.github.io/somena/"
           files: somena.apk
