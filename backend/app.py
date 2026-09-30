@@ -34,8 +34,10 @@ APP_TOKEN = os.environ.get("APP_TOKEN", "")
 # Дедлайн гарантирует клиенту ответ Бэкенда за конечное время; приложение на пути
 # разбора таблицы ждёт дольше (IMPORT_READ_TIMEOUT_MS в ChatClient).
 PROVIDER_TIMEOUT_S = float(os.environ.get("PROVIDER_TIMEOUT_S", "150"))
-# Единая точка раздачи APK: сюда его кладёт scripts/build-apk.sh (см. README «Скачать приложение»).
+# Раздача APK в два канала (спека 0012): стабильную наполняет scripts/promote-apk.sh
+# по просьбе владелицы, тестовую - scripts/build-apk.sh при каждой сборке.
 APK_PATH = Path(os.environ.get("APK_PATH", str(Path(__file__).parent / "apk" / "somena.apk")))
+APK_TEST_PATH = Path(os.environ.get("APK_TEST_PATH", str(Path(__file__).parent / "apk" / "somena-test.apk")))
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 log = logging.getLogger("somena-ai")
@@ -75,13 +77,25 @@ def health() -> dict:
 
 @app.get("/apk/somena.apk")
 def apk() -> FileResponse:
-    """Раздача приложения: одна постоянная ссылка для владелицы и друзей (без секретов внутри)."""
+    """Стабильный канал: обновляется только scripts/promote-apk.sh по просьбе владелицы."""
     if not APK_PATH.is_file():
-        raise HTTPException(status_code=404, detail="APK ещё не собран: запусти scripts/build-apk.sh на сервере")
+        raise HTTPException(status_code=404, detail="Стабильной сборки нет: переведи тестовую scripts/promote-apk.sh")
     return FileResponse(
         APK_PATH,
         media_type="application/vnd.android.package-archive",
         filename="somena.apk",
+    )
+
+
+@app.get("/apk/somena-test.apk")
+def apk_test() -> FileResponse:
+    """Тестовый канал: сюда scripts/build-apk.sh кладёт каждую сборку (спека 0012)."""
+    if not APK_TEST_PATH.is_file():
+        raise HTTPException(status_code=404, detail="Тестовой сборки нет: запусти scripts/build-apk.sh")
+    return FileResponse(
+        APK_TEST_PATH,
+        media_type="application/vnd.android.package-archive",
+        filename="somena-test.apk",
     )
 
 
