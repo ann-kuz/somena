@@ -112,8 +112,9 @@ class HcImporter(
         for (day in affectedDays.sorted()) {
             val fresh = DailyAggregator.buildSlice(day, zone, steps, sleep, burn, meals, body)
             val merged = (db.get(day) ?: DailyAggregator.buildSlice(day, zone)).mergeFresh(fresh)
-            db.upsert(merged)
-            imported++
+            // Считаются только реально записанные дни: переписывание неизменившихся
+            // срезов не делает «Обновить» импортом.
+            if (db.upsert(merged)) imported++
         }
         return imported
     }

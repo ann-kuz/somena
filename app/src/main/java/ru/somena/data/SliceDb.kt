@@ -159,7 +159,13 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 7
         if (oldVersion < 7) db.execSQL("ALTER TABLE med_records ADD COLUMN mark TEXT")
     }
 
-    fun upsert(slice: DaySlice) {
+    /**
+     * Запись Дневного среза. Неизменившийся срез не пишется и не попадает в Журнал:
+     * импорт переписывает всё окно при каждом «Обновить», а записью базы считается
+     * только реальное изменение. Возврат - была ли запись.
+     */
+    fun upsert(slice: DaySlice): Boolean {
+        if (get(slice.date) == slice) return false
         val values = android.content.ContentValues().apply {
             put("date", slice.date.format(ISO_LOCAL_DATE))
             put("data", json.encodeToString(slice.toDto()))
@@ -167,6 +173,7 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 7
         }
         writableDatabase.insertWithOnConflict("day_slices", null, values, SQLiteDatabase.CONFLICT_REPLACE)
         logged("срез ${slice.date}")
+        return true
     }
 
     fun get(date: LocalDate): DaySlice? =
@@ -189,7 +196,9 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 7
             if (c.moveToFirst() && !c.isNull(0)) LocalDate.parse(c.getString(0)) else null
         }
 
-    fun upsert(w: ru.somena.core.Wellbeing) {
+    /** Запись Самочувствия; неизменившаяся отметка не пишется и не логируется. */
+    fun upsert(w: ru.somena.core.Wellbeing): Boolean {
+        if (getWellbeing(w.date, w.slot) == w) return false
         val values = android.content.ContentValues().apply {
             put("date", w.date.format(ISO_LOCAL_DATE))
             put("slot", w.slot)
@@ -201,6 +210,7 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 7
         }
         writableDatabase.insertWithOnConflict("wellbeing", null, values, SQLiteDatabase.CONFLICT_REPLACE)
         logged("самочувствие ${w.date}, отметка №${w.slot + 1}")
+        return true
     }
 
     /** Последняя отметка дня: значение дня для напоминания и «Сегодня». */

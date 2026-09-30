@@ -82,11 +82,10 @@ class ChatSettings(context: Context) {
         set(value) = prefs.edit().putString(KEY_CUSTOM_MODEL, value.trim()).apply()
 
     /**
-     * Адрес API: у каждого формата своё умолчание proxyapi, подойдёт и сторонний
-     * сервис того же формата (Qwen и DeepSeek у proxyapi - на /openrouter/v1).
-     * Пустое значение - умолчание формата; случайно вставленный хвост пути
-     * (/chat/completions, /messages или /models/…:generateContent) срезается,
-     * приложение добавит его само.
+     * Адрес API: целиком в руках Пользователя - подойдёт любой сервис или прокси
+     * выбранного формата, не только proxyapi. Пустое значение = «Свой API» не
+     * настроен; случайно вставленный хвост пути (/chat/completions, /messages или
+     * /models/…:generateContent) срезается, приложение добавит его само.
      */
     var customBaseUrl: String
         get() = (prefs.getString(KEY_PROXY_URL, null) ?: "")
@@ -96,7 +95,6 @@ class ChatSettings(context: Context) {
             .substringBefore("/models/")
             .removeSuffix(":generateContent")
             .trim().trimEnd('/')
-            .ifEmpty { ProxyModels.defaultUrlFor(customProtocol) }
         set(value) = prefs.edit().putString(KEY_PROXY_URL, value.trim()).apply()
 
     // --- Ступень -----------------------------------------------------------------
@@ -111,20 +109,21 @@ class ChatSettings(context: Context) {
 
     // --- Готовность и транспорт ----------------------------------------------------
 
-    /** Чат готов к работе, когда задан секрет режима (и модель у «Своего API»). */
+    /** Чат готов к работе, когда заполнен секрет режима (и адрес с моделью у «Своего API»). */
     val isConfigured: Boolean
         get() = when (mode) {
             MODE_SERVER -> appToken.isNotEmpty()
-            MODE_CUSTOM -> proxyApiKey.isNotEmpty() && customModel.isNotEmpty()
+            MODE_CUSTOM -> proxyApiKey.isNotEmpty() && customModel.isNotEmpty() &&
+                customBaseUrl.startsWith("http")
             else -> proxyApiKey.isNotEmpty()
         }
 
     /** Подсказка «чат не настроен» словами режима: одно место для Чата и Медкарты. */
     val notConfiguredHint: String
-        get() = if (mode == MODE_SERVER) {
-            "введи токен приложения в Настройках → Чат"
-        } else {
-            "введи ключ API в Настройках → Чат"
+        get() = when (mode) {
+            MODE_SERVER -> "введи токен приложения в Настройках → Чат"
+            MODE_CUSTOM -> "заполни адрес, ключ и название модели в Настройках → Чат"
+            else -> "введи ключ API в Настройках → Чат"
         }
 
     /** Конфигурация одного запроса для ChatClient. */

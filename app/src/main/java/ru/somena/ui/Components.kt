@@ -79,7 +79,11 @@ fun CardLabel(text: String, accent: Color = Violet) {
     }
 }
 
-/** Карточка показателя: заголовок, крупная цифра, единица, подстрочник. */
+/**
+ * Карточка показателя: заголовок, крупная цифра, единица, подстрочник.
+ * Устаревшее значение (staleOn - день получения, не сегодня) показывается
+ * приглушённым с подписью «на ДД.ММ»; свежее подсвечено как обычно.
+ */
 @Composable
 fun MetricCard(
     label: String,
@@ -88,6 +92,7 @@ fun MetricCard(
     accent: Color = Violet,
     unit: String = "",
     sub: String? = null,
+    staleOn: java.time.LocalDate? = null,
 ) {
     GlassCard(modifier) {
         CardLabel(label, accent)
@@ -97,7 +102,7 @@ fun MetricCard(
                 fontSize = 25.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = (-0.5).sp,
-                color = if (value == null) TextMuted else Color.Unspecified,
+                color = if (value == null || staleOn != null) TextMuted else Color.Unspecified,
             )
             if (unit.isNotEmpty() && value != null) {
                 Text(
@@ -109,6 +114,13 @@ fun MetricCard(
             }
         }
         sub?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = TextMuted) }
+        if (value != null && staleOn != null) {
+            Text(
+                "на ${staleOn.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM"))}",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextMuted,
+            )
+        }
     }
 }
 

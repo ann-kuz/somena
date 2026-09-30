@@ -28,6 +28,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -52,9 +53,7 @@ import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
@@ -63,7 +62,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import android.widget.Toast
 import android.net.Uri
 import java.time.Instant
 import java.time.LocalDate
@@ -712,12 +710,10 @@ fun ChatScreen(m: Modifier) {
     }
 }
 
-/** Длинное нажатие на ответ копирует его текст: без выделения текста, которое на
- *  части прошивок рисует тёмные прямоугольники поверх пузырей. */
+/** Пузырь сообщения. Текст выделяется штатно (долгое нажатие) и копируется
+ *  системным меню - и вопрос Пользователя, и ответ ИИ. */
 @Composable
 private fun MessageBubble(msg: ChatMessage, data: DayData, profileBmr: Double?) {
-    val clipboard = LocalClipboardManager.current
-    val context = LocalContext.current
     if (msg.role == ChatMessage.USER) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Column(
@@ -726,7 +722,9 @@ private fun MessageBubble(msg: ChatMessage, data: DayData, profileBmr: Double?) 
                     .neonSurface(active = true, cornerRadius = 20.dp)
                     .padding(12.dp),
             ) {
-                Text(msg.content, style = MaterialTheme.typography.bodyMedium)
+                SelectionContainer {
+                    Text(msg.content, style = MaterialTheme.typography.bodyMedium)
+                }
             }
         }
     } else {
@@ -735,22 +733,13 @@ private fun MessageBubble(msg: ChatMessage, data: DayData, profileBmr: Double?) 
         val anchor = remember(msg.sentAt) {
             Instant.ofEpochMilli(msg.sentAt).atZone(ZoneId.systemDefault()).toLocalDate()
         }
-        fun copyAnswer() {
-            if (text.isBlank()) return
-            clipboard.setText(AnnotatedString(text))
-            Toast.makeText(context, "Скопировано", Toast.LENGTH_SHORT).show()
-        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
-            GlassCard(
-                Modifier
-                    .fillMaxWidth(0.94f)
-                    .pointerInput(msg.content) {
-                        detectTapGestures(onLongPress = { copyAnswer() })
-                    }
-            ) {
+            GlassCard(Modifier.fillMaxWidth(0.94f)) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (text.isNotBlank()) {
-                        Text(text, style = MaterialTheme.typography.bodyMedium)
+                        SelectionContainer {
+                            Text(text, style = MaterialTheme.typography.bodyMedium)
+                        }
                     }
                     specs.forEach { spec -> AiChartCard(spec, anchor, data, profileBmr) }
                 }
@@ -886,8 +875,7 @@ private fun SendButton(enabled: Boolean, onClick: () -> Unit) {
  * Настройки Чата по данным (Настройки → Чат): пилюля режима и поля под него.
  * «Популярные API» - каталог proxyapi: адрес и формат запроса подставляются по модели
  * (Claude живёт на /anthropic/v1), остаётся ввести ключ. «Свой API» - формат запроса,
- * адрес, ключ и название модели целиком вручную: OpenAI (включая Qwen и DeepSeek на
- * /openrouter/v1), Claude или Gemini.
+ * адрес любого сервиса этого формата (не только proxyapi), ключ и название модели.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -921,17 +909,8 @@ fun ChatSettingsSection() {
             Text("Формат запроса", style = MaterialTheme.typography.labelSmall, color = TextMuted)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 PROTOCOL_CHOICES.forEach { (key, label) ->
-                    PeriodChip(
-                        label,
-                        selected = customProtocol == key,
-                        onClick = {
-                            // Пустой или умолчальный адрес прошлого формата меняется сам.
-                            if (customUrl.isBlank() || customUrl == ProxyModels.defaultUrlFor(customProtocol)) {
-                                customUrl = ProxyModels.defaultUrlFor(key)
-                            }
-                            customProtocol = key
-                        },
-                    )
+                    // Введённый адрес не перезаписывается: формат и адрес независимы.
+                    PeriodChip(label, selected = customProtocol == key, onClick = { customProtocol = key })
                 }
             }
             Text(
@@ -944,7 +923,7 @@ fun ChatSettingsSection() {
                 value = customUrl,
                 onValueChange = { customUrl = it },
                 label = { Text("Адрес API") },
-                placeholder = { Text(ProxyModels.defaultUrlFor(customProtocol)) },
+                placeholder = { Text(officialUrlFor(customProtocol)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -1006,8 +985,7 @@ fun ChatSettingsSection() {
                 status = "Сохранено ✓"
             },
             enabled = if (mode == MODE_CUSTOM) {
-                apiKey.isNotBlank() && customModel.isNotBlank() &&
-                    (customUrl.isBlank() || customUrl.startsWith("http"))
+                apiKey.isNotBlank() && customModel.isNotBlank() && customUrl.startsWith("http")
             } else {
                 apiKey.isNotBlank()
             },
@@ -1040,14 +1018,21 @@ private val PROTOCOL_CHOICES = listOf(
     PROTOCOL_GEMINI to "Gemini",
 )
 
-/** Подсказка формата «Своего API»: где какие модели живут у proxyapi и у самих вендоров. */
+/** Подсказка формата «Свой API»: официальный адрес и proxyapi как пример, подойдёт любой сервис формата. */
 private fun protocolHint(protocol: String): String = when (protocol) {
-    PROTOCOL_ANTHROPIC -> "Родной формат Anthropic: Claude на /anthropic/v1 у proxyapi " +
-        "или api.anthropic.com/v1 у Anthropic."
-    PROTOCOL_GEMINI -> "Родной формат Google: Gemini на /google/v1beta у proxyapi " +
-        "или generativelanguage.googleapis.com/v1beta у Google."
-    else -> "GPT живёт на /openai/v1, Qwen, DeepSeek и Grok - на /openrouter/v1; " +
-        "годится и другой OpenAI-совместимый сервис (OpenRouter, Ollama)."
+    PROTOCOL_ANTHROPIC -> "Родной формат Anthropic: официальный api.anthropic.com или " +
+        "любой прокси этого формата, у proxyapi это /anthropic/v1."
+    PROTOCOL_GEMINI -> "Родной формат Google: официальный generativelanguage.googleapis.com " +
+        "или любой прокси этого формата, у proxyapi это /google/v1beta."
+    else -> "Формат OpenAI: официальный api.openai.com или любой сервис и прокси этого " +
+        "формата, у proxyapi GPT живёт на /openai/v1, Qwen и DeepSeek - на /openrouter/v1."
+}
+
+/** Placeholder адреса «Свой API»: официальный адрес формата, без привязки к proxyapi. */
+private fun officialUrlFor(protocol: String): String = when (protocol) {
+    PROTOCOL_ANTHROPIC -> "https://api.anthropic.com/v1"
+    PROTOCOL_GEMINI -> "https://generativelanguage.googleapis.com/v1beta"
+    else -> "https://api.openai.com/v1"
 }
 
 /** Пример названия модели по формату: из тех, что реально отвечают. */
@@ -1109,25 +1094,30 @@ private fun ProxyApiKeyInstruction(onDismiss: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text("Как получить ключ proxyapi", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "1. Открой сайт https://proxyapi.ru и зарегистрируйся: почта с паролем " +
-                        "или вход через Google.\n\n" +
-                        "2. Пополните баланс: раздел «Оплата». Для Чата по данным хватит " +
-                        "200-500 ₽: при лёгкой модели их хватает на месяцы.\n\n" +
-                        "3. Создай ключ: раздел «API-ключи» → «Создать ключ», придумай имя " +
-                        "(например, Somena) и скопируй показанный ключ целиком.\n\n" +
-                        "4. Вернись сюда, вставь ключ в поле «Ключ proxyapi» и нажми «Сохранить».\n\n" +
-                        "5. Выбери лёгкую и тяжёлую модели - и спрашивай в Чате по данным.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    "Ключ - это как пароль от кошелька: не пересылай его никому и не " +
-                        "публикуй в чатах. Если ключ попал не в те руки - создай новый в том " +
-                        "же разделе, а старый удали. При ошибке «Ключ API неверный» проверь, " +
-                        "что скопирован целиком, без пробелов.",
-                    color = TextMuted,
-                    style = MaterialTheme.typography.bodySmall,
-                )
+                // Шаги выделяются и копируются: ссылку и порядок шагов удобно переслать.
+                SelectionContainer {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            "1. Открой сайт https://proxyapi.ru и зарегистрируйся: почта с паролем " +
+                                "или вход через Google.\n\n" +
+                                "2. Пополните баланс: раздел «Оплата». Для Чата по данным хватит " +
+                                "200-500 ₽: при лёгкой модели их хватает на месяцы.\n\n" +
+                                "3. Создай ключ: раздел «API-ключи» → «Создать ключ», придумай имя " +
+                                "(например, Somena) и скопируй показанный ключ целиком.\n\n" +
+                                "4. Вернись сюда, вставь ключ в поле «Ключ proxyapi» и нажми «Сохранить».\n\n" +
+                                "5. Выбери лёгкую и тяжёлую модели - и спрашивай в Чате по данным.",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            "Ключ - это как пароль от кошелька: не пересылай его никому и не " +
+                                "публикуй в чатах. Если ключ попал не в те руки - создай новый в том " +
+                                "же разделе, а старый удали. При ошибке «Ключ API неверный» проверь, " +
+                                "что скопирован целиком, без пробелов.",
+                            color = TextMuted,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
                 GlowButton("Понятно", onClick = onDismiss, modifier = Modifier.fillMaxWidth())
             }
         }

@@ -55,11 +55,12 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import ru.somena.core.DaySlice
+import ru.somena.core.MetricLatest
 import ru.somena.core.Profile
 import ru.somena.core.ProfileValidator
 import ru.somena.core.Sex
 import ru.somena.core.birthDateFieldError
+import ru.somena.core.latestValues
 import ru.somena.core.numericFieldError
 import ru.somena.core.parseBirthDate
 import ru.somena.core.parseOptionalDouble
@@ -198,7 +199,9 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
     val scope = rememberCoroutineScope()
     val db = remember { SliceDb(context) }
     val importer = remember { HcImporter(db) }
-    var slice by remember { mutableStateOf<DaySlice?>(null) }
+    // Последние известные значения: каждая метрика из своего самого позднего дня,
+    // свежесть (получено сегодня) решает подсветку карточек.
+    var latest by remember { mutableStateOf(latestValues(db.all())) }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
     var wellbeing by remember { mutableStateOf(db.dayWellbeing(LocalDate.now())) }
@@ -206,6 +209,10 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
     val weekSteps = remember(db) { db.all().takeLast(7).map { it.steps?.toDouble() } }
     // Календарь цикла скрыт для пола «м»: пол читается один раз при входе на экран.
     val sex = remember { ProfileStore(context).load().sex }
+    val today = remember { LocalDate.now() }
+
+    /** День метрики, если значение получено не сегодня (иначе null - свежее). */
+    fun staleOn(m: MetricLatest<*>?): LocalDate? = m?.on?.takeIf { it != today }
 
     fun refresh() {
         busy = true
@@ -224,7 +231,7 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
                 )
                 "Импорт не удался: ${e.message}"
             }
-            slice = db.get(LocalDate.now())
+            latest = latestValues(db.all())
             wellbeing = db.dayWellbeing(LocalDate.now())
             busy = false
         }
@@ -253,8 +260,7 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         ScreenHeader("Сегодня", LocalDate.now().format(dateHeaderFormat))
-        val s = slice
-        if (s == null) {
+        if (latest.isEmpty) {
             GlassCard(Modifier.fillMaxWidth(), padding = 28.dp) {
                 Text(
                     if (busy) "Читаю Health Connect…" else "Данных пока нет: нажми «Обновить»",
@@ -269,12 +275,19 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         CardLabel("Шаги", Gold)
                         Text(
-                            s.steps?.let { "%,d".format(it) } ?: "—",
+                            latest.steps?.value?.let { "%,d".format(it) } ?: "—",
                             fontSize = 40.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = (-1).sp,
-                            color = if (s.steps == null) TextMuted else Color.Unspecified,
+                            color = if (latest.steps == null || staleOn(latest.steps) != null) TextMuted else Color.Unspecified,
                         )
+                        staleOn(latest.steps)?.let {
+                            Text(
+                                "на ${it.format(staleFormat)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextMuted,
+                            )
+                        }
                     }
                     if (weekSteps.count { it != null } >= 2) {
                         Sparkline(weekSteps, Modifier.size(width = 96.dp, height = 56.dp), color = Gold)
@@ -283,34 +296,49 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
             }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 MetricCard(
-                    "Сон", s.sleepMinutes?.let { "${it / 60}" }, Modifier.weight(1f),
-                    accent = Violet, unit = s.sleepMinutes?.let { "ч %02d мин".format(it % 60) } ?: "",
+                    "Сон", latest.sleepMinutes?.value?.let { "${it / 60}" }, Modifier.weight(1f),
+                    accent = Violet,
+                    unit = latest.sleepMinutes?.value?.let { "ч %02d мин".format(it % 60) } ?: "",
+                    staleOn = staleOn(latest.sleepMinutes),
                 )
                 MetricCard(
-                    "Сожжено", s.burnedKcal?.let { "%,.0f".format(it) }, Modifier.weight(1f),
+                    "Сожжено", latest.burnedKcal?.value?.let { "%,.0f".format(it) }, Modifier.weight(1f),
                     accent = Violet, unit = "ккал",
+                    staleOn = staleOn(latest.burnedKcal),
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 MetricCard(
-                    "Съедено", s.eatenKcal?.let { "%,.0f".format(it) }, Modifier.weight(1f),
+                    "Съедено", latest.eatenKcal?.value?.let { "%,.0f".format(it) }, Modifier.weight(1f),
                     accent = Gold, unit = "ккал",
-                    sub = if (s.proteinG != null || s.fatG != null || s.carbsG != null) {
-                        "Б %,.0f · Ж %,.0f · У %,.0f".format(s.proteinG ?: 0.0, s.fatG ?: 0.0, s.carbsG ?: 0.0)
+                    sub = if (latest.proteinG != null || latest.fatG != null || latest.carbsG != null) {
+                        "Б %,.0f · Ж %,.0f · У %,.0f".format(
+                            latest.proteinG?.value ?: 0.0,
+                            latest.fatG?.value ?: 0.0,
+                            latest.carbsG?.value ?: 0.0,
+                        )
                     } else null,
+                    staleOn = staleOn(latest.eatenKcal),
                 )
                 MetricCard(
-                    "Вес", s.weightKg?.let { "%,.1f".format(it) }, Modifier.weight(1f),
+                    "Вес", latest.weightKg?.value?.let { "%,.1f".format(it) }, Modifier.weight(1f),
                     accent = Violet, unit = "кг",
+                    staleOn = staleOn(latest.weightKg),
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MetricCard("Процент жира", s.bodyFatPct?.let { "%,.1f".format(it) }, Modifier.weight(1f), accent = Violet, unit = "%")
-                MetricCard("Костная масса", s.boneMassKg?.let { "%,.1f".format(it) }, Modifier.weight(1f), accent = Violet, unit = "кг")
+                MetricCard(
+                    "Процент жира", latest.bodyFatPct?.value?.let { "%,.1f".format(it) }, Modifier.weight(1f),
+                    accent = Violet, unit = "%", staleOn = staleOn(latest.bodyFatPct),
+                )
+                MetricCard(
+                    "Костная масса", latest.boneMassKg?.value?.let { "%,.1f".format(it) }, Modifier.weight(1f),
+                    accent = Violet, unit = "кг", staleOn = staleOn(latest.boneMassKg),
+                )
             }
             MetricCard(
-                "Базовый расход", s.bmrKcal?.let { "%,.0f".format(it) }, Modifier.fillMaxWidth(),
-                accent = Violet, unit = "ккал/дн",
+                "Базовый расход", latest.bmrKcal?.value?.let { "%,.0f".format(it) }, Modifier.fillMaxWidth(),
+                accent = Violet, unit = "ккал/дн", staleOn = staleOn(latest.bmrKcal),
             )
         }
         GlowButton(
@@ -333,7 +361,9 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
             )
         }
         Text(
-            "Данные читаются из Health Connect; если пишут несколько приложений, источник выбирается в Настройках → Данные. «—» значит «данных нет за день».",
+            "Данные читаются из Health Connect; если пишут несколько приложений, источник " +
+                "выбирается в Настройках → Данные. Карточки показывают последние известные " +
+                "значения: без подписи получены сегодня, серые с подписью «на ДД.ММ» - раньше.",
             color = TextMuted,
             style = MaterialTheme.typography.bodySmall,
         )
@@ -341,6 +371,7 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
 }
 
 private val dateHeaderFormat = DateTimeFormatter.ofPattern("d MMMM, EEEE", Locale("ru", "RU"))
+private val staleFormat = DateTimeFormatter.ofPattern("dd.MM")
 
 @Composable
 fun ProfileSection() {
