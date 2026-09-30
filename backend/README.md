@@ -6,8 +6,12 @@
 ## Состав
 
 - `app.py` — FastAPI-сервис: `GET /health` (без авторизации), `POST /v1/chat`
-  (Bearer-токен приложения) и `GET /apk/somena.apk` — раздача приложения
-  из `backend/apk/` (кладёт туда `scripts/build-apk.sh`, без авторизации: в APK секретов нет).
+  (Bearer-токен приложения), `GET /apk/somena.apk` (стабильная сборка, обновляется
+  только `scripts/promote-apk.sh` по просьбе владелицы) и `GET /apk/somena-test.apk`
+  (тестовая, туда каждую сборку кладёт `scripts/build-apk.sh`); раздача из
+  `backend/apk/` без авторизации: в APK секретов нет. Статика Лендинга (спека 0012)
+  монтируется в корень из `../site/` после API-роутов, включая `version.json`
+  с версиями обоих каналов.
 - `.env` — секреты (в git не попадает): ключ proxyapi, токен приложения, модели Ступеней.
 - `.env.example` — шаблон без секретов.
 
@@ -23,7 +27,24 @@ journalctl -u somena-ai -n 50     # последние логи
 systemctl restart somena-ai       # после правки .env или app.py
 ```
 
-Адрес: `http://77.239.99.15:8787` (HTTP; HTTPS — когда появится домен, см. ниже).
+Адрес: `http://77.239.99.15:8787` (HTTP; HTTPS — на поддомене, см. ниже).
+
+## Лендинг и поддомен somena.elunaris-vitrail.strangled.net (спека 0012)
+
+Лендинг отвечает в корне `http://77.239.99.15:8787/` уже сейчас. Красивый адрес
+`https://somena.elunaris-vitrail.strangled.net` появится через nginx, когда владелица
+создаст A-запись `somena → 77.239.99.15` в панели DNS `strangled.net`. Тогда:
+
+1. `certbot --expand -d elunaris-vitrail.strangled.net -d info.elunaris-vitrail.strangled.net -d items.elunaris-vitrail.strangled.net -d somena.elunaris-vitrail.strangled.net`
+   (webroot `/var/www/html`, как в текущем renewal-конфиге);
+2. добавить `somena.…` в `server_name` блока порта 80;
+3. добавить server-блок на 127.0.0.1:444 с `server_name somena.…` и
+   `location / { proxy_pass http://127.0.0.1:8787; }` (заголовки Host/X-Forwarded-Proto);
+4. `nginx -t && systemctl reload nginx`.
+
+**Нельзя трогать:** стрим-блок 443 (SNI-маршрутизация), страницы-легенды
+`info.`/`items.` в `/var/www/html` и обработчики `/vk/callback` — это маскировка
+VPN-трафика и коллбэки ботов. Изменения только добавлением, `nginx -t` перед reload.
 
 ## Смена модели
 
