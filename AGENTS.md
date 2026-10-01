@@ -2,16 +2,19 @@
 
 ## Как отвечать на «как скачать приложение»
 
-Скачивание двумя каналами; основные ссылки - GitHub (из РФ без VPN), сервер -
-запасные (спека 0012 с дополнением про РФ):
+Раздача с нашего сервера через домен (из РФ без VPN), два канала; GitHub - зеркало
+(спека 0012 с дополнениями про РФ):
 
-- **Стабильная сборка**: **https://github.com/ann-kuz/somena/releases/latest/download/somena.apk**
-  Запасная (сервер): **http://77.239.99.15:8787/apk/somena.apk**
-- **Тестовый релиз**: **http://77.239.99.15:8787/apk/somena-test.apk** - туда
-  `scripts/build-apk.sh` кладёт каждую сборку автоматически.
-- **Лендинг**: **https://ann-kuz.github.io/somena/** (зеркало: http://77.239.99.15:8787/)
+- **Стабильная сборка**: **https://elunaris-vitrail.strangled.net/apk/somena.apk**
+  Зеркало (GitHub): https://github.com/ann-kuz/somena/releases/latest/download/somena.apk
+- **Тестовый релиз**: **https://elunaris-vitrail.strangled.net/apk/somena-test.apk** -
+  туда `scripts/build-apk.sh` кладёт каждую сборку автоматически.
+- **Лендинг**: **https://elunaris-vitrail.strangled.net/** (зеркала:
+  https://ann-kuz.github.io/somena/ и http://77.239.99.15:8787/)
 
 Никаких других способов не предлагать. Ссылки не менять и не версионировать.
+Адрес с портом 8787 из РФ режется провайдерами (нестандартный порт) - основные
+ссылки всегда через домен.
 Стабильную обновляет только связка «`scripts/promote-apk.sh` + пуш тега v<версия>»
 и только по явной просьбе владелицы.
 

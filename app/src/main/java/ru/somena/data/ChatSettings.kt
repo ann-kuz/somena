@@ -156,7 +156,8 @@ class ChatSettings(context: Context) {
         const val KEY_CUSTOM_PROTOCOL = "chat_custom_protocol"
         const val KEY_CUSTOM_MODEL = "chat_custom_model"
         const val KEY_STEP = "chat_model_step"
-        /** Адрес из README Бэкенда; владелица может поменять на свой при переезде сервера. */
-        const val DEFAULT_URL = "http://77.239.99.15:8787"
+        /** Публичный адрес Бэкенда через домен (443, за nginx): адрес с портом 8787
+         * из РФ режется провайдерами, домен проходит. Владелица может поменять на свой. */
+        const val DEFAULT_URL = "https://elunaris-vitrail.strangled.net"
     }
 }
