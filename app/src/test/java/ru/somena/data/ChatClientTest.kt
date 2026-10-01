@@ -385,6 +385,19 @@ class ChatClientTest {
     }
 
     @Test
+    fun `402 в прямом режиме объясняет что деньги на балансе кончились`() {
+        // Инцидент 01.10: proxyapi отвечает 402 Payment Required, когда на счёте нет
+        // денег, - владелица видела «какие-то проблемы» вместо слов «пополни баланс».
+        val s = stubServer(402, "{\"error\":{\"message\":\"Insufficient funds\"}}")
+        val r = runBlocking { directClient(s.url()).ask(history, "sys", "контекст", "fast") }
+        val msg = r.exceptionOrNull()?.message ?: ""
+        assertTrue("сообщение: $msg", msg.contains("пополни"))
+        assertTrue("сообщение: $msg", msg.contains("баланс"))
+        assertTrue("сообщение: $msg", !msg.contains("Ключ API"))
+        s.close()
+    }
+
+    @Test
     fun `подписи ступеней прямого режима берутся из настроек без сети`() {
         // Серверный /health не нужен: модели уже выбраны на телефоне, замкнутый порт не мешает.
         val probe = stubServer(200, "{}")
@@ -400,6 +413,9 @@ class ChatClientTest {
         val r = runBlocking { directClient(s.url()).ask(history, "sys", "контекст", "fast") }
         val msg = r.exceptionOrNull()?.message ?: ""
         assertTrue("сообщение: $msg", msg.contains("пустой ответ"))
+        // Инцидент 01.10: у proxyapi без денег маршрут Claude молчал 110 секунд и
+        // возвращал пустой ответ - подсказка ведёт к балансу, а не к бесконечным повторам.
+        assertTrue("сообщение: $msg", msg.contains("баланс"))
         s.close()
     }
 
