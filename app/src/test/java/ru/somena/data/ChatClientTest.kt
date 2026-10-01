@@ -143,6 +143,31 @@ class ChatClientTest {
     }
 
     @Test
+    fun `разбор таблицы идет выбранной ступенью`() {
+        // Спека 0015: Быстрая путала день и месяц в датах выгрузки весов, Разбор таблицы
+        // идёт Ступенью, выбранной в чате, а не всегда Быстрой (отмена решения спеки 0004).
+        val bodies = mutableListOf<String>()
+        val s = importStub(bodies)
+        val r = runBlocking {
+            client(s.url()).askImport("Дата;Вес\n01/06/2026;72.8", "Разбери таблицу весов", "max")
+        }
+        assertTrue(r.isSuccess)
+        assertTrue("тело: ${bodies.single()}", bodies.single().contains("\"step\":\"max\""))
+        s.close()
+    }
+
+    @Test
+    fun `прямой режим шлет разбор таблицы на модель выбранной ступени`() {
+        // Таблица уходит на цель Максимальной Ступени своего ИИ-сервиса, не на Быструю.
+        val bodies = mutableListOf<String>()
+        val s = stubServer(200, providerReply, bodies)
+        runBlocking { directClient(s.url()).askImport("Дата;Вес\n05.01.2025;62.4", "", "max") }
+        assertTrue("тело: ${bodies.single()}", bodies.single().contains("\"model\":\"gpt-5.1\""))
+        assertTrue("тело: ${bodies.single()}", !bodies.single().contains("\"model\":\"gpt-4.1-mini\""))
+        s.close()
+    }
+
+    @Test
     fun `401 от бэкенда дает внятную ошибку про APP_TOKEN а не про связь`() {
         val s = stubServer(401, "{\"detail\":\"Неверный токен приложения\"}")
         val r = runBlocking { client(s.url()).ask(history, "sys", "контекст", "fast") }

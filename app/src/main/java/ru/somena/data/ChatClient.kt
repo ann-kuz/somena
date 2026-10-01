@@ -75,7 +75,7 @@ sealed interface ChatTransport {
  * Gemini на proxyapi): сервер не нужен.
  * Контекст данных идёт первым user-сообщением: у Бэкенда жёсткий лимит на system в
  * 4000 символов, а срез за 30 дней в него не помещается. askImport отправляет таблицу
- * Вложения в поле attachment (свой, более широкий лимит) и всегда на Быстрой Ступени;
+ * Вложения в поле attachment (свой, более широкий лимит) Ступенью, выбранной в чате;
  * в прямом режиме вложение сворачивается в user-сообщение теми же правилами, что на
  * Бэкенде. О каждом запросе пишет две строки (запрос и исход) в [log] - это журнал на
  * экране «Настройки → Отладка»; токен и ключ в журнал не попадают никогда.
@@ -106,20 +106,23 @@ class ChatClient(
      * Вопрос Пользователя доходит до модели (спека 0007): уточняет, какие столбцы
      * какими показателями являются; контракт «строгий JSON» живёт только в системном
      * промпте, поэтому вольный текст его не ломает. Пустой текст - фиксированная фраза.
+     * Ступень - выбранная в чате (спека 0015): Быстрая путала день и месяц в датах
+     * выгрузок вроде Fitdays, поэтому сила ИИ здесь та же, что и в вопросах.
      */
-    suspend fun askImport(attachment: String, question: String = ""): Result<String> = withContext(Dispatchers.IO) {
-        // Спека 0004: длиннее лимита - отказ, никакой молчаливой обрезки.
-        if (attachment.length > MAX_ATTACHMENT_CHARS) {
-            fail(
-                "Таблица слишком длинная (${attachment.length} симв.): разбей файл на части.",
-                "вложение ${attachment.length} симв. длиннее лимита",
-            )
-        } else {
-            exchange(requestImport(attachment, question), importReadTimeoutMs, describe = {
-                "разбор таблицы, ${attachment.length} симв., ступень: fast"
-            })
+    suspend fun askImport(attachment: String, question: String = "", step: String = STEP_FAST): Result<String> =
+        withContext(Dispatchers.IO) {
+            // Спека 0004: длиннее лимита - отказ, никакой молчаливой обрезки.
+            if (attachment.length > MAX_ATTACHMENT_CHARS) {
+                fail(
+                    "Таблица слишком длинная (${attachment.length} симв.): разбей файл на части.",
+                    "вложение ${attachment.length} симв. длиннее лимита",
+                )
+            } else {
+                exchange(requestImport(attachment, question, step), importReadTimeoutMs, describe = {
+                    "разбор таблицы, ${attachment.length} симв., ступень: $step"
+                })
+            }
         }
-    }
 
     /**
      * Разбор документа в запись Медкарты (спека 0010): текст - по каналу вложения,
@@ -598,7 +601,7 @@ class ChatClient(
         return WireRequest(messages = messages, system = system, maxTokens = 3000, step = step)
     }
 
-    private fun requestImport(attachment: String, question: String): WireRequest = WireRequest(
+    private fun requestImport(attachment: String, question: String, step: String): WireRequest = WireRequest(
         // Вопрос Пользователя - пользовательское сообщение разбора; обрезка общим
         // лимитом сообщений, как в обычном чате (спека 0007).
         messages = listOf(
@@ -607,7 +610,7 @@ class ChatClient(
         system = IMPORT_SYSTEM_PROMPT,
         // JSON разбора длинной таблицы - большой ответ: лимит почти на максимуме Бэкенда.
         maxTokens = 16000,
-        step = STEP_FAST,
+        step = step,
         attachment = attachment,
     )
 
