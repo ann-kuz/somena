@@ -26,10 +26,13 @@ fun decodeXlsxText(bytes: ByteArray): String? = try {
     null
 }
 
-/** Текст таблицы из файла вложения: zip-магия ведёт в xlsx-ридер, остальное - csv/tsv. */
-fun decodeTableBytes(bytes: ByteArray): String? =
-    if (bytes.size >= 2 && bytes[0] == 0x50.toByte() && bytes[1] == 0x4B.toByte()) decodeXlsxText(bytes)
-    else decodeTableText(bytes)
+/** Текст таблицы из файла Вложения: zip-магия ведёт в xlsx-ридер, OLE2 - в xls-ридер
+ *  (старый Excel, выгрузки вроде Fitdays), остальное - csv/tsv. */
+fun decodeTableBytes(bytes: ByteArray): String? = when {
+    bytes.size >= 2 && bytes[0] == 0x50.toByte() && bytes[1] == 0x4B.toByte() -> decodeXlsxText(bytes)
+    isOle2(bytes) -> decodeXlsText(bytes)
+    else -> decodeTableText(bytes)
+}
 
 /** Записи zip-архива целиком: общая у xlsx- и docx-ридеров. */
 internal fun zipEntries(bytes: ByteArray): Map<String, ByteArray> {

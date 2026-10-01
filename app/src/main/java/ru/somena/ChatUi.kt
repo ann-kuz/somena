@@ -270,7 +270,7 @@ fun ChatScreen(m: Modifier) {
                 else -> {
                     val text = decodeTableBytes(bytes)
                     if (text == null) {
-                        error = "Не получилось прочитать таблицу: поддерживаются csv, tsv и xlsx."
+                        error = "Не получилось прочитать таблицу: поддерживаются csv, tsv, xlsx и старый xls."
                     } else if (text.length > MAX_ATTACHMENT_CHARS) {
                         error = "Таблица слишком длинная (${text.length} симв.): разбей её на части, например по полгода."
                     } else {
@@ -652,6 +652,7 @@ fun ChatScreen(m: Modifier) {
                             "text/html",
                             "text/rtf",
                             "application/csv",
+                            "application/vnd.ms-excel",
                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                             "application/msword",
