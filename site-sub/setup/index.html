@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Настройка Somena</title>
+<meta name="description" content="Как установить Somena, подключить источники данных и настроить ИИ-чат.">
+<meta name="theme-color" content="#0A0912">
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
+<link rel="icon" type="image/svg+xml" href="/assets/icon.svg">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<link rel="stylesheet" href="/style.css">
+<script src="/lang.js"></script>
+</head>
+<body>
+
+<header class="nav">
+  <a class="nav-brand" href="https://elunaris-vitrail.strangled.net/">
+    <img src="/assets/icon.svg" alt="" width="28" height="28">
+    <span>Somena</span>
+  </a>
+  <nav class="nav-links" aria-label="Разделы">
+    <a href="https://elunaris-vitrail.strangled.net/#about" data-i18n="nav.about">Что это</a>
+    <a class="active" aria-current="page" href="/" data-i18n="nav.setup">Настройка</a>
+    <a href="https://items.elunaris-vitrail.strangled.net/" data-i18n="nav.dev">Разработчикам</a>
+  </nav>
+  <div class="lang-switch" role="group" aria-label="Язык">
+    <button class="lang-btn" type="button" data-lang-btn="ru">RU</button>
+    <button class="lang-btn" type="button" data-lang-btn="de">DE</button>
+  </div>
+  <a class="btn btn-secondary nav-cta" href="https://elunaris-vitrail.strangled.net/#download" data-i18n="nav.download">Скачать</a>
+</header>
+
+<main id="top">
+
+<section class="page-hero">
+  <h1 data-i18n="ph.h">Настройка</h1>
+  <p class="hero-sub" data-i18n="ph.sub">Всё необязательное: Somena работает и без источников, записи можно вносить вручную.</p>
+</section>
+
+<section class="section" id="install">
+  <h2 data-i18n="install.h">Установка</h2>
+  <ol class="steps">
+    <li>
+      <div class="step-body">
+        <strong data-i18n="install.i1b">Скачайте APK</strong>
+        <span class="muted" data-i18n="install.i1t">из раздела «Скачать» на главной странице.</span>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong data-i18n="install.i2b">Разрешите установку из неизвестных источников.</strong>
+        <span class="muted" data-i18n="install.i2t">Android спросит об этом при открытии файла: это нормально для приложения не из магазина.</span>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong data-i18n="install.i3b">Откройте скачанный файл</strong>
+        <span class="muted" data-i18n="install.i3t">и установите приложение.</span>
+      </div>
+    </li>
+    <li>
+      <div class="step-body">
+        <strong data-i18n="install.i4b">Обновления ставятся поверх:</strong>
+        <span class="muted" data-i18n="install.i4t">скачайте свежий APK и откройте его, данные и настройки сохранятся.</span>
+      </div>
+    </li>
+  </ol>
+</section>
+
+<section class="section" id="sources">
+  <h2 data-i18n="sources.h">Источники данных</h2>
+  <p class="section-sub" data-i18n="sources.sub">Somena читает данные из Health Connect: настройте те приложения, которыми уже пользуетесь.</p>
+  <div class="setup-grid">
+    <article class="glass block">
+      <h3><img src="/assets/icons/health_and_safety.svg" alt="" width="22" height="22"> <span data-i18n="sources.apps">Приложения</span></h3>
+      <ul class="rows">
+        <li><strong>Mi Fitness</strong><span data-i18n="src.mifit">шаги, пульс и сон с браслетов Mi Band</span></li>
+        <li><strong>Fitdays</strong><span data-i18n="src.fitdays">вес и состав тела с умных весов</span></li>
+        <li><strong>FatSecret</strong><span data-i18n="src.fatsecret">дневник питания: калории и БЖУ</span></li>
+      </ul>
+      <p class="block-note" data-i18n="sources.note">Подойдёт любое приложение, которое пишет в Health Connect. При первом запуске Somena попросит разрешения: выдаются один раз.</p>
+    </article>
+    <article class="glass block">
+      <h3><img src="/assets/icons/forum.svg" alt="" width="22" height="22"> <span data-i18n="chat.h">ИИ-чат</span></h3>
+      <ul class="rows">
+        <li><strong data-i18n="chat.popular">Популярные API</strong><span data-i18n="chat.popularT">каталог моделей с ценами, ключ вставляется в приложение</span></li>
+        <li><strong data-i18n="chat.custom">Свой API</strong><span data-i18n="chat.customT">ваш ключ и любой сервис формата OpenAI, Claude или Gemini</span></li>
+      </ul>
+      <p class="block-note" data-i18n="chat.note">Ключ хранится только на телефоне. Чат работает и без настройки: просто не отвечает, пока ключа нет.</p>
+    </article>
+  </div>
+</section>
+
+<section class="section">
+  <div class="hero-cta">
+    <a class="btn btn-primary" href="https://elunaris-vitrail.strangled.net/apk/somena.apk" data-i18n="cta.download">Скачать приложение</a>
+    <a class="btn btn-secondary" href="https://elunaris-vitrail.strangled.net/" data-i18n="cta.home">На главную</a>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="footer-brand">
+    <img src="/assets/icon.svg" alt="" width="24" height="24">
+    <span data-i18n="foot.brand">Somena, личный трекер здоровья</span>
+  </div>
+  <nav class="footer-links" aria-label="Ссылки">
+    <a href="https://elunaris-vitrail.strangled.net/" data-i18n="foot.main">Главная</a>
+    <a href="https://elunaris-vitrail.strangled.net/apk/somena.apk" data-i18n="foot.download">Скачать APK</a>
+    <a href="https://github.com/ann-kuz/somena" rel="noopener">GitHub</a>
+  </nav>
+</footer>
+
+<script>
+window.SOMENA_I18N = {
+  ru: {
+    '__title': 'Настройка Somena',
+    'nav.about': 'Что это', 'nav.setup': 'Настройка', 'nav.dev': 'Разработчикам', 'nav.download': 'Скачать',
+    'ph.h': 'Настройка',
+    'ph.sub': 'Всё необязательное: Somena работает и без источников, записи можно вносить вручную.',
+    'install.h': 'Установка',
+    'install.i1b': 'Скачайте APK', 'install.i1t': 'из раздела «Скачать» на главной странице.',
+    'install.i2b': 'Разрешите установку из неизвестных источников.', 'install.i2t': 'Android спросит об этом при открытии файла: это нормально для приложения не из магазина.',
+    'install.i3b': 'Откройте скачанный файл', 'install.i3t': 'и установите приложение.',
+    'install.i4b': 'Обновления ставятся поверх:', 'install.i4t': 'скачайте свежий APK и откройте его, данные и настройки сохранятся.',
+    'sources.h': 'Источники данных',
+    'sources.sub': 'Somena читает данные из Health Connect: настройте те приложения, которыми уже пользуетесь.',
+    'sources.apps': 'Приложения',
+    'src.mifit': 'шаги, пульс и сон с браслетов Mi Band',
+    'src.fitdays': 'вес и состав тела с умных весов',
+    'src.fatsecret': 'дневник питания: калории и БЖУ',
+    'sources.note': 'Подойдёт любое приложение, которое пишет в Health Connect. При первом запуске Somena попросит разрешения: выдаются один раз.',
+    'chat.h': 'ИИ-чат',
+    'chat.popular': 'Популярные API', 'chat.popularT': 'каталог моделей с ценами, ключ вставляется в приложение',
+    'chat.custom': 'Свой API', 'chat.customT': 'ваш ключ и любой сервис формата OpenAI, Claude или Gemini',
+    'chat.note': 'Ключ хранится только на телефоне. Чат работает и без настройки: просто не отвечает, пока ключа нет.',
+    'cta.download': 'Скачать приложение', 'cta.home': 'На главную',
+    'foot.brand': 'Somena, личный трекер здоровья', 'foot.main': 'Главная', 'foot.download': 'Скачать APK'
+  },
+  de: {
+    '__title': 'Somena einrichten',
+    'nav.about': 'Überblick', 'nav.setup': 'Einrichtung', 'nav.dev': 'Für Entwickler', 'nav.download': 'Herunterladen',
+    'ph.h': 'Einrichtung',
+    'ph.sub': 'Alles optional: Somena funktioniert auch ohne Quellen, Einträge lassen sich von Hand erfassen.',
+    'install.h': 'Installation',
+    'install.i1b': 'Laden Sie die APK herunter', 'install.i1t': 'aus dem Abschnitt Herunterladen auf der Startseite.',
+    'install.i2b': 'Erlauben Sie die Installation aus unbekannten Quellen.', 'install.i2t': 'Android fragt danach beim Öffnen der Datei: bei einer App außerhalb des Stores ist das normal.',
+    'install.i3b': 'Öffnen Sie die heruntergeladene Datei', 'install.i3t': 'und installieren Sie die App.',
+    'install.i4b': 'Updates werden darüber installiert:', 'install.i4t': 'laden Sie die neue APK und öffnen Sie sie, Daten und Einstellungen bleiben erhalten.',
+    'sources.h': 'Datenquellen',
+    'sources.sub': 'Somena liest Daten aus Health Connect: richten Sie die Apps ein, die Sie ohnehin nutzen.',
+    'sources.apps': 'Apps',
+    'src.mifit': 'Schritte, Puls und Schlaf von Mi-Band-Armbändern',
+    'src.fitdays': 'Gewicht und Körperzusammensetzung von der Smart-Waage',
+    'src.fatsecret': 'Ernährungstagebuch: Kalorien und Makros',
+    'sources.note': 'Jede App passt, die in Health Connect schreibt. Beim ersten Start bittet Somena um Berechtigungen: einmalig.',
+    'chat.h': 'KI-Chat',
+    'chat.popular': 'Beliebte APIs', 'chat.popularT': 'Modellkatalog mit Preisen, der Schlüssel wird in der App eingefügt',
+    'chat.custom': 'Eigene API', 'chat.customT': 'Ihr Schlüssel und jeder Dienst im Format OpenAI, Claude oder Gemini',
+    'chat.note': 'Der Schlüssel liegt nur auf dem Telefon. Der Chat läuft auch ohne Einrichtung: er antwortet nur nicht, solange kein Schlüssel da ist.',
+    'cta.download': 'App herunterladen', 'cta.home': 'Zur Startseite',
+    'foot.brand': 'Somena, persönlicher Gesundheitstracker', 'foot.main': 'Startseite', 'foot.download': 'APK herunterladen'
+  }
+};
+</script>
+<script src="/i18n.js"></script>
+
+</body>
+</html>

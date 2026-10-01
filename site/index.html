@@ -13,6 +13,7 @@
 <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
 <link rel="stylesheet" href="style.css">
+<script src="/lang.js"></script>
 </head>
 <body>
 
@@ -22,140 +23,120 @@
     <span>Somena</span>
   </a>
   <nav class="nav-links" aria-label="Разделы">
-    <a href="#about">Что это</a>
-    <a href="#setup">Настройка</a>
-    <a href="#install">Установка</a>
-    <a href="#fork">Форк</a>
+    <a href="#about" data-i18n="nav.about">Что это</a>
+    <a href="https://info.elunaris-vitrail.strangled.net/" data-i18n="nav.setup">Настройка</a>
+    <a href="https://items.elunaris-vitrail.strangled.net/" data-i18n="nav.dev">Разработчикам</a>
   </nav>
-  <a class="btn btn-secondary nav-cta" href="#download">Скачать</a>
+  <div class="lang-switch" role="group" aria-label="Язык">
+    <button class="lang-btn" type="button" data-lang-btn="ru">RU</button>
+    <button class="lang-btn" type="button" data-lang-btn="de">DE</button>
+  </div>
+  <a class="btn btn-secondary nav-cta" href="#download" data-i18n="nav.download">Скачать</a>
 </header>
 
 <main id="top">
 
 <section class="hero">
-  <img class="hero-icon" src="assets/icon.svg" alt="Иконка Somena: галактика со светящейся S" width="128" height="128">
+  <img class="hero-icon" src="assets/icon.svg" alt="Somena" width="128" height="128">
   <h1>Somena</h1>
-  <p class="hero-sub">Личный трекер здоровья: шаги, сон, вес, еда и самочувствие в одном приложении, с ИИ-чатом по вашим данным.</p>
+  <p class="hero-sub" data-i18n="hero.sub">Личный трекер здоровья: шаги, сон, вес, еда и самочувствие в одном приложении, с ИИ-чатом по вашим данным.</p>
   <div class="hero-cta">
-    <a class="btn btn-primary" href="https://elunaris-vitrail.strangled.net/apk/somena.apk">Скачать APK</a>
-    <a class="btn btn-secondary" href="https://elunaris-vitrail.strangled.net/apk/somena-test.apk">Тестовый релиз</a>
+    <a class="btn btn-primary" href="https://elunaris-vitrail.strangled.net/apk/somena.apk" data-i18n="hero.btn1">Скачать APK</a>
+    <a class="btn btn-secondary" href="https://elunaris-vitrail.strangled.net/apk/somena-test.apk" data-i18n="hero.btn2">Тестовый релиз</a>
   </div>
 </section>
 
 <section class="section" id="download">
-  <h2>Скачать</h2>
-  <p class="section-sub">Два канала: стабильная обновляется вручную после проверки, тестовая получает каждую сборку автоматически. Раздача идёт с нашего сервера, у GitHub есть зеркало на случай блокировок.</p>
+  <h2 data-i18n="dl.h">Скачать</h2>
+  <p class="section-sub" data-i18n="dl.sub">Два канала: стабильная обновляется вручную после проверки, тестовая получает каждую сборку автоматически. Раздача идёт с нашего сервера, у GitHub есть зеркало на случай блокировок.</p>
   <div class="cards-download">
     <article class="glass card-download">
-      <p class="card-caption">Стабильная сборка</p>
+      <p class="card-caption" data-i18n="dl.stable">Стабильная сборка</p>
       <p class="card-value"><span data-channel="stable-version">0.29.1</span></p>
-      <p class="card-note">от <span data-channel="stable-date">30.09.2026</span> · проверенная версия</p>
-      <a class="btn btn-primary btn-block" href="https://elunaris-vitrail.strangled.net/apk/somena.apk">Скачать APK</a>
-      <a class="backup-link" href="https://github.com/ann-kuz/somena/releases/latest/download/somena.apk">зеркало на GitHub</a>
+      <p class="card-note"><span data-i18n="dl.from">от</span> <span data-channel="stable-date">30.09.2026</span> · <span data-i18n="dl.checked">проверенная версия</span></p>
+      <a class="btn btn-primary btn-block" href="https://elunaris-vitrail.strangled.net/apk/somena.apk" data-i18n="dl.btn">Скачать APK</a>
+      <a class="backup-link" href="https://github.com/ann-kuz/somena/releases/latest/download/somena.apk" data-i18n="dl.mirror">зеркало на GitHub</a>
     </article>
     <article class="glass card-download">
-      <p class="card-caption">Тестовый релиз</p>
+      <p class="card-caption" data-i18n="dl.test">Тестовый релиз</p>
       <p class="card-value"><span data-channel="test-version">0.29.1</span></p>
-      <p class="card-note">от <span data-channel="test-date">30.09.2026</span> · новое раньше, недоделки возможны</p>
-      <a class="btn btn-secondary btn-block" href="https://elunaris-vitrail.strangled.net/apk/somena-test.apk">Скачать тестовый APK</a>
-      <a class="backup-link" href="https://github.com/ann-kuz/somena/releases">история релизов на GitHub</a>
+      <p class="card-note"><span data-channel="test-date">30.09.2026</span> · <span data-i18n="dl.early">новое раньше, недоделки возможны</span></p>
+      <a class="btn btn-secondary btn-block" href="https://elunaris-vitrail.strangled.net/apk/somena-test.apk" data-i18n="dl.btnTest">Скачать тестовый APK</a>
+      <a class="backup-link" href="https://github.com/ann-kuz/somena/releases" data-i18n="dl.history">история релизов на GitHub</a>
     </article>
   </div>
 </section>
 
 <section class="section" id="about">
-  <h2>Что это</h2>
-  <p class="section-sub">Приложения-источники пишут данные в Health Connect, Somena читает их, собирает день в один срез, строит графики и отвечает на вопросы. Все данные остаются на телефоне: аккаунтов и облаков нет.</p>
+  <h2 data-i18n="about.h">Что это</h2>
+  <p class="section-sub" data-i18n="about.sub">Приложения-источники пишут данные в Health Connect, Somena читает их, собирает день в один срез, строит графики и отвечает на вопросы. Все данные остаются на телефоне: аккаунтов и облаков нет.</p>
   <div class="cards">
     <article class="glass card">
       <img src="assets/icons/directions_walk.svg" alt="" width="24" height="24">
-      <h3>Шаги</h3>
-      <p>Шаги и расход калорий за день, с браслета или телефона.</p>
+      <h3 data-i18n="about.s1">Шаги</h3>
+      <p data-i18n="about.s1t">Шаги и расход калорий за день, с браслета или телефона.</p>
     </article>
     <article class="glass card">
       <img src="assets/icons/bedtime.svg" alt="" width="24" height="24">
-      <h3>Сон</h3>
-      <p>Длительность сна из Mi Band или другого источника.</p>
+      <h3 data-i18n="about.s2">Сон</h3>
+      <p data-i18n="about.s2t">Длительность сна из Mi Band или другого источника.</p>
     </article>
     <article class="glass card">
       <img src="assets/icons/monitor_weight.svg" alt="" width="24" height="24">
-      <h3>Вес и состав тела</h3>
-      <p>Вес, процент жира, костная масса и базовый расход с умных весов.</p>
+      <h3 data-i18n="about.s3">Вес и состав тела</h3>
+      <p data-i18n="about.s3t">Вес, процент жира, костная масса и базовый расход с умных весов.</p>
     </article>
     <article class="glass card">
       <img src="assets/icons/restaurant.svg" alt="" width="24" height="24">
-      <h3>Еда</h3>
-      <p>Съеденные калории и БЖУ из дневника питания FatSecret.</p>
+      <h3 data-i18n="about.s4">Еда</h3>
+      <p data-i18n="about.s4t">Съеденные калории и БЖУ из дневника питания FatSecret.</p>
     </article>
     <article class="glass card">
       <img src="assets/icons/mood.svg" alt="" width="24" height="24">
-      <h3>Самочувствие</h3>
-      <p>Энергия, настроение и качество сна: пара отметок в день от вас.</p>
+      <h3 data-i18n="about.s5">Самочувствие</h3>
+      <p data-i18n="about.s5t">Энергия, настроение и качество сна: пара отметок в день от вас.</p>
     </article>
     <article class="glass card">
       <img src="assets/icons/calendar_month.svg" alt="" width="24" height="24">
-      <h3>Календарь цикла</h3>
-      <p>Записи цикла с прогнозом периодов и фертильного окна.</p>
+      <h3 data-i18n="about.s6">Календарь цикла</h3>
+      <p data-i18n="about.s6t">Записи цикла с прогнозом периодов и фертильного окна.</p>
     </article>
     <article class="glass card">
       <img src="assets/icons/show_chart.svg" alt="" width="24" height="24">
-      <h3>Графики</h3>
-      <p>Дефицит, калории, вес и БЖУ: светящиеся линии с трендами.</p>
+      <h3 data-i18n="about.s7">Графики</h3>
+      <p data-i18n="about.s7t">Дефицит, калории, вес и БЖУ: светящиеся линии с трендами.</p>
     </article>
     <article class="glass card">
       <img src="assets/icons/forum.svg" alt="" width="24" height="24">
-      <h3>ИИ-чат по данным</h3>
-      <p>Спросите о своём дне или периоде: ИИ видит срезы и отвечает советом.</p>
+      <h3 data-i18n="about.s8">ИИ-чат по данным</h3>
+      <p data-i18n="about.s8t">Спросите о своём дне или периоде: ИИ видит срезы и отвечает советом.</p>
     </article>
   </div>
   <article class="glass card card-wide">
     <img src="assets/icons/lock.svg" alt="" width="24" height="24">
     <div>
-      <h3>Приватность</h3>
-      <p>Данные живут только на вашем телефоне. Сервер лишь передаёт запросы к ИИ и ничего не хранит; ключи остаются в приложении.</p>
+      <h3 data-i18n="about.privacy">Приватность</h3>
+      <p data-i18n="about.privacyT">Данные живут только на вашем телефоне. Сервер лишь передаёт запросы к ИИ и ничего не хранит; ключи остаются в приложении.</p>
     </div>
   </article>
 </section>
 
-<section class="section" id="setup">
-  <h2>Настройка</h2>
-  <p class="section-sub">Настроить нужно источники данных и, по желанию, ИИ-чат.</p>
-  <div class="setup-grid">
-    <article class="glass block">
-      <h3><img src="assets/icons/health_and_safety.svg" alt="" width="22" height="22"> Источники данных</h3>
-      <ul class="rows">
-        <li><strong>Mi Fitness</strong><span>шаги, пульс и сон с браслетов Mi Band</span></li>
-        <li><strong>Fitdays</strong><span>вес и состав тела с умных весов</span></li>
-        <li><strong>FatSecret</strong><span>дневник питания: калории и БЖУ</span></li>
-      </ul>
-      <p class="block-note">Подойдёт любое приложение, которое пишет в Health Connect. При первом запуске Somena попросит разрешения: выдаются один раз.</p>
+<section class="section" id="more">
+  <h2 data-i18n="more.h">Подробнее</h2>
+  <p class="section-sub" data-i18n="more.sub">Установка и настройка живут на отдельных страницах, рядом с этим сайтом.</p>
+  <div class="cards">
+    <article class="glass card-cta">
+      <img src="assets/icons/health_and_safety.svg" alt="" width="24" height="24">
+      <h3 data-i18n="more.c1t">Настройка и установка</h3>
+      <p data-i18n="more.c1p">Как подключить источники данных, настроить ИИ-чат и установить приложение.</p>
+      <a class="btn btn-secondary" href="https://info.elunaris-vitrail.strangled.net/" data-i18n="more.c1b">Открыть настройку</a>
     </article>
-    <article class="glass block">
-      <h3><img src="assets/icons/forum.svg" alt="" width="22" height="22"> ИИ-чат</h3>
-      <ul class="rows">
-        <li><strong>Популярные API</strong><span>каталог моделей с ценами, ключ вставляется в приложение</span></li>
-        <li><strong>Свой API</strong><span>ваш ключ и любой сервис формата OpenAI, Claude или Gemini</span></li>
-      </ul>
-      <p class="block-note">Ключ хранится только на телефоне. Чат работает и без настройки: просто не отвечает, пока ключа нет.</p>
+    <article class="glass card-cta">
+      <img src="assets/icons/show_chart.svg" alt="" width="24" height="24">
+      <h3 data-i18n="more.c2t">Разработчикам</h3>
+      <p data-i18n="more.c2p">Форк репозитория, сборка своей версии, свой бэкенд и список использованных скиллов.</p>
+      <a class="btn btn-secondary" href="https://items.elunaris-vitrail.strangled.net/" data-i18n="more.c2b">Открыть страницу</a>
     </article>
-  </div>
-</section>
-
-<section class="section" id="install">
-  <h2>Установка</h2>
-  <ol class="steps">
-    <li><strong>Скачайте APK</strong> из раздела «Скачать» выше.</li>
-    <li><strong>Разрешите установку из неизвестных источников.</strong> Android спросит об этом при открытии файла: это нормально для приложения не из магазина.</li>
-    <li><strong>Откройте скачанный файл</strong> и установите приложение.</li>
-    <li><strong>Обновления ставятся поверх:</strong> скачайте свежий APK и откройте его, данные и настройки сохранятся.</li>
-  </ol>
-</section>
-
-<section class="section" id="fork">
-  <h2>Форк и сборка</h2>
-  <p class="section-sub">Проект открыт: сделайте форк репозитория и соберите свою версию. В README внутри подробно описаны требования (JDK 17, Android SDK), сборка, свой бэкенд и публикация обновлений.</p>
-  <div class="hero-cta">
-    <a class="btn btn-secondary" href="https://github.com/ann-kuz/somena" rel="noopener">Репозиторий на GitHub</a>
   </div>
 </section>
 
@@ -164,15 +145,74 @@
 <footer class="footer">
   <div class="footer-brand">
     <img src="assets/icon.svg" alt="" width="24" height="24">
-    <span>Somena, личный трекер здоровья</span>
+    <span data-i18n="foot.brand">Somena, личный трекер здоровья</span>
   </div>
-  <p class="footer-versions">Стабильная <span data-channel="stable-version">0.29.1</span> от <span data-channel="stable-date">30.09.2026</span>, тестовая <span data-channel="test-version">0.29.1</span> от <span data-channel="test-date">30.09.2026</span></p>
+  <p class="footer-versions"><span data-i18n="foot.stable">Стабильная</span> <span data-channel="stable-version">0.29.1</span> <span data-i18n="foot.from">от</span> <span data-channel="stable-date">30.09.2026</span>, <span data-i18n="foot.test">тестовая</span> <span data-channel="test-version">0.29.1</span> <span data-i18n="foot.from">от</span> <span data-channel="test-date">30.09.2026</span></p>
   <nav class="footer-links" aria-label="Ссылки">
-    <a href="https://elunaris-vitrail.strangled.net/apk/somena.apk">Скачать APK</a>
+    <a href="https://elunaris-vitrail.strangled.net/apk/somena.apk" data-i18n="foot.download">Скачать APK</a>
     <a href="https://github.com/ann-kuz/somena" rel="noopener">GitHub</a>
   </nav>
 </footer>
 
+<script>
+window.SOMENA_I18N = {
+  ru: {
+    '__title': 'Somena: личный трекер здоровья',
+    'nav.about': 'Что это', 'nav.setup': 'Настройка', 'nav.dev': 'Разработчикам', 'nav.download': 'Скачать',
+    'hero.sub': 'Личный трекер здоровья: шаги, сон, вес, еда и самочувствие в одном приложении, с ИИ-чатом по вашим данным.',
+    'hero.btn1': 'Скачать APK', 'hero.btn2': 'Тестовый релиз',
+    'dl.h': 'Скачать',
+    'dl.sub': 'Два канала: стабильная обновляется вручную после проверки, тестовая получает каждую сборку автоматически. Раздача идёт с нашего сервера, у GitHub есть зеркало на случай блокировок.',
+    'dl.stable': 'Стабильная сборка', 'dl.from': 'от', 'dl.checked': 'проверенная версия',
+    'dl.btn': 'Скачать APK', 'dl.mirror': 'зеркало на GitHub',
+    'dl.test': 'Тестовый релиз', 'dl.early': 'новое раньше, недоделки возможны',
+    'dl.btnTest': 'Скачать тестовый APK', 'dl.history': 'история релизов на GitHub',
+    'about.h': 'Что это',
+    'about.sub': 'Приложения-источники пишут данные в Health Connect, Somena читает их, собирает день в один срез, строит графики и отвечает на вопросы. Все данные остаются на телефоне: аккаунтов и облаков нет.',
+    'about.s1': 'Шаги', 'about.s1t': 'Шаги и расход калорий за день, с браслета или телефона.',
+    'about.s2': 'Сон', 'about.s2t': 'Длительность сна из Mi Band или другого источника.',
+    'about.s3': 'Вес и состав тела', 'about.s3t': 'Вес, процент жира, костная масса и базовый расход с умных весов.',
+    'about.s4': 'Еда', 'about.s4t': 'Съеденные калории и БЖУ из дневника питания FatSecret.',
+    'about.s5': 'Самочувствие', 'about.s5t': 'Энергия, настроение и качество сна: пара отметок в день от вас.',
+    'about.s6': 'Календарь цикла', 'about.s6t': 'Записи цикла с прогнозом периодов и фертильного окна.',
+    'about.s7': 'Графики', 'about.s7t': 'Дефицит, калории, вес и БЖУ: светящиеся линии с трендами.',
+    'about.s8': 'ИИ-чат по данным', 'about.s8t': 'Спросите о своём дне или периоде: ИИ видит срезы и отвечает советом.',
+    'about.privacy': 'Приватность', 'about.privacyT': 'Данные живут только на вашем телефоне. Сервер лишь передаёт запросы к ИИ и ничего не хранит; ключи остаются в приложении.',
+    'more.h': 'Подробнее', 'more.sub': 'Установка и настройка живут на отдельных страницах, рядом с этим сайтом.',
+    'more.c1t': 'Настройка и установка', 'more.c1p': 'Как подключить источники данных, настроить ИИ-чат и установить приложение.', 'more.c1b': 'Открыть настройку',
+    'more.c2t': 'Разработчикам', 'more.c2p': 'Форк репозитория, сборка своей версии, свой бэкенд и список использованных скиллов.', 'more.c2b': 'Открыть страницу',
+    'foot.brand': 'Somena, личный трекер здоровья', 'foot.stable': 'Стабильная', 'foot.test': 'тестовая', 'foot.from': 'от', 'foot.download': 'Скачать APK'
+  },
+  de: {
+    '__title': 'Somena: persönlicher Gesundheitstracker',
+    'nav.about': 'Überblick', 'nav.setup': 'Einrichtung', 'nav.dev': 'Für Entwickler', 'nav.download': 'Herunterladen',
+    'hero.sub': 'Persönlicher Gesundheitstracker: Schritte, Schlaf, Gewicht, Ernährung und Wohlbefinden in einer App, mit KI-Chat zu Ihren Daten.',
+    'hero.btn1': 'APK herunterladen', 'hero.btn2': 'Testversion',
+    'dl.h': 'Herunterladen',
+    'dl.sub': 'Zwei Kanäle: Die stabile Version wird nach Prüfung von Hand aktualisiert, die Testversion erhält jeden Build automatisch. Der Download läuft über unseren Server, GitHub dient als Spiegel für den Fall von Sperren.',
+    'dl.stable': 'Stabiler Build', 'dl.from': 'vom', 'dl.checked': 'geprüfte Version',
+    'dl.btn': 'APK herunterladen', 'dl.mirror': 'Spiegel auf GitHub',
+    'dl.test': 'Testversion', 'dl.early': 'Neuerungen früher, Unfertiges möglich',
+    'dl.btnTest': 'Test-APK herunterladen', 'dl.history': 'Release-Verlauf auf GitHub',
+    'about.h': 'Über Somena',
+    'about.sub': 'Quell-Apps schreiben Daten in Health Connect, Somena liest sie, fasst den Tag in einer Übersicht zusammen, zeichnet Diagramme und beantwortet Fragen. Alle Daten bleiben auf dem Telefon: keine Konten, keine Cloud.',
+    'about.s1': 'Schritte', 'about.s1t': 'Schritte und Kalorienverbrauch des Tages, vom Armband oder Telefon.',
+    'about.s2': 'Schlaf', 'about.s2t': 'Schlafdauer aus Mi Band oder einer anderen Quelle.',
+    'about.s3': 'Gewicht und Körperzusammensetzung', 'about.s3t': 'Gewicht, Körperfettanteil, Knochenmasse und Grundumsatz von der Smart-Waage.',
+    'about.s4': 'Ernährung', 'about.s4t': 'Gegessene Kalorien und Makronährstoffe aus dem Tagebuch FatSecret.',
+    'about.s5': 'Wohlbefinden', 'about.s5t': 'Energie, Stimmung und Schlafqualität: ein paar Einschätzungen am Tag von Ihnen.',
+    'about.s6': 'Zykluskalender', 'about.s6t': 'Zykluseinträge mit Vorhersage von Periode und fruchtbaren Tagen.',
+    'about.s7': 'Diagramme', 'about.s7t': 'Defizit, Kalorien, Gewicht und Makros: leuchtende Linien mit Trends.',
+    'about.s8': 'KI-Chat zu Ihren Daten', 'about.s8t': 'Fragen Sie nach Ihrem Tag oder Zeitraum: Die KI sieht die Übersichten und antwortet mit einem Rat.',
+    'about.privacy': 'Datenschutz', 'about.privacyT': 'Daten leben nur auf Ihrem Telefon. Der Server leitet lediglich Anfragen an die KI weiter und speichert nichts; die Schlüssel bleiben in der App.',
+    'more.h': 'Mehr dazu', 'more.sub': 'Installation und Einrichtung stehen auf eigenen Seiten neben dieser Website.',
+    'more.c1t': 'Einrichtung und Installation', 'more.c1p': 'Wie Sie Datenquellen verbinden, den KI-Chat einrichten und die App installieren.', 'more.c1b': 'Zur Einrichtung',
+    'more.c2t': 'Für Entwickler', 'more.c2p': 'Fork des Repositoriums, eigener Build, eigener Server und die genutzten Skills.', 'more.c2b': 'Seite öffnen',
+    'foot.brand': 'Somena, persönlicher Gesundheitstracker', 'foot.stable': 'Stabil', 'foot.test': 'Test', 'foot.from': 'vom', 'foot.download': 'APK herunterladen'
+  }
+};
+</script>
+<script src="i18n.js"></script>
 <script>
 (async () => {
   try {

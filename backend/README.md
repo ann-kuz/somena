@@ -38,12 +38,33 @@ APK, ИИ-чат). Зеркала на GitHub: лендинг https://ann-kuz.gi
 стабильный APK https://github.com/ann-kuz/somena/releases/latest/download/somena.apk
 (выкладывается тегом `v<версия>`).
 
-Правила nginx (не ломать): стрим-блок 443 (SNI-маршрутизация VPN), легенда на
-`info.`/`items.`, `location = /vk/callback` и `= /vk/callback1`, статические
+Правила nginx (не ломать): стрим-блок 443 (SNI-маршрутизация VPN), server-блоки
+`info.`/`items.` на 444 (за ними та же маршрутизация, см. ниже),
+`location = /vk/callback` и `= /vk/callback1`, статические
 `location = /privacy.html` и `= /google…html` — не трогать. Правки только в
 базовом server-блоке на 444 (`elunaris.…`), `nginx -t` перед reload, резервные
 копии конфига рядом с ним. Продление сертификата идёт через порт 80 (webroot
 `/var/www/html`), он не менялся.
+
+## Поддоменные страницы и язык (спека 0012, дополнение 02.10.2026)
+
+Чтобы маскировка была цельной, поддомены показывают страницы Somena: `info.`
+открывает «Настройку», `items.` — «Разработчикам» (форк, сборка). Исходники в
+репозитории в `site-sub/`, разложены на сервере в `/var/www/somena/` (nginx
+читает их напрямую, без Бэкенда). Правка страниц: менять `site-sub/`, затем
+`cp -a site-sub/. /var/www/somena/` и `chown -R root:www-data /var/www/somena`;
+`style.css` и `i18n.js` — общие копии из `site/`, обновлять синхронно. Старые
+страницы-витражи не удалены: `/var/www/html/{index,info,items}.html` и бэкапы
+`/root/backups/old-site-backup-2026-10-02/` (+ tar.gz).
+
+Язык (русский/немецкий): nginx по IP отдаёт `/lang.js` c подсказкой `de`/`ru`.
+Список немецких сетей — `/etc/nginx/geo_somena_de.conf` (сгенерирован из реестра
+RIPE `delegated-ripencc-extended-latest`, фильтр по стране DE; обновлять редко и
+только перегенерацией). Ручной выбор посетителя хранится в печенье
+`somena-lang` на всю зону `elunaris-vitrail.strangled.net`. Сами серверные блоки
+`info.`/`items.` (корень `/var/www/somena`) и их `location = /lang.js` — тоже
+«не ломать»: за их спиной та же SNI-маршрутизация VPN (MTProto на `info.`,
+REALITY на `items.`, проверяется curl `--resolve …:443:127.0.0.1`).
 
 ## Смена модели
 
