@@ -44,6 +44,11 @@
       var value = dict[nodes[i].getAttribute('data-i18n')];
       if (value != null) nodes[i].textContent = value;
     }
+    var fields = document.querySelectorAll('[data-i18n-ph]');
+    for (var f = 0; f < fields.length; f++) {
+      var hint = dict[fields[f].getAttribute('data-i18n-ph')];
+      if (hint != null) fields[f].setAttribute('placeholder', hint);
+    }
     document.documentElement.lang = lang;
     if (dict['__title']) document.title = dict['__title'];
     var buttons = document.querySelectorAll('[data-lang-btn]');

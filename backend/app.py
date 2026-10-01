@@ -1,19 +1,27 @@
-"""Somena AI proxy (тикет 04): единственная роль Бэкенда — прокси к ИИ.
+"""Somena AI proxy (тикет 04): роль Бэкенда — прокси к ИИ, раздача APK/лендинга
+и приём багрепортов с формы обратной связи.
 
-Принципы: ключ proxyapi живёт только в .env; пересылаемые данные не сохраняются;
-в логи не попадают ни ключи, ни содержимое запросов.
+Принципы: ключи живут только в .env; пересылаемые данные не сохраняются;
+в логи не попадают ни ключи, ни содержимое запросов чата. Отчёты формы
+(спека 0012, дополнение 03.10.2026) пишутся в журнал backend/feedback.jsonl
+(в git не входит) и уходят на почту владелицы, если задан SMTP-пароль.
 """
 
 import asyncio
+import json
 import logging
 import os
 import hmac
+import smtplib
+import threading
 import time
+from email.message import EmailMessage
 from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -43,6 +51,15 @@ APK_TEST_PATH = Path(os.environ.get("APK_TEST_PATH", str(Path(__file__).parent /
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 log = logging.getLogger("somena-ai")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+# Зеркало лендинга на GitHub Pages шлёт багрепорт сюда: без этого браузер зарежет
+# межсайтовый POST /feedback (остальные роуты токенизированы, чужого происхождения не боятся).
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://ann-kuz.github.io"],
+    allow_methods=["POST"],
+    allow_headers=["Content-Type"],
+)
 
 
 class ChatMessage(BaseModel):
@@ -183,6 +200,72 @@ async def chat(req: ChatRequest, authorization: str = Header(default="")) -> dic
         raise HTTPException(status_code=502, detail="Неожиданный ответ ИИ-провайдера")
 
     return {"reply": reply, "model": model}
+
+
+# Обратная связь лендинга (спека 0012, дополнение 03.10.2026): багрепорты с сайта.
+# Адрес владелицы живёт только в .env (FEEDBACK_TO), наружу не отдаётся; пока
+# SMTP-пароль не задан, отчёты копятся в журнале, письма не уходят.
+FEEDBACK_TO = os.environ.get("FEEDBACK_TO", "")
+FEEDBACK_SMTP_USER = os.environ.get("FEEDBACK_SMTP_USER", "")
+FEEDBACK_SMTP_PASS = os.environ.get("FEEDBACK_SMTP_PASS", "")
+FEEDBACK_RATE_S = float(os.environ.get("FEEDBACK_RATE_S", "30"))
+FEEDBACK_JOURNAL = Path(__file__).parent / "feedback.jsonl"
+_feedback_recent: dict[str, float] = {}
+_feedback_lock = threading.Lock()
+
+
+class FeedbackRequest(BaseModel):
+    message: str = Field(max_length=4000)
+    contact: str = Field(default="", max_length=200)
+    website: str = Field(default="", max_length=200)  # медовая ловушка ботам
+
+
+def _feedback_ip(request: Request) -> str:
+    # Публичный вход через nginx: реальный адрес посетителя в X-Forwarded-For.
+    forwarded = request.headers.get("x-forwarded-for", "")
+    return forwarded.split(",")[0].strip() or (request.client.host if request.client else "?")
+
+
+def _email_feedback(message: str, contact: str) -> None:
+    if not (FEEDBACK_TO and FEEDBACK_SMTP_USER and FEEDBACK_SMTP_PASS):
+        return
+    letter = EmailMessage()
+    letter["Subject"] = "Somena: багрепорт с сайта"
+    letter["From"] = FEEDBACK_SMTP_USER
+    letter["To"] = FEEDBACK_TO
+    letter.set_content(f"{message}\n\nОбратная почта: {contact or 'не указана'}")
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as smtp:
+            smtp.login(FEEDBACK_SMTP_USER, FEEDBACK_SMTP_PASS)
+            smtp.send_message(letter)
+    except OSError:
+        log.warning("feedback email failed, report stays in journal only")
+
+
+@app.post("/feedback")
+def feedback(req: FeedbackRequest, request: Request) -> dict:
+    if req.website.strip():
+        # Ловушка заполнена: молча делаем вид, что приняли.
+        return {"ok": True}
+    text = req.message.strip()
+    if len(text) < 4:
+        raise HTTPException(status_code=400, detail="Опишите проблему хотя бы парой слов")
+    ip = _feedback_ip(request)
+    now = time.monotonic()
+    with _feedback_lock:
+        if now - _feedback_recent.get(ip, 0.0) < FEEDBACK_RATE_S:
+            raise HTTPException(status_code=429, detail="Слишком часто, попробуйте позже")
+        _feedback_recent[ip] = now
+        if len(_feedback_recent) > 1000:
+            for old_ip, _ in sorted(_feedback_recent.items(), key=lambda kv: kv[1])[:500]:
+                _feedback_recent.pop(old_ip, None)
+    entry = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "ip": ip,
+             "contact": req.contact.strip(), "message": text}
+    with FEEDBACK_JOURNAL.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    _email_feedback(text, req.contact.strip())
+    log.info("feedback accepted (%d chars)", len(text))
+    return {"ok": True}
 
 
 # Лендинг (спека 0012): статика в корне, монтируется последним, чтобы API-роуты

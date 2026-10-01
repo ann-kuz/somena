@@ -66,6 +66,17 @@ RIPE `delegated-ripencc-extended-latest`, фильтр по стране DE; о�
 «не ломать»: за их спиной та же SNI-маршрутизация VPN (MTProto на `info.`,
 REALITY на `items.`, проверяется curl `--resolve …:443:127.0.0.1`).
 
+## Форма багрепортов (спека 0012, дополнение 03.10.2026)
+
+Лендинг шлёт отчёты на `POST /feedback` (JSON: `message`, `contact`, `website`).
+Записи падают в `backend/feedback.jsonl` (в git не входит, может содержать
+почты посетителей). Почта владелицы и SMTP-учётка — только в `.env`: `FEEDBACK_TO`,
+`FEEDBACK_SMTP_USER`, `FEEDBACK_SMTP_PASS` (пароль приложения Gmail; пустой —
+письма не уходят, отчёты копятся в журнале). Лимит: один отчёт в 30 секунд с
+адреса, «website» — медовая ловушка ботам. Зеркало GitHub Pages отправляет
+форму на домен, CORS разрешён только для `https://ann-kuz.github.io`.
+Правка `app.py` — как обычно, `systemctl restart somena-ai`.
+
 ## Смена модели
 
 Модель выбирается Ступенью из приложения: `fast` (Быстрая) и `max` (Максимальная,

@@ -48,7 +48,6 @@
 
 <section class="section" id="download">
   <h2 data-i18n="dl.h">Скачать</h2>
-  <p class="section-sub" data-i18n="dl.sub">Два канала: стабильная обновляется вручную после проверки, тестовая получает каждую сборку автоматически. Раздача идёт с нашего сервера, у GitHub есть зеркало на случай блокировок.</p>
   <div class="cards-download">
     <article class="glass card-download">
       <p class="card-caption" data-i18n="dl.stable">Стабильная сборка</p>
@@ -60,7 +59,7 @@
     <article class="glass card-download">
       <p class="card-caption" data-i18n="dl.test">Тестовый релиз</p>
       <p class="card-value"><span data-channel="test-version">0.29.1</span></p>
-      <p class="card-note"><span data-channel="test-date">30.09.2026</span> · <span data-i18n="dl.early">новое раньше, недоделки возможны</span></p>
+      <p class="card-note"><span data-channel="test-date">30.09.2026</span> · <span data-i18n="dl.early">новые фичи, возможно баги</span></p>
       <a class="btn btn-secondary btn-block" href="https://elunaris-vitrail.strangled.net/apk/somena-test.apk" data-i18n="dl.btnTest">Скачать тестовый APK</a>
       <a class="backup-link" href="https://github.com/ann-kuz/somena/releases" data-i18n="dl.history">история релизов на GitHub</a>
     </article>
@@ -74,7 +73,7 @@
     <article class="glass card">
       <img src="assets/icons/directions_walk.svg" alt="" width="24" height="24">
       <h3 data-i18n="about.s1">Шаги</h3>
-      <p data-i18n="about.s1t">Шаги и расход калорий за день, с браслета или телефона.</p>
+      <p data-i18n="about.s1t">Шаги и расход калорий за день.</p>
     </article>
     <article class="glass card">
       <img src="assets/icons/bedtime.svg" alt="" width="24" height="24">
@@ -104,7 +103,7 @@
     <article class="glass card">
       <img src="assets/icons/show_chart.svg" alt="" width="24" height="24">
       <h3 data-i18n="about.s7">Графики</h3>
-      <p data-i18n="about.s7t">Дефицит, калории, вес и БЖУ: светящиеся линии с трендами.</p>
+      <p data-i18n="about.s7t">Дефицит, калории, вес и БЖУ: графики с трендами.</p>
     </article>
     <article class="glass card">
       <img src="assets/icons/forum.svg" alt="" width="24" height="24">
@@ -123,7 +122,7 @@
 
 <section class="section" id="more">
   <h2 data-i18n="more.h">Подробнее</h2>
-  <p class="section-sub" data-i18n="more.sub">Установка и настройка живут на отдельных страницах, рядом с этим сайтом.</p>
+  <p class="section-sub" data-i18n="more.sub">Установка и настройка описаны на отдельных страницах.</p>
   <div class="cards">
     <article class="glass card-cta">
       <img src="assets/icons/health_and_safety.svg" alt="" width="24" height="24">
@@ -140,6 +139,26 @@
   </div>
 </section>
 
+<section class="section" id="feedback">
+  <h2 data-i18n="fb.h">Обратная связь</h2>
+  <p class="section-sub" data-i18n="fb.lead">Somena сделана с помощью вайбкодинга, и разработчик будет рад багрепортам.</p>
+  <form class="glass feedback-form" id="feedbackForm" novalidate>
+    <div class="field">
+      <label for="fb-message" data-i18n="fb.msgLabel">Что случилось?</label>
+      <textarea id="fb-message" name="message" rows="4" maxlength="4000" data-i18n-ph="fb.msgPh" placeholder="Опишите, что работает не так"></textarea>
+    </div>
+    <div class="field">
+      <label for="fb-contact" data-i18n="fb.contactLabel">Почта для ответа (необязательно)</label>
+      <input id="fb-contact" name="contact" type="email" maxlength="200" placeholder="you@example.com">
+    </div>
+    <input class="hp-field" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+    <div class="form-actions">
+      <button class="btn btn-primary" type="submit" id="fbSubmit" data-i18n="fb.send">Отправить отчёт</button>
+      <p class="form-status" id="fbStatus" role="status" aria-live="polite"></p>
+    </div>
+  </form>
+</section>
+
 </main>
 
 <footer class="footer">
@@ -147,7 +166,7 @@
     <img src="assets/icon.svg" alt="" width="24" height="24">
     <span data-i18n="foot.brand">Somena, личный трекер здоровья</span>
   </div>
-  <p class="footer-versions"><span data-i18n="foot.stable">Стабильная</span> <span data-channel="stable-version">0.29.1</span> <span data-i18n="foot.from">от</span> <span data-channel="stable-date">30.09.2026</span>, <span data-i18n="foot.test">тестовая</span> <span data-channel="test-version">0.29.1</span> <span data-i18n="foot.from">от</span> <span data-channel="test-date">30.09.2026</span></p>
+  <p class="footer-versions"><span data-i18n="foot.stable">Стабильная</span> <span data-channel="stable-version">0.29.1</span> · <span data-i18n="foot.test">тестовая</span> <span data-channel="test-version">0.29.1</span></p>
   <nav class="footer-links" aria-label="Ссылки">
     <a href="https://elunaris-vitrail.strangled.net/apk/somena.apk" data-i18n="foot.download">Скачать APK</a>
     <a href="https://github.com/ann-kuz/somena" rel="noopener">GitHub</a>
@@ -162,26 +181,32 @@ window.SOMENA_I18N = {
     'hero.sub': 'Личный трекер здоровья: шаги, сон, вес, еда и самочувствие в одном приложении, с ИИ-чатом по вашим данным.',
     'hero.btn1': 'Скачать APK', 'hero.btn2': 'Тестовый релиз',
     'dl.h': 'Скачать',
-    'dl.sub': 'Два канала: стабильная обновляется вручную после проверки, тестовая получает каждую сборку автоматически. Раздача идёт с нашего сервера, у GitHub есть зеркало на случай блокировок.',
     'dl.stable': 'Стабильная сборка', 'dl.from': 'от', 'dl.checked': 'проверенная версия',
     'dl.btn': 'Скачать APK', 'dl.mirror': 'зеркало на GitHub',
-    'dl.test': 'Тестовый релиз', 'dl.early': 'новое раньше, недоделки возможны',
+    'dl.test': 'Тестовый релиз', 'dl.early': 'новые фичи, возможно баги',
     'dl.btnTest': 'Скачать тестовый APK', 'dl.history': 'история релизов на GitHub',
     'about.h': 'Что это',
     'about.sub': 'Приложения-источники пишут данные в Health Connect, Somena читает их, собирает день в один срез, строит графики и отвечает на вопросы. Все данные остаются на телефоне: аккаунтов и облаков нет.',
-    'about.s1': 'Шаги', 'about.s1t': 'Шаги и расход калорий за день, с браслета или телефона.',
+    'about.s1': 'Шаги', 'about.s1t': 'Шаги и расход калорий за день.',
     'about.s2': 'Сон', 'about.s2t': 'Длительность сна из Mi Band или другого источника.',
     'about.s3': 'Вес и состав тела', 'about.s3t': 'Вес, процент жира, костная масса и базовый расход с умных весов.',
     'about.s4': 'Еда', 'about.s4t': 'Съеденные калории и БЖУ из дневника питания FatSecret.',
     'about.s5': 'Самочувствие', 'about.s5t': 'Энергия, настроение и качество сна: пара отметок в день от вас.',
     'about.s6': 'Календарь цикла', 'about.s6t': 'Записи цикла с прогнозом периодов и фертильного окна.',
-    'about.s7': 'Графики', 'about.s7t': 'Дефицит, калории, вес и БЖУ: светящиеся линии с трендами.',
+    'about.s7': 'Графики', 'about.s7t': 'Дефицит, калории, вес и БЖУ: графики с трендами.',
     'about.s8': 'ИИ-чат по данным', 'about.s8t': 'Спросите о своём дне или периоде: ИИ видит срезы и отвечает советом.',
     'about.privacy': 'Приватность', 'about.privacyT': 'Данные живут только на вашем телефоне. Сервер лишь передаёт запросы к ИИ и ничего не хранит; ключи остаются в приложении.',
-    'more.h': 'Подробнее', 'more.sub': 'Установка и настройка живут на отдельных страницах, рядом с этим сайтом.',
+    'more.h': 'Подробнее', 'more.sub': 'Установка и настройка описаны на отдельных страницах.',
     'more.c1t': 'Настройка и установка', 'more.c1p': 'Как подключить источники данных, настроить ИИ-чат и установить приложение.', 'more.c1b': 'Открыть настройку',
     'more.c2t': 'Разработчикам', 'more.c2p': 'Форк репозитория, сборка своей версии, свой бэкенд и список использованных скиллов.', 'more.c2b': 'Открыть страницу',
-    'foot.brand': 'Somena, личный трекер здоровья', 'foot.stable': 'Стабильная', 'foot.test': 'тестовая', 'foot.from': 'от', 'foot.download': 'Скачать APK'
+    'fb.h': 'Обратная связь',
+    'fb.lead': 'Somena сделана с помощью вайбкодинга, и разработчик будет рад багрепортам.',
+    'fb.msgLabel': 'Что случилось?', 'fb.msgPh': 'Опишите, что работает не так',
+    'fb.contactLabel': 'Почта для ответа (необязательно)',
+    'fb.send': 'Отправить отчёт', 'fb.sending': 'Отправка…',
+    'fb.ok': 'Спасибо, отчёт получен.', 'fb.err': 'Не получилось отправить, попробуйте ещё раз.',
+    'fb.tooFast': 'Слишком часто. Попробуйте через минуту.', 'fb.empty': 'Опишите проблему хотя бы парой слов.',
+    'foot.brand': 'Somena, личный трекер здоровья', 'foot.stable': 'Стабильная', 'foot.test': 'тестовая', 'foot.download': 'Скачать APK'
   },
   de: {
     '__title': 'Somena: persönlicher Gesundheitstracker',
@@ -189,26 +214,32 @@ window.SOMENA_I18N = {
     'hero.sub': 'Persönlicher Gesundheitstracker: Schritte, Schlaf, Gewicht, Ernährung und Wohlbefinden in einer App, mit KI-Chat zu Ihren Daten.',
     'hero.btn1': 'APK herunterladen', 'hero.btn2': 'Testversion',
     'dl.h': 'Herunterladen',
-    'dl.sub': 'Zwei Kanäle: Die stabile Version wird nach Prüfung von Hand aktualisiert, die Testversion erhält jeden Build automatisch. Der Download läuft über unseren Server, GitHub dient als Spiegel für den Fall von Sperren.',
     'dl.stable': 'Stabiler Build', 'dl.from': 'vom', 'dl.checked': 'geprüfte Version',
     'dl.btn': 'APK herunterladen', 'dl.mirror': 'Spiegel auf GitHub',
-    'dl.test': 'Testversion', 'dl.early': 'Neuerungen früher, Unfertiges möglich',
+    'dl.test': 'Testversion', 'dl.early': 'neue Features früher, Bugs möglich',
     'dl.btnTest': 'Test-APK herunterladen', 'dl.history': 'Release-Verlauf auf GitHub',
     'about.h': 'Über Somena',
     'about.sub': 'Quell-Apps schreiben Daten in Health Connect, Somena liest sie, fasst den Tag in einer Übersicht zusammen, zeichnet Diagramme und beantwortet Fragen. Alle Daten bleiben auf dem Telefon: keine Konten, keine Cloud.',
-    'about.s1': 'Schritte', 'about.s1t': 'Schritte und Kalorienverbrauch des Tages, vom Armband oder Telefon.',
+    'about.s1': 'Schritte', 'about.s1t': 'Schritte und Kalorienverbrauch des Tages.',
     'about.s2': 'Schlaf', 'about.s2t': 'Schlafdauer aus Mi Band oder einer anderen Quelle.',
     'about.s3': 'Gewicht und Körperzusammensetzung', 'about.s3t': 'Gewicht, Körperfettanteil, Knochenmasse und Grundumsatz von der Smart-Waage.',
     'about.s4': 'Ernährung', 'about.s4t': 'Gegessene Kalorien und Makronährstoffe aus dem Tagebuch FatSecret.',
     'about.s5': 'Wohlbefinden', 'about.s5t': 'Energie, Stimmung und Schlafqualität: ein paar Einschätzungen am Tag von Ihnen.',
     'about.s6': 'Zykluskalender', 'about.s6t': 'Zykluseinträge mit Vorhersage von Periode und fruchtbaren Tagen.',
-    'about.s7': 'Diagramme', 'about.s7t': 'Defizit, Kalorien, Gewicht und Makros: leuchtende Linien mit Trends.',
+    'about.s7': 'Diagramme', 'about.s7t': 'Defizit, Kalorien, Gewicht und Makros: Diagramme mit Trends.',
     'about.s8': 'KI-Chat zu Ihren Daten', 'about.s8t': 'Fragen Sie nach Ihrem Tag oder Zeitraum: Die KI sieht die Übersichten und antwortet mit einem Rat.',
     'about.privacy': 'Datenschutz', 'about.privacyT': 'Daten leben nur auf Ihrem Telefon. Der Server leitet lediglich Anfragen an die KI weiter und speichert nichts; die Schlüssel bleiben in der App.',
-    'more.h': 'Mehr dazu', 'more.sub': 'Installation und Einrichtung stehen auf eigenen Seiten neben dieser Website.',
+    'more.h': 'Mehr dazu', 'more.sub': 'Installation und Einrichtung stehen auf eigenen Seiten.',
     'more.c1t': 'Einrichtung und Installation', 'more.c1p': 'Wie Sie Datenquellen verbinden, den KI-Chat einrichten und die App installieren.', 'more.c1b': 'Zur Einrichtung',
     'more.c2t': 'Für Entwickler', 'more.c2p': 'Fork des Repositoriums, eigener Build, eigener Server und die genutzten Skills.', 'more.c2b': 'Seite öffnen',
-    'foot.brand': 'Somena, persönlicher Gesundheitstracker', 'foot.stable': 'Stabil', 'foot.test': 'Test', 'foot.from': 'vom', 'foot.download': 'APK herunterladen'
+    'fb.h': 'Feedback',
+    'fb.lead': 'Somena ist per Vibe-Coding entstanden, und der Entwickler freut sich über Fehlerberichte.',
+    'fb.msgLabel': 'Was ist passiert?', 'fb.msgPh': 'Beschreiben Sie, was nicht funktioniert',
+    'fb.contactLabel': 'E-Mail für eine Antwort (optional)',
+    'fb.send': 'Bericht senden', 'fb.sending': 'Wird gesendet…',
+    'fb.ok': 'Danke, der Bericht ist angekommen.', 'fb.err': 'Senden fehlgeschlagen, bitte erneut versuchen.',
+    'fb.tooFast': 'Zu häufig. Bitte in einer Minute erneut.', 'fb.empty': 'Beschreiben Sie das Problem mit wenigen Worten.',
+    'foot.brand': 'Somena, persönlicher Gesundheitstracker', 'foot.stable': 'Stabil', 'foot.test': 'Test', 'foot.download': 'APK herunterladen'
   }
 };
 </script>
@@ -228,6 +259,52 @@ window.SOMENA_I18N = {
       if (entry.date) set('date', date(entry.date));
     }
   } catch (_) { /* манифест недоступен: показываем вшитые версии */ }
+})();
+</script>
+<script>
+(() => {
+  const form = document.getElementById('feedbackForm');
+  if (!form) return;
+  const dict = () => ((window.SOMENA_I18N || {})[document.documentElement.lang || 'ru'] || {});
+  const t = (key) => dict()[key] || '';
+  const submit = document.getElementById('fbSubmit');
+  const status = document.getElementById('fbStatus');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const message = form.elements.message.value.trim();
+    status.textContent = '';
+    if (message.length < 4) {
+      status.textContent = t('fb.empty');
+      document.getElementById('fb-message').focus();
+      return;
+    }
+    submit.disabled = true;
+    submit.textContent = t('fb.sending');
+    try {
+      const resp = await fetch('https://elunaris-vitrail.strangled.net/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message,
+          contact: form.elements.contact.value.trim(),
+          website: form.elements.website.value,
+        }),
+      });
+      if (resp.ok) {
+        status.textContent = t('fb.ok');
+        form.reset();
+      } else if (resp.status === 429) {
+        status.textContent = t('fb.tooFast');
+      } else {
+        status.textContent = t('fb.err');
+      }
+    } catch (_) {
+      status.textContent = t('fb.err');
+    } finally {
+      submit.disabled = false;
+      submit.textContent = t('fb.send') || 'Отправить отчёт';
+    }
+  });
 })();
 </script>
 

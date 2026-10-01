@@ -13,3 +13,6 @@ __pycache__/
 # Черновики и раздача APK
 .scratch/
 backend/apk/
+
+# Журнал багрепортов (может содержать почты посетителей)
+backend/feedback.jsonl

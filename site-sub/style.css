@@ -176,7 +176,7 @@ a:hover { color: #A79BFF; }
 .section {
   max-width: var(--content);
   margin: 0 auto;
-  padding: clamp(48px, 8vh, 84px) 20px;
+  padding: clamp(44px, 7vh, 76px) 20px clamp(36px, 5vh, 56px);
 }
 
 .section h2 {
@@ -332,8 +332,8 @@ a.backup-link:hover { color: #A79BFF; }
 
 .footer {
   max-width: var(--content);
-  margin: 40px auto 0;
-  padding: 32px 20px 48px;
+  margin: 0 auto;
+  padding: 28px 20px 44px;
   border-top: 1px solid var(--glass-border);
   display: flex;
   flex-wrap: wrap;
@@ -392,8 +392,8 @@ a.backup-link:hover { color: #A79BFF; }
 }
 
 .lang-btn {
-  min-height: 30px;
-  padding: 0 12px;
+  min-height: 32px;
+  padding: 0 13px;
   border-radius: 999px;
   border: 1px solid transparent;
   background: transparent;
@@ -407,10 +407,13 @@ a.backup-link:hover { color: #A79BFF; }
 
 .lang-btn:hover { color: var(--text); }
 
+/* Активный язык - неоновая пилюля как у кнопок: перепутать состояния невозможно */
 .lang-btn.active {
   color: #F6F4FF;
-  background: linear-gradient(135deg, rgba(139, 124, 255, 0.3), rgba(70, 174, 255, 0.16));
-  border-color: rgba(200, 195, 255, 0.35);
+  text-shadow: 0 0 12px rgba(241, 239, 251, 0.3);
+  background: linear-gradient(135deg, rgba(139, 124, 255, 0.42), rgba(70, 174, 255, 0.24));
+  border-color: rgba(200, 195, 255, 0.5);
+  box-shadow: 0 0 16px rgba(139, 124, 255, 0.25);
 }
 
 .nav-links a.active { color: var(--text); }
@@ -478,3 +481,57 @@ a.backup-link:hover { color: #A79BFF; }
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--glass-border);
 }
+
+/* Форма обратной связи: багрепорты (дополнение 03.10.2026) */
+
+.feedback-form {
+  max-width: 640px;
+  margin-top: 28px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.field { display: flex; flex-direction: column; gap: 8px; }
+
+.field label { font-size: 0.92rem; font-weight: 600; }
+
+.field textarea,
+.field input {
+  font: inherit;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  min-height: 46px;
+  resize: vertical;
+}
+
+.field textarea { min-height: 110px; }
+
+.field textarea:focus,
+.field input:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+  border-color: rgba(200, 195, 255, 0.4);
+}
+
+/* Медовая ловушка ботам: вне экрана, людям не видна и не в табуляции */
+.hp-field {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.form-status { font-size: 0.92rem; color: var(--text-2); }
