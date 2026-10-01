@@ -311,6 +311,7 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
                         db = db,
                         revision = cycleRevision,
                         onOpen = { menuPlate = plate },
+                        onOpenCalendar = onOpenCycle,
                         onChanged = onCycleChanged,
                     )
                 }
@@ -367,6 +368,7 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
             card = plate,
             isHidden = plate in layout.hidden,
             canEnter = true,
+            enterLabel = if (plate == TodayPlate.CYCLE) "Открыть календарь" else "Внести данные",
             onEnterData = {
                 menuPlate = null
                 when (plate) {

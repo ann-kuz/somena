@@ -86,7 +86,13 @@ private fun writeDay(db: SliceDb, date: LocalDate, menstruation: Boolean, flow: 
 
 /** Карточка Календаря цикла на «Сегодня»: статус, прогноз и быстрый переключатель менструации. */
 @Composable
-fun CycleCard(db: SliceDb, revision: Int, onOpen: () -> Unit, onChanged: () -> Unit) {
+fun CycleCard(
+    db: SliceDb,
+    revision: Int,
+    onOpen: () -> Unit,
+    onOpenCalendar: () -> Unit,
+    onChanged: () -> Unit,
+) {
     val today = LocalDate.now()
     val entries = remember(revision) { db.allCycleDays() }
     val periods = remember(entries) { buildPeriods(entries) }
@@ -94,38 +100,43 @@ fun CycleCard(db: SliceDb, revision: Int, onOpen: () -> Unit, onChanged: () -> U
     val todayEntry = remember(entries) { entries.associateBy { it.date }[today] }
 
     GlassCard(Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                CardLabel("Календарь цикла", Rose)
-                Text(
-                    cycleHeadline(periods, prediction, today),
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = (-0.3).sp,
-                )
-                prediction?.let {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    CardLabel("Календарь цикла", Rose)
                     Text(
-                        cycleForecastLine(it),
-                        color = TextMuted,
-                        style = MaterialTheme.typography.bodySmall,
+                        cycleHeadline(periods, prediction, today),
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = (-0.3).sp,
                     )
+                    prediction?.let {
+                        Text(
+                            cycleForecastLine(it),
+                            color = TextMuted,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
+                Switch(
+                    checked = todayEntry?.menstruation == true,
+                    onCheckedChange = { on ->
+                        writeDay(
+                            db, today, menstruation = on,
+                            flow = if (on) todayEntry?.flow?.takeIf { it > 0 } ?: 0 else 0,
+                            pain = todayEntry?.pain ?: CycleDay.LEVEL_UNMARKED,
+                        )
+                        onChanged()
+                    },
+                    modifier = Modifier.semantics { contentDescription = "Менструация идёт сегодня" },
+                )
             }
-            Switch(
-                checked = todayEntry?.menstruation == true,
-                onCheckedChange = { on ->
-                    writeDay(
-                        db, today, menstruation = on,
-                        flow = if (on) todayEntry?.flow?.takeIf { it > 0 } ?: 0 else 0,
-                        pain = todayEntry?.pain ?: CycleDay.LEVEL_UNMARKED,
-                    )
-                    onChanged()
-                },
-                modifier = Modifier.semantics { contentDescription = "Менструация идёт сегодня" },
-            )
+            // Кнопка под прогнозом: календарь открывается сразу, без меню плашки
+            // (нажатие по остальной плашке по-прежнему открывает меню).
+            GhostButton("Открыть календарь", onClick = onOpenCalendar, modifier = Modifier.fillMaxWidth())
         }
     }
 }

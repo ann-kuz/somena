@@ -151,6 +151,24 @@
       <label for="fb-contact" data-i18n="fb.contactLabel">Почта для ответа (необязательно)</label>
       <input id="fb-contact" name="contact" type="email" maxlength="200" placeholder="you@example.com">
     </div>
+    <div class="field">
+      <span class="field-label" data-i18n="fb.filesLabel">Вложения (необязательно)</span>
+      <div class="attach-buttons">
+        <button type="button" class="btn btn-secondary" id="fbShotBtn">
+          <img src="assets/icons/image.svg" alt="" width="20" height="20">
+          <span data-i18n="fb.shot">Скриншот</span>
+        </button>
+        <button type="button" class="btn btn-secondary" id="fbFileBtn">
+          <img src="assets/icons/attach_file.svg" alt="" width="20" height="20">
+          <span data-i18n="fb.file">Файл</span>
+        </button>
+      </div>
+      <p class="attach-hint" id="fbFilesHint" data-i18n="fb.filesHint">До трёх картинок и одного файла, каждый до 5 МБ.</p>
+      <input type="file" id="fbShotInput" accept="image/*" multiple hidden>
+      <input type="file" id="fbFileInput" hidden>
+      <ul class="attach-list" id="fbFileList"></ul>
+      <p class="form-status" id="fbFilesStatus" role="status" aria-live="polite"></p>
+    </div>
     <input class="hp-field" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
     <div class="form-actions">
       <button class="btn btn-primary" type="submit" id="fbSubmit" data-i18n="fb.send">Отправить отчёт</button>
@@ -203,6 +221,14 @@ window.SOMENA_I18N = {
     'fb.lead': 'Somena сделана с помощью вайбкодинга, и разработчик будет рад багрепортам.',
     'fb.msgLabel': 'Что случилось?', 'fb.msgPh': 'Опишите, что работает не так',
     'fb.contactLabel': 'Почта для ответа (необязательно)',
+    'fb.filesLabel': 'Вложения (необязательно)',
+    'fb.shot': 'Скриншот', 'fb.file': 'Файл',
+    'fb.filesHint': 'До трёх картинок и одного файла, каждый до 5 МБ.',
+    'fb.removeFile': 'Убрать файл',
+    'fb.tooBig': 'Файл «{name}» больше 5 МБ: не приложен.',
+    'fb.tooManyShots': 'Картинок можно приложить не больше трёх.',
+    'fb.tooManyFiles': 'Прочий файл можно приложить только один.',
+    'fb.mb': 'МБ', 'fb.kb': 'КБ',
     'fb.send': 'Отправить отчёт', 'fb.sending': 'Отправка…',
     'fb.ok': 'Спасибо, отчёт получен.', 'fb.err': 'Не получилось отправить, попробуйте ещё раз.',
     'fb.tooFast': 'Слишком часто. Попробуйте через минуту.', 'fb.empty': 'Опишите проблему хотя бы парой слов.',
@@ -236,6 +262,14 @@ window.SOMENA_I18N = {
     'fb.lead': 'Somena ist per Vibe-Coding entstanden, und der Entwickler freut sich über Fehlerberichte.',
     'fb.msgLabel': 'Was ist passiert?', 'fb.msgPh': 'Beschreiben Sie, was nicht funktioniert',
     'fb.contactLabel': 'E-Mail für eine Antwort (optional)',
+    'fb.filesLabel': 'Anhänge (optional)',
+    'fb.shot': 'Screenshot', 'fb.file': 'Datei',
+    'fb.filesHint': 'Bis zu drei Bilder und eine weitere Datei, jeweils bis 5 MB.',
+    'fb.removeFile': 'Anhang entfernen',
+    'fb.tooBig': 'Die Datei „{name}“ ist größer als 5 MB und wurde nicht angehängt.',
+    'fb.tooManyShots': 'Nicht mehr als drei Bilder.',
+    'fb.tooManyFiles': 'Nur eine weitere Datei möglich.',
+    'fb.mb': 'MB', 'fb.kb': 'KB',
     'fb.send': 'Bericht senden', 'fb.sending': 'Wird gesendet…',
     'fb.ok': 'Danke, der Bericht ist angekommen.', 'fb.err': 'Senden fehlgeschlagen, bitte erneut versuchen.',
     'fb.tooFast': 'Zu häufig. Bitte in einer Minute erneut.', 'fb.empty': 'Beschreiben Sie das Problem mit wenigen Worten.',
@@ -269,10 +303,85 @@ window.SOMENA_I18N = {
   const t = (key) => dict()[key] || '';
   const submit = document.getElementById('fbSubmit');
   const status = document.getElementById('fbStatus');
+  const filesStatus = document.getElementById('fbFilesStatus');
+  const list = document.getElementById('fbFileList');
+  const shotInput = document.getElementById('fbShotInput');
+  const fileInput = document.getElementById('fbFileInput');
+  // Правила вложений (спека 0013): до трёх картинок и один прочий файл, каждый
+  // до 5 МБ; картинка определяется по расширению - так же, как на сервере.
+  const MAX_BYTES = 5 * 1024 * 1024;
+  const IMAGE_RE = /\.(png|jpe?g|webp|gif|heic)$/i;
+  let picked = [];
+
+  const fmtSize = (bytes) => bytes >= 1024 * 1024
+    ? (bytes / 1024 / 1024).toFixed(1) + ' ' + (t('fb.mb') || 'МБ')
+    : Math.max(1, Math.round(bytes / 1024)) + ' ' + (t('fb.kb') || 'КБ');
+
+  function render() {
+    list.innerHTML = '';
+    picked.forEach((f, idx) => {
+      const li = document.createElement('li');
+      li.className = 'attach-chip';
+      const name = document.createElement('span');
+      name.className = 'attach-name';
+      name.textContent = f.name;
+      name.title = f.name;
+      const size = document.createElement('span');
+      size.className = 'attach-size';
+      size.textContent = fmtSize(f.size);
+      const rm = document.createElement('button');
+      rm.type = 'button';
+      rm.className = 'attach-remove';
+      rm.setAttribute('aria-label', (t('fb.removeFile') || 'Убрать файл') + ' ' + f.name);
+      rm.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" height="16" viewBox="0 0 24 24" width="16" aria-hidden="true"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
+      rm.addEventListener('click', () => {
+        picked.splice(idx, 1);
+        filesStatus.textContent = '';
+        render();
+      });
+      li.append(name, size, rm);
+      list.appendChild(li);
+    });
+  }
+
+  function addFiles(chosen) {
+    let note = '';
+    for (const file of chosen) {
+      const isImage = IMAGE_RE.test(file.name);
+      const imageCount = picked.filter((f) => f.isImage).length + (isImage ? 1 : 0);
+      const otherCount = picked.length - picked.filter((f) => f.isImage).length + (isImage ? 0 : 1);
+      if (file.size > MAX_BYTES) {
+        note = (t('fb.tooBig') || '').replace('{name}', file.name);
+      } else if (isImage && imageCount > 3) {
+        note = t('fb.tooManyShots');
+      } else if (!isImage && otherCount > 1) {
+        note = t('fb.tooManyFiles');
+      } else {
+        picked.push({ name: file.name, size: file.size, isImage, file });
+        continue;
+      }
+    }
+    filesStatus.textContent = note;
+    render();
+  }
+
+  document.getElementById('fbShotBtn').addEventListener('click', () => shotInput.click());
+  document.getElementById('fbFileBtn').addEventListener('click', () => fileInput.click());
+  shotInput.addEventListener('change', () => { addFiles([...shotInput.files]); shotInput.value = ''; });
+  fileInput.addEventListener('change', () => { addFiles([...fileInput.files]); fileInput.value = ''; });
+
+  const readAsBase64 = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const message = form.elements.message.value.trim();
     status.textContent = '';
+    filesStatus.textContent = '';
     if (message.length < 4) {
       status.textContent = t('fb.empty');
       document.getElementById('fb-message').focus();
@@ -281,6 +390,8 @@ window.SOMENA_I18N = {
     submit.disabled = true;
     submit.textContent = t('fb.sending');
     try {
+      const files = [];
+      for (const f of picked) files.push({ name: f.name, data: await readAsBase64(f.file) });
       const resp = await fetch('https://elunaris-vitrail.strangled.net/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -288,11 +399,14 @@ window.SOMENA_I18N = {
           message,
           contact: form.elements.contact.value.trim(),
           website: form.elements.website.value,
+          files,
         }),
       });
       if (resp.ok) {
         status.textContent = t('fb.ok');
         form.reset();
+        picked = [];
+        render();
       } else if (resp.status === 429) {
         status.textContent = t('fb.tooFast');
       } else {

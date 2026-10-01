@@ -6,7 +6,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -42,17 +43,25 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.ui.input.pointer.positionChangeIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 import ru.somena.core.CardLayout
 import ru.somena.core.DaySlice
@@ -92,13 +101,15 @@ import ru.somena.ui.Violet
 /**
  * Диалог меню карточки (плашки «Сегодня», графика «Графиков»): внести данные,
  * переместить, скрыть; у скрытой - показать. «Внести данные» есть только у
- * карточек со своим показателем.
+ * карточек со своим показателем; у Календаря цикла пункт зовётся «Открыть
+ * календарь» - он открывает экран, а не ввод.
  */
 @Composable
 fun <T : LayoutCard> CardMenuDialog(
     card: T,
     isHidden: Boolean,
     canEnter: Boolean,
+    enterLabel: String = "Внести данные",
     onEnterData: () -> Unit,
     onMove: () -> Unit,
     onHide: () -> Unit,
@@ -132,7 +143,7 @@ fun <T : LayoutCard> CardMenuDialog(
                     GlowButton("Показать", onClick = onShow, modifier = Modifier.fillMaxWidth())
                 } else {
                     if (canEnter) {
-                        GlowButton("Внести данные", onClick = onEnterData, modifier = Modifier.fillMaxWidth())
+                        GlowButton(enterLabel, onClick = onEnterData, modifier = Modifier.fillMaxWidth())
                     }
                     GhostButton("Переместить", onClick = onMove, modifier = Modifier.fillMaxWidth())
                     GhostButton("Скрыть", onClick = onHide, modifier = Modifier.fillMaxWidth())
@@ -289,6 +300,70 @@ fun PlateEntryDialog(
 }
 
 /**
+ * Захват карточки удержанием с коротким порогом (спека 0013): системное долгое
+ * нажатие (~0,4 с) заменено своими 0,2 с, чтобы палец не ждал; в момент захвата -
+ * лёгкая вибрация. Прокрутка списка по-прежнему выигрывает у захвата: движение
+ * пальца дальше порога касания или потреблённое списком касание отменяют ждущий
+ * захват. Порог - константа ниже, не настройка Пользователя.
+ */
+private const val REORDER_HOLD_MILLIS = 200L
+
+/** Ожидание захвата: null - палец ушёл/сорвался, иначе - изменение в момент захвата. */
+private suspend fun AwaitPointerEventScope.awaitHoldOrCancellation(
+    down: PointerInputChange,
+    holdMillis: Long,
+): PointerInputChange? {
+    var last: PointerInputChange = down
+    // null от withTimeoutOrNull - время вышло при живом пальце (удержание!);
+    // false внутри - палец ушёл, движение съедено прокруткой или касание чужое.
+    val held: Boolean? = withTimeoutOrNull(holdMillis) {
+        while (true) {
+            val event = awaitPointerEvent()
+            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+            last = change
+            val consumedByOthers = event.changes.any { it.isConsumed && it.id != down.id }
+            if (!change.pressed || change.isConsumed || consumedByOthers) break
+        }
+        false
+    }
+    return if (held == null) last else null
+}
+
+/** Перетаскивание после короткого удержания: образец detectDragGesturesAfterLongPress. */
+private suspend fun PointerInputScope.detectDragAfterHold(
+    holdMillis: Long = REORDER_HOLD_MILLIS,
+    onDragStart: () -> Unit,
+    onDrag: (change: PointerInputChange, dragAmount: Offset) -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit,
+) = awaitEachGesture {
+    val down = awaitFirstDown(requireUnconsumed = false)
+    val held = awaitHoldOrCancellation(down, holdMillis)
+    if (held == null) return@awaitEachGesture
+    onDragStart()
+    var drag: PointerInputChange? = held
+    while (drag != null) {
+        val event = awaitPointerEvent()
+        val change = event.changes.firstOrNull { it.id == held.id }
+        if (change == null) {
+            // Палец исчез без поднятия (система отобрала касание).
+            drag = null
+            onDragCancel()
+        } else if (!change.pressed) {
+            drag = null
+            onDragEnd()
+        } else {
+            drag = change
+            val delta = change.positionChangeIgnoreConsumed()
+            if (delta != Offset.Zero) {
+                onDrag(change, delta)
+                change.consume()
+            }
+        }
+    }
+}
+
+/**
  * Режим переноса карточек: полный экран, карточки одной колонкой, перетаскивание
  * удержанием за любую точку строки; остальные сдвигаются, освобождая место.
  * Перетаскиваемая строка не анимирует своё место (иначе палец и карточка
@@ -305,6 +380,7 @@ fun <T : LayoutCard> ReorderCardsScreen(initial: CardLayout<T>, onDone: (CardLay
     var dragOffset by remember { mutableFloatStateOf(0f) }
     var rowHeight by remember { mutableStateOf(0) }
     val spacingPx = with(LocalDensity.current) { RowSpacing.toPx() }
+    val haptic = LocalHapticFeedback.current
 
     fun finish() = onDone(CardLayout(order, hidden))
     BackHandler { finish() }
@@ -331,8 +407,9 @@ fun <T : LayoutCard> ReorderCardsScreen(initial: CardLayout<T>, onDone: (CardLay
                         .background(if (isDragging) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.045f))
                         .padding(horizontal = 14.dp, vertical = 12.dp)
                         .pointerInput(Unit) {
-                            detectDragGesturesAfterLongPress(
+                            detectDragAfterHold(
                                 onDragStart = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     dragging = card
                                     dragOffset = 0f
                                 },

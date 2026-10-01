@@ -5,8 +5,8 @@ import java.nio.charset.CharacterCodingException
 import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 
-/** windows-1251: обычная кодировка русского Excel, в kotlin Charsets её нет. */
-private val CP1251 = charset("windows-1251")
+/** windows-1251: обычная кодировка русского Excel и старого Word, в kotlin Charsets её нет. */
+internal val CP1251 = charset("windows-1251")
 
 /**
  * Текст таблицы из файла Вложения (спека 0004): чистая логика без Android.

@@ -8,6 +8,8 @@
 """
 
 import asyncio
+import base64
+import binascii
 import json
 import logging
 import os
@@ -205,19 +207,33 @@ async def chat(req: ChatRequest, authorization: str = Header(default="")) -> dic
 # Обратная связь лендинга (спека 0012, дополнение 03.10.2026): багрепорты с сайта.
 # Адрес владелицы живёт только в .env (FEEDBACK_TO), наружу не отдаётся; пока
 # SMTP-пароль не задан, отчёты копятся в журнале, письма не уходят.
+# Вложения (спека 0013): до трёх картинок и один произвольный файл, каждый до
+# 5 МБ; сохраняются в backend/feedback-files/ (в git не входит) и уходят письмом.
 FEEDBACK_TO = os.environ.get("FEEDBACK_TO", "")
 FEEDBACK_SMTP_USER = os.environ.get("FEEDBACK_SMTP_USER", "")
 FEEDBACK_SMTP_PASS = os.environ.get("FEEDBACK_SMTP_PASS", "")
 FEEDBACK_RATE_S = float(os.environ.get("FEEDBACK_RATE_S", "30"))
 FEEDBACK_JOURNAL = Path(__file__).parent / "feedback.jsonl"
+FEEDBACK_FILES_DIR = Path(__file__).parent / "feedback-files"
+FEEDBACK_MAX_FILE_BYTES = 5 * 1024 * 1024
+# base64 раздувает байты в 4/3: потолок строки чуть выше decoded-лимита,
+# точный размер проверяется после декодирования.
+FEEDBACK_MAX_DATA_CHARS = 7_100_000
+FEEDBACK_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "gif", "heic"}
 _feedback_recent: dict[str, float] = {}
 _feedback_lock = threading.Lock()
+
+
+class FeedbackFile(BaseModel):
+    name: str = Field(max_length=200)
+    data: str = Field(max_length=FEEDBACK_MAX_DATA_CHARS)
 
 
 class FeedbackRequest(BaseModel):
     message: str = Field(max_length=4000)
     contact: str = Field(default="", max_length=200)
     website: str = Field(default="", max_length=200)  # медовая ловушка ботам
+    files: list[FeedbackFile] = Field(default_factory=list)
 
 
 def _feedback_ip(request: Request) -> str:
@@ -226,7 +242,7 @@ def _feedback_ip(request: Request) -> str:
     return forwarded.split(",")[0].strip() or (request.client.host if request.client else "?")
 
 
-def _email_feedback(message: str, contact: str) -> None:
+def _email_feedback(message: str, contact: str, attachments: list[tuple[str, bytes]]) -> None:
     if not (FEEDBACK_TO and FEEDBACK_SMTP_USER and FEEDBACK_SMTP_PASS):
         return
     letter = EmailMessage()
@@ -234,12 +250,47 @@ def _email_feedback(message: str, contact: str) -> None:
     letter["From"] = FEEDBACK_SMTP_USER
     letter["To"] = FEEDBACK_TO
     letter.set_content(f"{message}\n\nОбратная почта: {contact or 'не указана'}")
+    for name, data in attachments:
+        ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+        maintype, subtype = (
+            ("image", "jpeg") if ext in {"jpg", "jpeg"} else
+            ("image", "png") if ext == "png" else
+            ("image", "gif") if ext == "gif" else
+            ("image", "webp") if ext == "webp" else
+            ("image", "heic") if ext == "heic" else
+            ("application", "octet-stream")
+        )
+        letter.add_attachment(data, maintype=maintype, subtype=subtype, filename=name)
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as smtp:
             smtp.login(FEEDBACK_SMTP_USER, FEEDBACK_SMTP_PASS)
             smtp.send_message(letter)
     except OSError:
         log.warning("feedback email failed, report stays in journal only")
+
+
+def _decode_feedback_files(files: list[FeedbackFile]) -> list[tuple[str, bytes]]:
+    """Проверка и декодирование вложений: картинок не больше трёх, прочих - одного,
+    каждый до 5 МБ; base64-мусор и лишние файлы - честная 400, лимит частоты не тратится."""
+    images = sum(
+        1 for f in files if f.name.rsplit(".", 1)[-1].lower() in FEEDBACK_IMAGE_EXT and "." in f.name
+    )
+    if images > 3:
+        raise HTTPException(status_code=400, detail="Картинок можно приложить не больше трёх")
+    if len(files) - images > 1:
+        raise HTTPException(status_code=400, detail="Прочих файлов можно приложить не больше одного")
+    out: list[tuple[str, bytes]] = []
+    for f in files:
+        try:
+            data = base64.b64decode(f.data, validate=True)
+        except (ValueError, binascii.Error):
+            raise HTTPException(status_code=400, detail=f"Файл «{f.name}» не читается")
+        if len(data) > FEEDBACK_MAX_FILE_BYTES:
+            raise HTTPException(
+                status_code=400, detail=f"Файл «{f.name}» больше 5 МБ"
+            )
+        out.append((f.name, data))
+    return out
 
 
 @app.post("/feedback")
@@ -250,6 +301,7 @@ def feedback(req: FeedbackRequest, request: Request) -> dict:
     text = req.message.strip()
     if len(text) < 4:
         raise HTTPException(status_code=400, detail="Опишите проблему хотя бы парой слов")
+    attachments = _decode_feedback_files(req.files)
     ip = _feedback_ip(request)
     now = time.monotonic()
     with _feedback_lock:
@@ -259,12 +311,28 @@ def feedback(req: FeedbackRequest, request: Request) -> dict:
         if len(_feedback_recent) > 1000:
             for old_ip, _ in sorted(_feedback_recent.items(), key=lambda kv: kv[1])[:500]:
                 _feedback_recent.pop(old_ip, None)
+    # Вложения ложатся рядом с журналом: письмо теряется - файлы остаются.
+    # Одинаковые имена в одну секунду различает порядковый номер.
+    FEEDBACK_FILES_DIR.mkdir(exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    stored: list[str] = []
+    for name, data in attachments:
+        safe = name.replace("/", "_").replace("\\", "_").replace("\0", "")
+        path = FEEDBACK_FILES_DIR / f"{stamp}-{safe}"
+        serial = 2
+        while path.exists():
+            path = FEEDBACK_FILES_DIR / f"{stamp}-{serial}-{safe}"
+            serial += 1
+        path.write_bytes(data)
+        stored.append(path.name)
     entry = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "ip": ip,
              "contact": req.contact.strip(), "message": text}
+    if stored:
+        entry["files"] = stored
     with FEEDBACK_JOURNAL.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    _email_feedback(text, req.contact.strip())
-    log.info("feedback accepted (%d chars)", len(text))
+    _email_feedback(text, req.contact.strip(), attachments)
+    log.info("feedback accepted (%d chars, %d files)", len(text), len(attachments))
     return {"ok": True}
 
 
