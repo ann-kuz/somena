@@ -151,4 +151,17 @@ class ManualEntryTest {
         assertEquals(1450.0, preview.entries.single().values.bmrKcal!!, 0.01)
         assertEquals("базовый расход 1450 ккал/дн", preview.entries.single().values.describe())
     }
+
+    @Test
+    fun `пульс вносится вручную в разумных границах`() {
+        assertNull(manualProblem(ManualMetric.PULSE, "72"))
+        assertNotNull("пульс 250 не бывает", manualProblem(ManualMetric.PULSE, "250"))
+        assertNotNull("пульс 20 не бывает", manualProblem(ManualMetric.PULSE, "20"))
+
+        val existing = DaySlice(date = d27, pulseAvg = 70)
+        val preview = manualSlicePreview(ManualMetric.PULSE, 72.0, d27, existing)
+        val entry = preview.entries.single()
+        assertEquals(72.0, entry.values.pulseAvg!!, 0.01)
+        assertEquals(70.0, entry.old.pulseAvg!!, 0.01)
+    }
 }

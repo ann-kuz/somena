@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.health.connect.client.permission.HealthPermission
+import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
 import androidx.health.connect.client.records.BasalMetabolicRateRecord
 import androidx.health.connect.client.records.BodyFatRecord
 import androidx.health.connect.client.records.BoneMassRecord
@@ -118,6 +119,7 @@ val HC_PERMISSIONS = setOf(
     HealthPermission.getReadPermission(BoneMassRecord::class),
     HealthPermission.getReadPermission(BasalMetabolicRateRecord::class),
     HealthPermission.getReadPermission(TotalCaloriesBurnedRecord::class),
+    HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class),
     HealthPermission.getReadPermission(NutritionRecord::class),
 )
 
@@ -349,8 +351,9 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
             SelectionContainer { Text(it, color = TextMuted, style = MaterialTheme.typography.bodySmall) }
         }
         Text(
-            "Данные читаются из Health Connect; если пишут несколько приложений, источник " +
-                "выбирается в Настройках → Данные. Светящиеся плашки получены сегодня, серые " +
+            "Данные читаются из Health Connect; если пишут несколько приложений, порядок " +
+                "источников задаётся в Настройках → Данные: за день берётся первый в порядке, " +
+                "у которого есть записи. Светящиеся плашки получены сегодня, серые " +
                 "с подписью «на ДД.ММ» - раньше; Съедено и Сожжено копятся за день и новым " +
                 "днём начинаются с нуля. Нажатие на плашку открывает меню: внести данные, " +
                 "скрыть или переместить; скрытые собираются внизу экрана.",

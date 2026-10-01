@@ -10,10 +10,14 @@ import java.time.LocalDate
  */
 data class MetricLatest<T>(val value: T, val on: LocalDate)
 
+/** Пульс одного дня: среднее и границы, если замеров больше одного. */
+data class PulseDay(val avg: Long, val min: Long?, val max: Long?)
+
 data class LatestValues(
     val steps: MetricLatest<Long>? = null,
     val sleepMinutes: MetricLatest<Long>? = null,
     val burnedKcal: MetricLatest<Double>? = null,
+    val pulse: MetricLatest<PulseDay>? = null,
     val eatenKcal: MetricLatest<Double>? = null,
     val proteinG: MetricLatest<Double>? = null,
     val fatG: MetricLatest<Double>? = null,
@@ -25,7 +29,7 @@ data class LatestValues(
 ) {
     /** Данных нет вовсе: ни одна метрика нигде не встречалась. */
     val isEmpty: Boolean get() = steps == null && sleepMinutes == null && burnedKcal == null &&
-        eatenKcal == null && proteinG == null && fatG == null && carbsG == null &&
+        pulse == null && eatenKcal == null && proteinG == null && fatG == null && carbsG == null &&
         weightKg == null && bodyFatPct == null && boneMassKg == null && bmrKcal == null
 }
 
@@ -40,6 +44,9 @@ fun latestValues(all: List<DaySlice>): LatestValues {
             steps = out.steps ?: s.steps?.let { MetricLatest(it, s.date) },
             sleepMinutes = out.sleepMinutes ?: s.sleepMinutes?.let { MetricLatest(it, s.date) },
             burnedKcal = out.burnedKcal ?: s.burnedKcal?.let { MetricLatest(it, s.date) },
+            pulse = out.pulse ?: s.pulseAvg?.let {
+                MetricLatest(PulseDay(it, s.pulseMin, s.pulseMax), s.date)
+            },
             eatenKcal = out.eatenKcal ?: s.eatenKcal?.let { MetricLatest(it, s.date) },
             proteinG = out.proteinG ?: s.proteinG?.let { MetricLatest(it, s.date) },
             fatG = out.fatG ?: s.fatG?.let { MetricLatest(it, s.date) },

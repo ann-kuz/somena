@@ -15,6 +15,7 @@ enum class ManualMetric(val label: String, val unitHint: String, val wireKey: St
     WEIGHT("Вес", "кг", "weight"),
     STEPS("Шаги", "шаг.", "steps"),
     SLEEP("Сон", "ч", "sleep_h"),
+    PULSE("Пульс", "уд/мин", "pulse"),
     BODY_FAT("Процент жира", "%", "body_fat"),
     BONE("Костная масса", "кг", "bone"),
     BMR("Базовый расход", "ккал/дн", "bmr"),
@@ -28,6 +29,7 @@ private val MANUAL_RANGES = mapOf(
     ManualMetric.WEIGHT to (25.0..350.0),
     ManualMetric.STEPS to (0.0..100000.0),
     ManualMetric.SLEEP to (0.0..24.0),
+    ManualMetric.PULSE to (30.0..220.0),
     ManualMetric.BODY_FAT to (1.0..70.0),
     ManualMetric.BONE to (0.5..10.0),
     ManualMetric.BMR to (500.0..10000.0),
@@ -53,6 +55,7 @@ private fun exampleFor(metric: ManualMetric): String = when (metric) {
     ManualMetric.WEIGHT -> "62.4"
     ManualMetric.STEPS -> "8000"
     ManualMetric.SLEEP -> "7.5"
+    ManualMetric.PULSE -> "72"
     ManualMetric.BODY_FAT -> "27.5"
     ManualMetric.BONE -> "2.6"
     ManualMetric.BMR -> "1450"
@@ -67,6 +70,7 @@ fun manualSlicePreview(metric: ManualMetric, value: Double, date: LocalDate, exi
         ManualMetric.WEIGHT -> ImportValues(weightKg = value)
         ManualMetric.STEPS -> ImportValues(steps = value.toLong())
         ManualMetric.SLEEP -> ImportValues(sleepMinutes = (value * 60).let { Math.round(it) })
+        ManualMetric.PULSE -> ImportValues(pulseAvg = value)
         ManualMetric.BODY_FAT -> ImportValues(bodyFatPct = value)
         ManualMetric.BONE -> ImportValues(boneMassKg = value)
         ManualMetric.BMR -> ImportValues(bmrKcal = value)
@@ -84,6 +88,7 @@ fun manualSlicePreview(metric: ManualMetric, value: Double, date: LocalDate, exi
         steps = existing?.steps,
         burnedKcal = existing?.burnedKcal,
         sleepMinutes = existing?.sleepMinutes,
+        pulseAvg = existing?.pulseAvg?.toDouble(),
     )
     return ImportPreview(entries = listOf(ImportEntry(date, values, old)))
 }
@@ -105,6 +110,7 @@ fun DaySlice?.manualOldValue(metric: ManualMetric): Double? {
         ManualMetric.WEIGHT -> s.weightKg
         ManualMetric.STEPS -> s.steps?.toDouble()
         ManualMetric.SLEEP -> s.sleepMinutes?.let { it / 60.0 }
+        ManualMetric.PULSE -> s.pulseAvg?.toDouble()
         ManualMetric.BODY_FAT -> s.bodyFatPct
         ManualMetric.BONE -> s.boneMassKg
         ManualMetric.BMR -> s.bmrKcal

@@ -155,4 +155,16 @@ class LatestValuesTest {
         assertEquals(0.0, noSlice.todayBurned(), 0.0)
         assertEquals(0.0, DaySlice(d30, burnedKcal = 0.0).todayBurned(), 0.0)
     }
+
+    @Test
+    fun `пульс берется из самого позднего дня с пульсом целиком`() {
+        val latest = latestValues(
+            listOf(
+                DaySlice(d26, pulseAvg = 68, pulseMin = 55, pulseMax = 90),
+                DaySlice(d30, steps = 4500),
+            )
+        )
+        assertEquals(PulseDay(avg = 68, min = 55, max = 90), latest.pulse?.value)
+        assertEquals(d26, latest.pulse?.on)
+    }
 }

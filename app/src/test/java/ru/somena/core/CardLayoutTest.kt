@@ -131,8 +131,8 @@ class CardLayoutTest {
         assertEquals(
             listOf(
                 ChartCard.DEFICIT, ChartCard.CALORIES, ChartCard.WEIGHT, ChartCard.MACROS,
-                ChartCard.STEPS, ChartCard.SLEEP, ChartCard.WELLBEING, ChartCard.BODY_FAT,
-                ChartCard.BONE, ChartCard.BMR,
+                ChartCard.STEPS, ChartCard.SLEEP, ChartCard.PULSE, ChartCard.WELLBEING,
+                ChartCard.BODY_FAT, ChartCard.BONE, ChartCard.BMR,
             ),
             layout.order,
         )

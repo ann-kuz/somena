@@ -537,6 +537,18 @@ fun MetricPlate(
                 onClick = onOpenMenu,
             )
         }
+        TodayPlate.PULSE -> {
+            val pulse = latest.pulse
+            MetricCard(
+                "Пульс", pulse?.value?.avg?.toString(), modifier,
+                accent = Violet, unit = "уд/мин",
+                sub = pulse?.value?.let { p ->
+                    if (p.min != null && p.max != null) "мин ${p.min} · макс ${p.max}" else null
+                },
+                staleOn = staleOn(pulse),
+                onClick = onOpenMenu,
+            )
+        }
         TodayPlate.EATEN -> {
             val nutrition = todaySlice.todayNutrition()
             MetricCard(

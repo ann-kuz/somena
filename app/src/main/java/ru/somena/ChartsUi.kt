@@ -328,6 +328,15 @@ private fun ChartByCard(
             onPan = onPan,
             onLongPress = onLongPress,
         )
+        ChartCard.PULSE -> LineChart(
+            chart.title, days,
+            listOf(
+                ChartSeries("Средний", seriesOf(days, data) { it.pulseAvg?.toDouble() }, MaterialTheme.colorScheme.primary, "уд/мин"),
+            ),
+            onPan = onPan,
+            onLongPress = onLongPress,
+            caption = "среднее за день; минимум и максимум - на плашке Пульса",
+        )
         ChartCard.WELLBEING -> LineChart(
             chart.title, days,
             listOf(

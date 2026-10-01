@@ -52,16 +52,17 @@ object HealthProbe {
         val range = TimeRangeFilter.between(from, now)
         val sb = StringBuilder()
 
-        // --- Шаги: группируем по источнику, выбранный в настройках помечаем ---
+        // --- Шаги: группируем по источнику, порядок приоритета помечаем ---
         val steps = client.readRecords(ReadRecordsRequest(StepsRecord::class, range)).records
-        val chosenSteps = ru.somena.data.SourceStore(context).chosenPackage(ru.somena.core.SourceGroup.ACTIVITY)
+        val stepsPriority = ru.somena.data.SourceStore(context).priorityOf(ru.somena.core.SourceGroup.ACTIVITY)
         sb.appendLine("ШАГИ за $days дн.:")
         if (steps.isEmpty()) sb.appendLine("  нет записей")
         steps.groupBy { it.metadata.dataOrigin.packageName }
             .map { (pkg, rs) -> pkg to rs.sumOf { it.count } }
             .sortedByDescending { it.second }
             .forEach { (pkg, cnt) ->
-                val mark = if (pkg == chosenSteps) " ← выбран в Настройках → Данные" else ""
+                val rank = stepsPriority.indexOf(pkg)
+                val mark = if (rank == 0) " ← первый в приоритете" else if (rank > 0) " ← №${rank + 1} в приоритете" else ""
                 sb.appendLine("  $pkg: ${fmtInt(cnt)}$mark")
             }
         sb.appendLine()
@@ -92,14 +93,24 @@ object HealthProbe {
         }
         sb.appendLine()
 
-        // --- Расход калорий ---
+        // --- Расход калорий: общие и активные (запасной вариант) ---
         val kcal = client.readRecords(ReadRecordsRequest(TotalCaloriesBurnedRecord::class, range)).records
-        sb.append("РАСХОД за $days дн.: ")
+        sb.append("РАСХОД (общие) за $days дн.: ")
         sb.appendLine(
             if (kcal.isEmpty()) "нет записей"
             else "${fmtInt(kcal.sumOf { it.energy.inKilocalories })} ккал"
         )
         kcal.map { it.metadata.dataOrigin.packageName }.distinct()
+            .forEach { sb.appendLine("  источник: $it") }
+        val activeKcal = client.readRecords(
+            ReadRecordsRequest(androidx.health.connect.client.records.ActiveCaloriesBurnedRecord::class, range)
+        ).records
+        sb.append("РАСХОД (активные) за $days дн.: ")
+        sb.appendLine(
+            if (activeKcal.isEmpty()) "нет записей"
+            else "${fmtInt(activeKcal.sumOf { it.energy.inKilocalories })} ккал"
+        )
+        activeKcal.map { it.metadata.dataOrigin.packageName }.distinct()
             .forEach { sb.appendLine("  источник: $it") }
         sb.appendLine()
 

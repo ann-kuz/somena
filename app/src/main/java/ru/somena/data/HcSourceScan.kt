@@ -2,9 +2,11 @@ package ru.somena.data
 
 import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
+import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
 import androidx.health.connect.client.records.BasalMetabolicRateRecord
 import androidx.health.connect.client.records.BodyFatRecord
 import androidx.health.connect.client.records.BoneMassRecord
+import androidx.health.connect.client.records.HeartRateRecord
 import androidx.health.connect.client.records.NutritionRecord
 import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.StepsRecord
@@ -22,7 +24,8 @@ import ru.somena.core.SourceKind
  * Скан Источников Health Connect: какие приложения писали каждый тип данных
  * за окно. Обнаружение - по факту записей (ADR-0004), поэтому работает с любыми
  * приложениями, а не только с известным каталогом. Имя - ярлык приложения из
- * системы; для удалённого приложения остаётся пакет.
+ * системы; для удалённого приложения остаётся пакет. Расход сканирует оба типа
+ * калорий: общие и активные пишут разные приложения.
  */
 object HcSourceScan {
 
@@ -39,22 +42,25 @@ object HcSourceScan {
         }.getOrDefault(pkg)
 
         suspend fun <T : androidx.health.connect.client.records.Record> writers(
-            kind: SourceKind,
             type: KClass<T>,
-        ): Pair<SourceKind, List<HcSource>> = kind to
+        ): List<String> =
             client.readRecords(ReadRecordsRequest(type, range)).records
                 .groupBy { it.metadata.dataOrigin.packageName }
-                .map { (pkg, _) -> HcSource(pkg, label(pkg)) }
+                .map { (pkg, _) -> pkg }
+
+        fun named(pkgs: List<String>): List<HcSource> =
+            pkgs.map { HcSource(it, label(it)) }.sortedWith(compareBy({ it.label.lowercase() }, { it.packageName }))
 
         return mapOf(
-            writers(SourceKind.STEPS, StepsRecord::class),
-            writers(SourceKind.SLEEP, SleepSessionRecord::class),
-            writers(SourceKind.BURN, TotalCaloriesBurnedRecord::class),
-            writers(SourceKind.FOOD, NutritionRecord::class),
-            writers(SourceKind.WEIGHT, WeightRecord::class),
-            writers(SourceKind.BODY_FAT, BodyFatRecord::class),
-            writers(SourceKind.BONE, BoneMassRecord::class),
-            writers(SourceKind.BMR, BasalMetabolicRateRecord::class),
+            SourceKind.STEPS to named(writers(StepsRecord::class)),
+            SourceKind.SLEEP to named(writers(SleepSessionRecord::class)),
+            SourceKind.BURN to named((writers(TotalCaloriesBurnedRecord::class) + writers(ActiveCaloriesBurnedRecord::class)).distinct()),
+            SourceKind.PULSE to named(writers(HeartRateRecord::class)),
+            SourceKind.FOOD to named(writers(NutritionRecord::class)),
+            SourceKind.WEIGHT to named(writers(WeightRecord::class)),
+            SourceKind.BODY_FAT to named(writers(BodyFatRecord::class)),
+            SourceKind.BONE to named(writers(BoneMassRecord::class)),
+            SourceKind.BMR to named(writers(BasalMetabolicRateRecord::class)),
         )
     }
 }

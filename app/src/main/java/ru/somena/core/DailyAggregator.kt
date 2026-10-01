@@ -7,13 +7,24 @@ import java.time.ZoneId
 /**
  * Чистая логика Дневного среза: без Android-зависимостей, покрывается автотестами на сервере.
  * Политики см. ADR-0001 (Health Connect - единственная точка чтения), ADR-0010
- * (выбор Источника при нескольких пишущих) и спеку 0001 (день без данных ≠ ноль).
+ * (приоритет Источников при нескольких пишущих) и спеку 0001 (день без данных ≠ ноль).
  */
 
 /** Записи, приходящие из любого источника; time-поля — в UTC. */
 data class StepEntry(val start: Instant, val end: Instant, val count: Long, val source: String)
-data class SleepEntry(val start: Instant, val end: Instant)
-data class BurnEntry(val start: Instant, val end: Instant, val kcal: Double)
+data class SleepEntry(val start: Instant, val end: Instant, val source: String = "")
+data class BurnEntry(
+    val start: Instant,
+    val end: Instant,
+    val kcal: Double,
+    val source: String = "",
+    /** Активные калории (без базового расхода): запасной вариант, если общих никто не пишет. */
+    val active: Boolean = false,
+)
+
+/** Один замер пульса: момент времени и удары в минуту. */
+data class PulseEntry(val time: Instant, val bpm: Long, val source: String)
+
 data class MealEntry(
     val start: Instant,
     val end: Instant,
@@ -21,6 +32,7 @@ data class MealEntry(
     val proteinG: Double?,
     val fatG: Double?,
     val carbsG: Double?,
+    val source: String = "",
 )
 data class BodyEntry(
     val time: Instant,
@@ -28,6 +40,7 @@ data class BodyEntry(
     val bodyFatPct: Double?,
     val boneMassKg: Double?,
     val bmrKcalPerDay: Double?,
+    val source: String = "",
 )
 
 data class DaySlice(
@@ -35,6 +48,9 @@ data class DaySlice(
     val steps: Long? = null,
     val sleepMinutes: Long? = null,
     val burnedKcal: Double? = null,
+    val pulseAvg: Long? = null,
+    val pulseMin: Long? = null,
+    val pulseMax: Long? = null,
     val eatenKcal: Double? = null,
     val proteinG: Double? = null,
     val fatG: Double? = null,
@@ -49,6 +65,9 @@ data class DaySlice(
         steps = fresh.steps ?: steps,
         sleepMinutes = fresh.sleepMinutes ?: sleepMinutes,
         burnedKcal = fresh.burnedKcal ?: burnedKcal,
+        pulseAvg = fresh.pulseAvg ?: pulseAvg,
+        pulseMin = fresh.pulseMin ?: pulseMin,
+        pulseMax = fresh.pulseMax ?: pulseMax,
         eatenKcal = fresh.eatenKcal ?: eatenKcal,
         proteinG = fresh.proteinG ?: proteinG,
         fatG = fresh.fatG ?: fatG,
@@ -68,6 +87,7 @@ object DailyAggregator {
         steps: List<StepEntry> = emptyList(),
         sleep: List<SleepEntry> = emptyList(),
         burn: List<BurnEntry> = emptyList(),
+        pulse: List<PulseEntry> = emptyList(),
         meals: List<MealEntry> = emptyList(),
         body: List<BodyEntry> = emptyList(),
     ): DaySlice {
@@ -77,19 +97,33 @@ object DailyAggregator {
         fun inDay(start: Instant) = start >= dayStart && start < dayEnd
 
         // Запись принадлежит дню своего начала: интервал через полночь не считается дважды.
-        // Шаги учитываются из всех переданных Источников: выбор делает HcImporter
-        // фильтром чтения (ADR-0010), а пересечения схлопывает дедупликация.
+        // Шаги учитываются из всех переданных Источников: порядок задаёт HcImporter
+        // приоритетом чтения (ADR-0010), а пересечения схлопывает дедупликация.
         val daySteps = dedupeSteps(steps.filter { inDay(it.start) })
         val daySleep = sleep.filter { inDay(it.start) }
         val dayBurn = burn.filter { inDay(it.start) }
+        val dayPulse = pulse.filter { inDay(it.time) }
         val dayMeals = meals.filter { inDay(it.start) }
         val dayBody = body.filter { inDay(it.time) }
+
+        // Расход: общие калории честнее (в них уже есть базовый расход), активные -
+        // запасной вариант на день, когда общих никто не написал.
+        val dayTotalBurn = dayBurn.filter { !it.active }
+        val effectiveBurn = dayTotalBurn.ifEmpty { dayBurn.filter { it.active } }
+
+        val pulses = dayPulse.map { it.bpm }
+        val pulseAvg = pulses.takeIf { it.isNotEmpty() }?.let { Math.round(it.average()) }
+        val pulseMin = pulses.takeIf { it.isNotEmpty() }?.min()
+        val pulseMax = pulses.takeIf { it.isNotEmpty() }?.max()
 
         return DaySlice(
             date = date,
             steps = daySteps.sumOf { it.count }.takeIf { daySteps.isNotEmpty() },
             sleepMinutes = daySleep.sumOf { it.durationMinutes }.takeIf { daySleep.isNotEmpty() },
-            burnedKcal = dayBurn.sumOf { it.kcal }.takeIf { dayBurn.isNotEmpty() },
+            burnedKcal = effectiveBurn.sumOf { it.kcal }.takeIf { effectiveBurn.isNotEmpty() },
+            pulseAvg = pulseAvg,
+            pulseMin = pulseMin,
+            pulseMax = pulseMax,
             eatenKcal = dayMeals.sumOrNull { it.kcal },
             proteinG = dayMeals.sumOrNull { it.proteinG },
             fatG = dayMeals.sumOrNull { it.fatG },

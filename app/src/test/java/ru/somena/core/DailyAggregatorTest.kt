@@ -24,9 +24,10 @@ class DailyAggregatorTest {
         steps: List<StepEntry> = emptyList(),
         sleep: List<SleepEntry> = emptyList(),
         burn: List<BurnEntry> = emptyList(),
+        pulse: List<PulseEntry> = emptyList(),
         meals: List<MealEntry> = emptyList(),
         body: List<BodyEntry> = emptyList(),
-    ) = DailyAggregator.buildSlice(day, zone, steps, sleep, burn, meals, body)
+    ) = DailyAggregator.buildSlice(day, zone, steps, sleep, burn, pulse, meals, body)
 
     @Test
     fun `шаги учитываются из любого Источника`() {
@@ -176,5 +177,59 @@ class DailyAggregatorTest {
         )
         assertEquals(20L, slice.sleepMinutes)
         assertEquals(30.0, slice.burnedKcal!!, 0.001)
+    }
+
+    // ---- Пульс (замеры браслета или телефона за день) ----
+
+    @Test
+    fun `пульс дня - среднее минимум и максимум по замерам`() {
+        val slice = build(
+            pulse = listOf(
+                PulseEntry(at(9), 70, BAND),
+                PulseEntry(at(12), 58, BAND),
+                PulseEntry(at(18), 82, BAND),
+            )
+        )
+        assertEquals(70L, slice.pulseAvg)
+        assertEquals(58L, slice.pulseMin)
+        assertEquals(82L, slice.pulseMax)
+    }
+
+    @Test
+    fun `средний пульс округляется к целому`() {
+        val slice = build(pulse = listOf(PulseEntry(at(9), 61, BAND), PulseEntry(at(12), 64, BAND)))
+        assertEquals(63L, slice.pulseAvg)
+    }
+
+    @Test
+    fun `замер через полночь относится к дню начала`() {
+        val slice = build(
+            pulse = listOf(
+                PulseEntry(day.minusDays(1).atTime(23, 50).atZone(zone).toInstant(), 60, BAND),
+                PulseEntry(at(9), 80, BAND),
+            )
+        )
+        assertEquals(80L, slice.pulseAvg)
+        assertEquals(80L, slice.pulseMin)
+        assertEquals(80L, slice.pulseMax)
+    }
+
+    // ---- Расход: общий за день, активные - запасной вариант ----
+
+    @Test
+    fun `расход предпочитает общие калории а без них берет активные`() {
+        // Телефон пишет только активные, браслет - общий расход: общий честнее.
+        val both = build(
+            burn = listOf(
+                BurnEntry(at(9), at(10), 300.0, source = "phone.pedometer", active = true),
+                BurnEntry(at(0), at(9), 1900.0, source = BAND),
+            )
+        )
+        assertEquals(1900.0, both.burnedKcal!!, 0.001)
+
+        val onlyActive = build(
+            burn = listOf(BurnEntry(at(9), at(10), 300.0, source = "phone.pedometer", active = true))
+        )
+        assertEquals(300.0, onlyActive.burnedKcal!!, 0.001)
     }
 }

@@ -57,6 +57,7 @@ enum class TodayPlate(override val id: String, override val title: String) : Lay
     STEPS("steps", "Шаги"),
     SLEEP("sleep", "Сон"),
     BURNED("burned", "Сожжено"),
+    PULSE("pulse", "Пульс"),
     EATEN("eaten", "Съедено"),
     WEIGHT("weight", "Вес"),
     BODY_FAT("body_fat", "Процент жира"),
@@ -84,6 +85,7 @@ fun TodayPlate.manualMetric(): ManualMetric? = when (this) {
     TodayPlate.STEPS -> ManualMetric.STEPS
     TodayPlate.SLEEP -> ManualMetric.SLEEP
     TodayPlate.BURNED -> ManualMetric.BURNED
+    TodayPlate.PULSE -> ManualMetric.PULSE
     TodayPlate.EATEN -> ManualMetric.EATEN
     TodayPlate.WEIGHT -> ManualMetric.WEIGHT
     TodayPlate.BODY_FAT -> ManualMetric.BODY_FAT
@@ -110,6 +112,7 @@ enum class ChartCard(override val id: String, override val title: String) : Layo
     MACROS("macros", "БЖУ"),
     STEPS("steps", "Шаги"),
     SLEEP("sleep", "Сон"),
+    PULSE("pulse", "Пульс"),
     WELLBEING("wellbeing", "Самочувствие"),
     BODY_FAT("body_fat", "Процент жира"),
     BONE("bone", "Костная масса"),
@@ -136,6 +139,7 @@ fun ChartCard.manualMetric(): ManualMetric? = when (this) {
     ChartCard.WEIGHT -> ManualMetric.WEIGHT
     ChartCard.STEPS -> ManualMetric.STEPS
     ChartCard.SLEEP -> ManualMetric.SLEEP
+    ChartCard.PULSE -> ManualMetric.PULSE
     ChartCard.BODY_FAT -> ManualMetric.BODY_FAT
     ChartCard.BONE -> ManualMetric.BONE
     ChartCard.BMR -> ManualMetric.BMR

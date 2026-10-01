@@ -28,6 +28,7 @@ data class ImportValues(
     val steps: Long? = null,
     val burnedKcal: Double? = null,
     val sleepMinutes: Long? = null,
+    val pulseAvg: Double? = null,
 )
 
 /** Шкалы Самочувствия одного дня, которые можно занести таблицей (целые 0..10). */
@@ -68,12 +69,12 @@ data class ImportPreview(
 const val IMPORT_SYSTEM_PROMPT = """Ты - разборщик таблиц приложения здоровья Somena. Пользователь пришлёт текст таблицы: колонки с датами и показателями (вес, еда, состав тела, шаги, расход, сон, самочувствие). Твоя задача - вернуть строгий JSON и вообще никакой другой текст.
 
 Формат ответа:
-{"days":[{"date":"ГГГГ-ММ-ДД","weight":62.4,"eaten_kcal":1850,"protein":90,"fat":70,"carbs":180,"body_fat":28.1,"bone":2.6,"steps":12000,"burned_kcal":2100,"sleep_h":7.5}],"wellbeing":[{"date":"ГГГГ-ММ-ДД","energy":7,"mood":6,"sleep_quality":8}],"unparsed":[{"row":"исходная строка","problem":"что не так"}]}
+{"days":[{"date":"ГГГГ-ММ-ДД","weight":62.4,"eaten_kcal":1850,"protein":90,"fat":70,"carbs":180,"body_fat":28.1,"bone":2.6,"steps":12000,"burned_kcal":2100,"sleep_h":7.5,"pulse":72}],"wellbeing":[{"date":"ГГГГ-ММ-ДД","energy":7,"mood":6,"sleep_quality":8}],"unparsed":[{"row":"исходная строка","problem":"что не так"}]}
 
 Правила:
 - Даты приведи к виду ГГГГ-ММ-ДД. Русская запись 05.01.2025 означает 5 января 2025.
 - Пустая ячейка - поле не включай. Ноль не подставляй: пустое место - это пропуск, а не ноль.
-- weight - вес в кг; eaten_kcal - съеденные калории за день; protein, fat, carbs - белки, жиры, углеводы в граммах; body_fat - процент жира; bone - костная масса в кг; steps - шаги за день, целое число; burned_kcal - сожжённые калории за день; sleep_h - сон в часах, дробь допустима (7.5 - это 7 часов 30 минут).
+- weight - вес в кг; eaten_kcal - съеденные калории за день; protein, fat, carbs - белки, жиры, углеводы в граммах; body_fat - процент жира; bone - костная масса в кг; steps - шаги за день, целое число; burned_kcal - сожжённые калории за день; sleep_h - сон в часах, дробь допустима (7.5 - это 7 часов 30 минут); pulse - средний пульс за день в ударах в минуту.
 - wellbeing - отмеченные самочувствия: energy, mood, sleep_quality - целые от 0 до 10. Дни из wellbeing не дублируй в days.
 - Запятую как десятичный разделитель (62,4) меняй на точку (62.4).
 - Строки, которые не удалось разобрать или не относятся к показателям (заголовок, итоги, пустые), перечисли в unparsed с причиной.
@@ -91,6 +92,7 @@ private val VALUE_RANGES = listOf(
     "bone" to (0.5..10.0),
     "steps" to (0.0..100000.0),
     "burned_kcal" to (0.0..15000.0),
+    "pulse" to (30.0..220.0),
 )
 
 @Serializable
@@ -108,6 +110,7 @@ private data class ImportDayDto(
     val steps: Double? = null,
     val burned_kcal: Double? = null,
     val sleep_h: Double? = null,
+    val pulse: Double? = null,
 )
 
 @Serializable
@@ -168,6 +171,7 @@ fun parseImportReply(
                     steps = day.steps?.roundToLong(),
                     burnedKcal = day.burned_kcal,
                     sleepMinutes = day.sleep_h?.let { (it * 60).roundToLong() },
+                    pulseAvg = day.pulse,
                 )
                 val problem = dayProblem(day, values)
                 if (problem != null) rejected += RejectedRow(problem.first, problem.second)
@@ -280,6 +284,7 @@ fun ImportEntry.toSlice(existing: DaySlice?): DaySlice =
         steps = values.steps ?: existing?.steps,
         burnedKcal = values.burnedKcal ?: existing?.burnedKcal,
         sleepMinutes = values.sleepMinutes ?: existing?.sleepMinutes,
+        pulseAvg = values.pulseAvg?.roundToLong() ?: existing?.pulseAvg,
     )
 
 /**
@@ -312,6 +317,7 @@ fun ImportValues.describe(): String {
     steps?.let { parts += "шаги ${fmt(it.toDouble())}" }
     burnedKcal?.let { parts += "сожжено ${fmt(it)} ккал" }
     sleepMinutes?.let { parts += "сон ${fmt(it / 60.0)} ч" }
+    pulseAvg?.let { parts += "пульс ${fmt(it)} уд/мин" }
     return parts.joinToString(", ")
 }
 
@@ -352,6 +358,7 @@ private fun ImportValues.field(key: String): Double? = when (key) {
     "body_fat" -> bodyFatPct
     "burned_kcal" -> burnedKcal
     "steps" -> steps?.toDouble()
+    "pulse" -> pulseAvg
     else -> boneMassKg
 }
 

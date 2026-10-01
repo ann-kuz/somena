@@ -60,6 +60,26 @@ class ChatContextTest {
     }
 
     @Test
+    fun `пульс дня попадает в строку среза с границами`() {
+        val withPulse = slice.copy(pulseAvg = 70, pulseMin = 58, pulseMax = 82)
+        val text = context(slices = mapOf(yesterday to withPulse))
+        assertTrue(text.contains("пульс 70 (мин 58, макс 82) уд/мин"))
+    }
+
+    @Test
+    fun `пульс без границ пишется средним без скобок`() {
+        val onlyAvg = slice.copy(pulseAvg = 71)
+        val text = context(slices = mapOf(yesterday to onlyAvg))
+        assertTrue(text.contains("пульс 71 уд/мин"))
+        assertFalse(text.contains("мин null"))
+    }
+
+    @Test
+    fun `рамка промпта знает код графика пульса`() {
+        assertTrue(CHAT_SYSTEM_PROMPT.contains("burned, pulse,"))
+    }
+
+    @Test
     fun `две отметки Самочувствия попадают в контекст обе`() {
         val evening = wellbeing.copy(slot = Wellbeing.SLOT_SECOND, energy = 4, mood = 5, note = "полегче")
         val text = context(wellbeing = mapOf(yesterday to listOf(wellbeing, evening)))

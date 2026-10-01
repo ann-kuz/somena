@@ -34,6 +34,21 @@ class ChartsTest {
     }
 
     @Test
+    fun `метрика пульса идет средним за день и не выдумывает нули`() {
+        val d1 = LocalDate.of(2026, 9, 24)
+        val d2 = d1.plusDays(1)
+        val data = DayData(
+            slicesByDate = mapOf(
+                d1 to DaySlice(d1, pulseAvg = 70, pulseMin = 58, pulseMax = 82),
+                d2 to DaySlice(d2, steps = 4000),
+            )
+        )
+        val series = metricSeries(AiMetric.PULSE, listOf(d1, d2), data)
+        assertEquals(70.0, series[0]!!, 0.001)
+        assertNull(series[1])
+    }
+
+    @Test
     fun `диапазоны периодов корректны`() {
         val end = LocalDate.of(2026, 9, 25)
         val week = chartRange(end, ChartPeriod.WEEK)

@@ -19,6 +19,9 @@ private data class SliceDto(
     val steps: Long? = null,
     val sleepMinutes: Long? = null,
     val burnedKcal: Double? = null,
+    val pulseAvg: Long? = null,
+    val pulseMin: Long? = null,
+    val pulseMax: Long? = null,
     val eatenKcal: Double? = null,
     val proteinG: Double? = null,
     val fatG: Double? = null,
@@ -31,14 +34,18 @@ private data class SliceDto(
 
 private fun DaySlice.toDto() = SliceDto(
     date = date.format(ISO_LOCAL_DATE),
-    steps = steps, sleepMinutes = sleepMinutes, burnedKcal = burnedKcal, eatenKcal = eatenKcal,
+    steps = steps, sleepMinutes = sleepMinutes, burnedKcal = burnedKcal,
+    pulseAvg = pulseAvg, pulseMin = pulseMin, pulseMax = pulseMax,
+    eatenKcal = eatenKcal,
     proteinG = proteinG, fatG = fatG, carbsG = carbsG,
     weightKg = weightKg, bodyFatPct = bodyFatPct, boneMassKg = boneMassKg, bmrKcal = bmrKcal,
 )
 
 private fun SliceDto.toDomain() = DaySlice(
     date = LocalDate.parse(date),
-    steps = steps, sleepMinutes = sleepMinutes, burnedKcal = burnedKcal, eatenKcal = eatenKcal,
+    steps = steps, sleepMinutes = sleepMinutes, burnedKcal = burnedKcal,
+    pulseAvg = pulseAvg, pulseMin = pulseMin, pulseMax = pulseMax,
+    eatenKcal = eatenKcal,
     proteinG = proteinG, fatG = fatG, carbsG = carbsG,
     weightKg = weightKg, bodyFatPct = bodyFatPct, boneMassKg = boneMassKg, bmrKcal = bmrKcal,
 )

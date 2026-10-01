@@ -10,6 +10,7 @@ enum class AiMetric(val key: String, val label: String, val unit: String) {
     STEPS("steps", "Шаги", "шаг."),
     SLEEP("sleep", "Сон", "ч"),
     BURNED("burned", "Сожжено", "ккал"),
+    PULSE("pulse", "Пульс", "уд/мин"),
     EATEN("eaten", "Съедено", "ккал"),
     PROTEIN("protein", "Белки", "г"),
     FAT("fat", "Жиры", "г"),
@@ -65,6 +66,7 @@ fun metricSeries(
             AiMetric.STEPS -> s?.steps?.toDouble()
             AiMetric.SLEEP -> s?.sleepMinutes?.let { it / 60.0 }
             AiMetric.BURNED -> s?.burnedKcal
+            AiMetric.PULSE -> s?.pulseAvg?.toDouble()
             AiMetric.EATEN -> s?.eatenKcal
             AiMetric.PROTEIN -> s?.proteinG
             AiMetric.FAT -> s?.fatG
