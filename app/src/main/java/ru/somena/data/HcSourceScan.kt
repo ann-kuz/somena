@@ -26,6 +26,11 @@ import ru.somena.core.SourceKind
  * приложениями, а не только с известным каталогом. Имя - ярлык приложения из
  * системы; для удалённого приложения остаётся пакет. Расход сканирует оба типа
  * калорий: общие и активные пишут разные приложения.
+ *
+ * Каждый тип читается отдельно и стойко к отказу: не выданное разрешение или
+ * сбой одного типа не роняет скан целиком - тип остаётся без писавших, а отказ
+ * уходит в Журнал. Так после обновления с новым типом данных скан показывает
+ * остальное и подсказывает выдать разрешения, а не гаснет весь экран.
  */
 object HcSourceScan {
 
@@ -43,10 +48,14 @@ object HcSourceScan {
 
         suspend fun <T : androidx.health.connect.client.records.Record> writers(
             type: KClass<T>,
-        ): List<String> =
+        ): List<String> = runCatching {
             client.readRecords(ReadRecordsRequest(type, range)).records
                 .groupBy { it.metadata.dataOrigin.packageName }
                 .map { (pkg, _) -> pkg }
+        }.getOrElse { e ->
+            AppLog.append(context, AppLog.HC, "скан ${type.simpleName}: ${e.message}")
+            emptyList()
+        }
 
         fun named(pkgs: List<String>): List<HcSource> =
             pkgs.map { HcSource(it, label(it)) }.sortedWith(compareBy({ it.label.lowercase() }, { it.packageName }))

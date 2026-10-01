@@ -8,6 +8,7 @@ import androidx.health.connect.client.records.BodyFatRecord
 import androidx.health.connect.client.records.BoneMassRecord
 import androidx.health.connect.client.records.HeartRateRecord
 import androidx.health.connect.client.records.NutritionRecord
+import androidx.health.connect.client.records.Record
 import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
@@ -18,7 +19,6 @@ import java.time.Instant
 import java.time.ZoneId
 import ru.somena.core.BurnEntry
 import ru.somena.core.BodyEntry
-import ru.somena.core.DaySlice
 import ru.somena.core.DailyAggregator
 import ru.somena.core.ImportWindow
 import ru.somena.core.MealEntry
@@ -40,6 +40,10 @@ import ru.somena.core.applySourcePriority
  * за каждый день оставляется первый Источник порядка, у которого в этот день есть
  * записи. Расход читается двумя типами: общие калории честнее, активные - запасной
  * вариант на день, когда общих никто не написал.
+ *
+ * Чтение каждого типа стойко к отказу: не выданное разрешение или сбой оставляют
+ * тип пустым и пишут отказ в Журнал, а остальные типы читаются - одно нехватившее
+ * разрешение после обновления не роняет весь импорт.
  */
 class HcImporter(
     private val db: SliceDb,
@@ -50,6 +54,13 @@ class HcImporter(
             return 0
         }
         val client = HealthConnectClient.getOrCreate(context)
+
+        suspend fun <T : Record> safeRead(request: ReadRecordsRequest<T>): List<T> =
+            runCatching { client.readRecords(request).records }.getOrElse { e ->
+                AppLog.append(context, AppLog.HC, "чтение ${request.recordType.simpleName}: ${e.message}")
+                emptyList()
+            }
+
         val now = Instant.now()
         val range = TimeRangeFilter.between(ImportWindow.start(now, zone, db.lastStoredDate(), windowDays), now)
         val priorities = SourceStore(context).load()
@@ -59,24 +70,24 @@ class HcImporter(
         fun <T> List<T>.byPriority(kind: SourceKind, sourceOf: (T) -> String, timeOf: (T) -> Instant): List<T> =
             applySourcePriority(this, priority(kind), zone, sourceOf, timeOf)
 
-        val steps = client.readRecords(ReadRecordsRequest(StepsRecord::class, range)).records
+        val steps = safeRead(ReadRecordsRequest(StepsRecord::class, range))
             .map { StepEntry(it.startTime, it.endTime, it.count, it.metadata.dataOrigin.packageName) }
             .byPriority(SourceKind.STEPS, { it.source }, { it.start })
-        val sleep = client.readRecords(ReadRecordsRequest(SleepSessionRecord::class, range)).records
+        val sleep = safeRead(ReadRecordsRequest(SleepSessionRecord::class, range))
             .map { SleepEntry(it.startTime, it.endTime, it.metadata.dataOrigin.packageName) }
             .byPriority(SourceKind.SLEEP, { it.source }, { it.start })
         // Расход: общие калории (active = false) и активные (active = true) одним
         // списком - приоритет выбирает Источник за день, агрегатор вид записи.
         val burn = (
-            client.readRecords(ReadRecordsRequest(TotalCaloriesBurnedRecord::class, range)).records
+            safeRead(ReadRecordsRequest(TotalCaloriesBurnedRecord::class, range))
                 .map { BurnEntry(it.startTime, it.endTime, it.energy.inKilocalories, it.metadata.dataOrigin.packageName) } +
-                client.readRecords(ReadRecordsRequest(ActiveCaloriesBurnedRecord::class, range)).records
+                safeRead(ReadRecordsRequest(ActiveCaloriesBurnedRecord::class, range))
                     .map { BurnEntry(it.startTime, it.endTime, it.energy.inKilocalories, it.metadata.dataOrigin.packageName, active = true) }
             ).byPriority(SourceKind.BURN, { it.source }, { it.start })
-        val pulse = client.readRecords(ReadRecordsRequest(HeartRateRecord::class, range)).records
+        val pulse = safeRead(ReadRecordsRequest(HeartRateRecord::class, range))
             .flatMap { r -> r.samples.map { PulseEntry(it.time, it.beatsPerMinute, r.metadata.dataOrigin.packageName) } }
             .byPriority(SourceKind.PULSE, { it.source }, { it.time })
-        val meals = client.readRecords(ReadRecordsRequest(NutritionRecord::class, range)).records
+        val meals = safeRead(ReadRecordsRequest(NutritionRecord::class, range))
             .map {
                 MealEntry(
                     start = it.startTime,
@@ -90,16 +101,16 @@ class HcImporter(
             }
             .byPriority(SourceKind.FOOD, { it.source }, { it.start })
         // Показатели тела собираем в единые точки взвешивания по времени.
-        val weights = client.readRecords(ReadRecordsRequest(WeightRecord::class, range)).records
+        val weights = safeRead(ReadRecordsRequest(WeightRecord::class, range))
             .map { BodyEntry(it.time, it.weight.inKilograms, null, null, null, it.metadata.dataOrigin.packageName) }
             .byPriority(SourceKind.WEIGHT, { it.source }, { it.time })
-        val fats = client.readRecords(ReadRecordsRequest(BodyFatRecord::class, range)).records
+        val fats = safeRead(ReadRecordsRequest(BodyFatRecord::class, range))
             .map { BodyEntry(it.time, null, it.percentage.value, null, null, it.metadata.dataOrigin.packageName) }
             .byPriority(SourceKind.BODY_FAT, { it.source }, { it.time })
-        val bones = client.readRecords(ReadRecordsRequest(BoneMassRecord::class, range)).records
+        val bones = safeRead(ReadRecordsRequest(BoneMassRecord::class, range))
             .map { BodyEntry(it.time, null, null, it.mass.inKilograms, null, it.metadata.dataOrigin.packageName) }
             .byPriority(SourceKind.BONE, { it.source }, { it.time })
-        val bmr = client.readRecords(ReadRecordsRequest(BasalMetabolicRateRecord::class, range)).records
+        val bmr = safeRead(ReadRecordsRequest(BasalMetabolicRateRecord::class, range))
             .map {
                 BodyEntry(it.time, null, null, null, it.basalMetabolicRate.inKilocaloriesPerDay, it.metadata.dataOrigin.packageName)
             }

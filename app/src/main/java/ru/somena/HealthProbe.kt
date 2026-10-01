@@ -18,6 +18,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import ru.somena.data.AppLog
 
 /**
  * Отладочный зонд Health Connect: читает записи за N дней и показывает,
@@ -102,12 +103,18 @@ object HealthProbe {
         )
         kcal.map { it.metadata.dataOrigin.packageName }.distinct()
             .forEach { sb.appendLine("  источник: $it") }
-        val activeKcal = client.readRecords(
-            ReadRecordsRequest(androidx.health.connect.client.records.ActiveCaloriesBurnedRecord::class, range)
-        ).records
+        // Активные калории: без выданного разрешения показываем отказ, а не падение зонда.
+        val activeKcal = runCatching {
+            client.readRecords(
+                ReadRecordsRequest(androidx.health.connect.client.records.ActiveCaloriesBurnedRecord::class, range)
+            ).records
+        }.getOrElse {
+            AppLog.append(context, AppLog.HC, "зонд: активные калории не прочитаны: ${it.message}")
+            emptyList()
+        }
         sb.append("РАСХОД (активные) за $days дн.: ")
         sb.appendLine(
-            if (activeKcal.isEmpty()) "нет записей"
+            if (activeKcal.isEmpty()) "нет записей или нет разрешения"
             else "${fmtInt(activeKcal.sumOf { it.energy.inKilocalories })} ккал"
         )
         activeKcal.map { it.metadata.dataOrigin.packageName }.distinct()

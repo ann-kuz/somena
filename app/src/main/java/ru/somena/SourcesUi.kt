@@ -54,6 +54,7 @@ fun SourcesSection() {
     var writers by remember { mutableStateOf<Map<SourceKind, List<HcSource>>?>(null) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var granted by remember { mutableStateOf<Int?>(null) }
 
     fun rescan() {
         busy = true
@@ -65,9 +66,16 @@ fun SourcesSection() {
             } catch (e: Exception) {
                 error = "Скан не удался: ${e.message}"
             }
+            granted = HealthProbe.grantedPermissions(context).size
             busy = false
         }
     }
+
+    // Недостающие разрешения выдаются отсюда же: после обновления приложения
+    // новые типы данных требуют отдельного разрешения Health Connect.
+    val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.health.connect.client.PermissionController.createRequestPermissionResultContract()
+    ) { rescan() }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Источники данных", style = MaterialTheme.typography.titleMedium)
@@ -78,6 +86,20 @@ fun SourcesSection() {
             color = TextMuted,
             style = MaterialTheme.typography.bodySmall,
         )
+        if (granted != null && granted!! < HC_PERMISSIONS.size) {
+            Text(
+                "Выдано разрешений: ${granted} из ${HC_PERMISSIONS.size} - без недостающих " +
+                    "часть показателей не читается.",
+                color = TextMuted,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            ru.somena.ui.GlowButton(
+                "Выдать разрешения",
+                onClick = { permissionLauncher.launch(HC_PERMISSIONS) },
+                enabled = HealthProbe.isAvailable(context),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         val scan = writers
         when {
             busy -> Text("Читаю Health Connect…", color = TextMuted, style = MaterialTheme.typography.bodySmall)

@@ -111,7 +111,7 @@ fun OnboardingScreen(m: Modifier, onDone: () -> Unit) {
                     Text("Разрешения для Somena", style = MaterialTheme.typography.titleMedium)
                 }
                 Text(
-                    if (granted == null) "Проверяю…" else "Выдано разрешений: $granted из 9",
+                    if (granted == null) "Проверяю…" else "Выдано разрешений: $granted из ${HC_PERMISSIONS.size}",
                     color = TextMuted,
                     style = MaterialTheme.typography.bodyMedium,
                 )
