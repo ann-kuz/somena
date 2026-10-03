@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -24,6 +25,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import ru.somena.core.HcSource
@@ -31,11 +34,75 @@ import ru.somena.core.SourceKind
 import ru.somena.core.SourceGroupChoice
 import ru.somena.core.mergeSources
 import ru.somena.data.HcSourceScan
+import ru.somena.data.ProfileStore
+import ru.somena.data.SliceDb
 import ru.somena.data.SourceStore
+import ru.somena.data.StepsBurnStore
 import ru.somena.ui.CardLabel
+import ru.somena.ui.GlassCard
 import ru.somena.ui.PeriodChip
 import ru.somena.ui.TextMuted
 import ru.somena.ui.Violet
+
+/**
+ * Расход от шагов (спека 0017), Настройки → Данные: переключатель, по умолчанию
+ * выключен. Включённый считает «Сожжено» от количества шагов как обычную ходьбу
+ * по ровной местности: формула от веса (последнее взвешивание), роста, возраста
+ * и пола. Применяется к «Сегодня», «Графикам» и Чату по данным при следующем
+ * входе на экран.
+ */
+@Composable
+fun StepsBurnSection() {
+    val context = LocalContext.current
+    val store = remember { StepsBurnStore(context) }
+    var enabled by remember { mutableStateOf(store.isEnabled()) }
+    // Подсказка о недостающем для формулы: хоть одно взвешивание и дата рождения.
+    val hasWeight = remember { SliceDb(context).all().any { it.weightKg != null } }
+    val hasBirthDate = remember { ProfileStore(context).load().birthDate != null }
+
+    GlassCard(Modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Расход от шагов", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Считать «Сожжено» от количества шагов: как обычная ходьба по ровной " +
+                        "местности, по формуле от веса, роста, возраста и пола.",
+                    color = TextMuted,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Switch(
+                checked = enabled,
+                onCheckedChange = { on ->
+                    enabled = on
+                    store.setEnabled(on)
+                },
+                modifier = Modifier.semantics { contentDescription = "Считать расход от шагов" },
+            )
+        }
+        if (enabled) {
+            if (!hasWeight || !hasBirthDate) {
+                Text(
+                    "Для расчёта нужно хоть одно взвешивание (умные весы, Разбор таблицы или " +
+                        "ввод веса вручную) и дата рождения в Профиле. Пока их нет, «Сожжено» " +
+                        "показывается как раньше.",
+                    color = TextMuted,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Text(
+                "Записи расхода из Health Connect не учитываются: тренировки без шагов " +
+                    "(велосипед, бассейн) в расчёт не попадут. День без шагов или без веса " +
+                    "показывает записанное значение. Выключение возвращает записанные значения.",
+                color = TextMuted,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
 
 /**
  * Источники данных (ADR-0010), Настройки → Данные: показывает, какие приложения

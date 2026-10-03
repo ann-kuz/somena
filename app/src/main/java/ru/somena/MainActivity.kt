@@ -73,9 +73,11 @@ import ru.somena.core.parseBirthDate
 import ru.somena.core.parseOptionalDouble
 import ru.somena.core.parseOptionalInt
 import ru.somena.core.todayPlatesFor
+import ru.somena.core.withStepsBurn
 import ru.somena.data.HcImporter
 import ru.somena.data.ProfileStore
 import ru.somena.data.SliceDb
+import ru.somena.data.StepsBurnStore
 import ru.somena.data.CardLayoutStore
 import ru.somena.ui.GhostButton
 import ru.somena.ui.GlassCard
@@ -204,10 +206,14 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
     val scope = rememberCoroutineScope()
     val db = remember { SliceDb(context) }
     val importer = remember { HcImporter(db) }
-    // Календарь цикла скрыт для пола «м»: пол читается один раз при входе на экран.
-    val sex = remember { ProfileStore(context).load().sex }
+    // Календарь цикла скрыт для пола «м»: Профиль читается один раз при входе на экран.
+    val profile = remember { ProfileStore(context).load() }
+    // Расход от шагов (спека 0017): переключатель «Настройки → Данные».
+    val stepsBurn = remember { StepsBurnStore(context).isEnabled() }
+    fun readSlices(): List<DaySlice> =
+        db.all().let { if (stepsBurn) it.withStepsBurn(profile) else it }
     // Порядок и скрытость плашек - настройка Пользователя, хранится локально.
-    val plates = remember { todayPlatesFor(sex == Sex.MALE) }
+    val plates = remember { todayPlatesFor(profile.sex == Sex.MALE) }
     val layoutStore = remember { CardLayoutStore(context, "today_order", "today_hidden", TodayPlate::byId) }
     var layout by remember { mutableStateOf(layoutStore.load(plates)) }
     fun saveLayout(l: TodayLayout) {
@@ -220,8 +226,8 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
     // с БЖУ, Сожжено) читаются только из сегодняшнего среза - вчерашнее не подтекает.
     // День не кэшируется: полночь посреди сеанса не оставляет вчерашнюю свежесть.
     val today = LocalDate.now()
-    var latest by remember { mutableStateOf(latestValues(db.all())) }
-    var todaySlice by remember(today) { mutableStateOf<DaySlice?>(db.get(today)) }
+    var latest by remember { mutableStateOf(latestValues(readSlices())) }
+    var todaySlice by remember(today) { mutableStateOf<DaySlice?>(readSlices().firstOrNull { it.date == today }) }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
     var wellbeing by remember { mutableStateOf(db.dayWellbeing(LocalDate.now())) }
@@ -233,8 +239,9 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
     var reorder by remember { mutableStateOf(false) }
 
     fun reload() {
-        latest = latestValues(db.all())
-        todaySlice = db.get(today)
+        val slices = readSlices()
+        latest = latestValues(slices)
+        todaySlice = slices.firstOrNull { it.date == today }
         wellbeing = db.dayWellbeing(today)
     }
 
@@ -334,6 +341,7 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
                             today = today,
                             onOpenMenu = { menuPlate = it },
                             modifier = Modifier.weight(1f),
+                            burnFromSteps = stepsBurn,
                         )
                     }
                     if (row.size == 1) Spacer(Modifier.weight(1f))

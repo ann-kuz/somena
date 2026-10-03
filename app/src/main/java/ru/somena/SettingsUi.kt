@@ -95,8 +95,9 @@ fun SettingsScreen(
             m, "Профиль", "Рост, пол, дата рождения, цель по весу и базовый расход", onPage,
         ) { ProfileSection() }
         SettingsPages.DATA -> SettingsSubScreen(
-            m, "Данные", "Источники Health Connect: кто пишет показатели", onPage,
+            m, "Данные", "Источники Health Connect и расчёт расхода от шагов", onPage,
         ) {
+            StepsBurnSection()
             SourcesSection()
             GhostButton("Пройти онбординг заново", onRepeatOnboarding, Modifier.fillMaxWidth())
             Text(
@@ -148,7 +149,7 @@ private data class MenuRow(val icon: ImageVector, val title: String, val subtitl
 private fun SettingsMenu(onPage: (String?) -> Unit) {
     val rows = listOf(
         MenuRow(Icons.Filled.Person, "Профиль", "Рост, пол, цель по весу, базовый расход", SettingsPages.PROFILE),
-        MenuRow(Icons.Filled.Refresh, "Данные", "Источники Health Connect, выбор при конфликте", SettingsPages.DATA),
+        MenuRow(Icons.Filled.Refresh, "Данные", "Источники Health Connect, расход от шагов", SettingsPages.DATA),
         MenuRow(ChatBubbleIcon, "Чат", "ИИ-сервис, ключ API, модели Ступеней", SettingsPages.CHAT),
         MenuRow(Icons.Filled.Build, "Отладка", "Журнал чата, базы и ошибок", SettingsPages.DEBUG),
     )

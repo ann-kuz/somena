@@ -55,9 +55,11 @@ import ru.somena.core.manualMetric
 import ru.somena.core.metricSeries
 import ru.somena.core.PanAccumulator
 import ru.somena.core.weightTrend
+import ru.somena.core.withStepsBurn
 import ru.somena.data.CardLayoutStore
 import ru.somena.data.ProfileStore
 import ru.somena.data.SliceDb
+import ru.somena.data.StepsBurnStore
 import ru.somena.ui.GlassCard
 import ru.somena.ui.NebulaBackground
 import ru.somena.ui.PeriodChip
@@ -85,10 +87,15 @@ fun ChartsScreen(m: Modifier) {
     val context = LocalContext.current
     val db = remember { SliceDb(context) }
     // Ручной базовый расход из Профиля: запас для Дефицита, пока весы не передают свой.
-    val profileBmr = remember { ProfileStore(context).load().bmrKcal }
+    // Профиль целиком нужен и Расходу от шагов (спека 0017).
+    val profile = remember { ProfileStore(context).load() }
+    val profileBmr = profile.bmrKcal
+    val stepsBurn = remember { StepsBurnStore(context).isEnabled() }
     // Запись из меню графика растит ревизию: срезы и Самочувствие перечитываются.
     var revision by remember { mutableIntStateOf(0) }
-    val slices = remember(revision) { db.all() }
+    val slices = remember(revision) {
+        db.all().let { if (stepsBurn) it.withStepsBurn(profile) else it }
+    }
     val wellbeing = remember(revision) { db.allWellbeing() }
     val byDate = remember(slices) { slices.associateBy { it.date } }
     val data = remember(slices, wellbeing) {

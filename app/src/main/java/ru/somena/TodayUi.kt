@@ -512,6 +512,7 @@ fun MetricPlate(
     today: LocalDate,
     onOpenMenu: () -> Unit,
     modifier: Modifier = Modifier,
+    burnFromSteps: Boolean = false,
 ) {
     fun staleOn(m: MetricLatest<*>?): LocalDate? = m?.on?.takeIf { it != today }
     when (plate) {
@@ -533,6 +534,9 @@ fun MetricPlate(
             MetricCard(
                 "Сожжено", "%,.0f".format(burned), modifier,
                 accent = Violet, unit = "ккал",
+                // Пометка честности данных: число сегодня посчитано от шагов,
+                // а не прочитано у Источников (спека 0017).
+                sub = if (burnFromSteps && todaySlice?.steps != null) "от шагов" else null,
                 muted = burned <= 0.0,
                 onClick = onOpenMenu,
             )

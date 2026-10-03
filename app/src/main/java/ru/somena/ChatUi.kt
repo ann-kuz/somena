@@ -106,6 +106,7 @@ import ru.somena.core.parseMedReply
 import ru.somena.core.sentenceCaseTyped
 import ru.somena.core.toSlice
 import ru.somena.core.toWellbeing
+import ru.somena.core.withStepsBurn
 import ru.somena.data.ChatClient
 import ru.somena.data.ChatMessage
 import ru.somena.data.ChatSettings
@@ -122,6 +123,7 @@ import ru.somena.data.PROTOCOL_OPENAI
 import ru.somena.data.ProfileStore
 import ru.somena.data.ProxyModels
 import ru.somena.data.SliceDb
+import ru.somena.data.StepsBurnStore
 import ru.somena.data.STEP_FAST
 import ru.somena.data.STEP_MAX
 import ru.somena.ui.AttachFileIcon
@@ -198,22 +200,27 @@ fun ChatScreen(m: Modifier) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val db = remember { SliceDb(context) }
-    // Ручной базовый расход из Профиля: запас для Дефицита, пока весы не передают свой.
-    val profileBmr = remember { ProfileStore(context).load().bmrKcal }
+    // Профиль: ручной базовый расход - запас для Дефицита, весь - Расходу от шагов
+    // (спека 0017, переключатель «Настройки → Данные»).
+    val profile = remember { ProfileStore(context).load() }
+    val profileBmr = profile.bmrKcal
+    val stepsBurn = remember { StepsBurnStore(context).isEnabled() }
     val settings = remember { ChatSettings(context) }
     val client = remember {
         ChatClient(settings.transport(), log = { line -> AppLog.append(context, AppLog.CHAT, line) })
     }
     // Данные для контекста вопроса и графиков ИИ: перечитываются после Разбора таблицы.
     // Самочувствие группируется по дате: отметок в день бывает две.
-    var data by remember {
-        mutableStateOf(DayData(db.all().associateBy { it.date }, db.allWellbeing().groupBy { it.date }))
-    }
+    fun readData(): DayData = DayData(
+        db.all().let { if (stepsBurn) it.withStepsBurn(profile) else it }.associateBy { it.date },
+        db.allWellbeing().groupBy { it.date },
+    )
+    var data by remember { mutableStateOf(readData()) }
     // Разбор таблицы пишет первую отметку дня, поэтому сравнивает её с прежней первой.
     fun firstWellbeing(): Map<LocalDate, Wellbeing> =
         db.allWellbeing().filter { it.slot == Wellbeing.SLOT_FIRST }.associateBy { it.date }
     fun reloadData() {
-        data = DayData(db.all().associateBy { it.date }, db.allWellbeing().groupBy { it.date })
+        data = readData()
     }
     val cycleEntries = remember { db.allCycleDays() }
     var messages by remember { mutableStateOf(db.chatHistory()) }
@@ -481,7 +488,7 @@ fun ChatScreen(m: Modifier) {
                             context = buildChatContext(
                                 today = LocalDate.now(),
                                 data = data,
-                                profile = ProfileStore(context).load(),
+                                profile = profile,
                                 cycle = cycleEntries,
                                 medcard = db.allMed(),
                             ),
