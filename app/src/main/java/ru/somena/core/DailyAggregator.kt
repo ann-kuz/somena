@@ -100,7 +100,7 @@ object DailyAggregator {
         // Шаги учитываются из всех переданных Источников: порядок задаёт HcImporter
         // приоритетом чтения (ADR-0010), а пересечения схлопывает дедупликация.
         val daySteps = dedupeSteps(steps.filter { inDay(it.start) })
-        val daySleep = sleep.filter { inDay(it.start) }
+        val daySleep = dedupeSleep(sleep.filter { inDay(it.start) })
         val dayBurn = burn.filter { inDay(it.start) }
         val dayPulse = pulse.filter { inDay(it.time) }
         val dayMeals = meals.filter { inDay(it.start) }
@@ -158,6 +158,26 @@ object DailyAggregator {
                 newEnd = e.end
             }
             out[out.size - 1] = last.copy(count = newCount.toLong(), end = newEnd)
+        }
+        return out
+    }
+
+    /**
+     * Схлопывает пересекающиеся записи сна (ADR-0001: дедупликация - наша работа).
+     * Mi Fitness при каждом пробуждении пишет новый снимок того же сеанса - то же
+     * начало и подросший конец, - поэтому сном считается объединение интервалов:
+     * вложенные и перекрывающиеся снимки не суммируются, а по-настоящему разные
+     * сеансы (ночь и дневной сон) остаются каждый своим.
+     */
+    fun dedupeSleep(entries: List<SleepEntry>): List<SleepEntry> {
+        val out = mutableListOf<SleepEntry>()
+        for (e in entries.sortedBy { it.start }) {
+            val last = out.lastOrNull()
+            if (last == null || !e.start.isBefore(last.end)) {
+                out.add(e)
+                continue
+            }
+            if (e.end.isAfter(last.end)) out[out.size - 1] = last.copy(end = e.end)
         }
         return out
     }

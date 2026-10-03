@@ -67,6 +67,35 @@ class DailyAggregatorTest {
     }
 
     @Test
+    fun `снимки сна одного сеанса при пробуждениях не суммируются`() {
+        // Mi Fitness пишет сон при каждом пробуждении: новый снимок того же сеанса
+        // с тем же началом и подросшим концом (02:23 → 05:06, 09:32, 10:54 -
+        // свежие записи Health Connect идут первыми). Сон дня - последний снимок
+        // целиком, а не сумма промежуточных итогов.
+        val snapshots = listOf(
+            SleepEntry(at(2, 23), at(10, 54), BAND),
+            SleepEntry(at(2, 23), at(9, 32), BAND),
+            SleepEntry(at(2, 23), at(5, 6), BAND),
+        )
+        assertEquals((8 * 60 + 31).toLong(), build(sleep = snapshots).sleepMinutes)
+    }
+
+    @Test
+    fun `пересекающиеся интервалы сна схлопываются в объединение`() {
+        // Снимки одного сна могут отличаться и началом (браслет переоценил момент
+        // засыпания): 00:00-08:00 и 03:00-09:00 - одно лежание, объединение
+        // 00:00-09:00. Отдельный дневной сон - свой сеанс, прибавляется сам.
+        val slice = build(
+            sleep = listOf(
+                SleepEntry(at(0), at(8)),
+                SleepEntry(at(3), at(9)),
+                SleepEntry(at(14), at(15)),
+            )
+        )
+        assertEquals((9 * 60 + 60).toLong(), slice.sleepMinutes)
+    }
+
+    @Test
     fun `еда суммируется по приёмам с БЖУ`() {
         val slice = build(
             meals = listOf(
