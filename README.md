@@ -8,6 +8,7 @@ Health Connect), самочувствие (3 шкалы 0–10 + заметка)
 - Сайт приложения: **https://elunaris-vitrail.strangled.net/** (зеркала:
   https://ann-kuz.github.io/somena/ и http://77.239.99.15:8787/)
 - Словарь проекта: [CONTEXT.md](CONTEXT.md)
+- Карта проекта (структура и модули, что где править): [docs/PROJECT_MAP.md](docs/PROJECT_MAP.md)
 - Решения: [docs/adr/](docs/adr/) — Health Connect как единственная точка чтения (0001),
   локальные данные без аккаунтов (0002), еда дневными итогами из FatSecret (0003/0004).
 - Спеки: [docs/spec/](docs/spec/) — MVP (0001), дизайн-система «ночная туманность» (0002),
