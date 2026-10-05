@@ -148,3 +148,137 @@ val EyeOffIcon: ImageVector by lazy {
         }
     }
 }
+
+/*
+ * Иконки групп Источников для списка показателей (спека 0018), стиль Material
+ * filled, рисованы вручную: extended ради шести иконок не тянем (спека 0001).
+ */
+
+/** Шаги: лестница - «ступени шагов». */
+val StepsIcon: ImageVector by lazy {
+    materialIcon(name = "Filled.StepsStaircase") {
+        materialPath {
+            moveTo(3.5f, 20.0f)
+            verticalLineToRelative(-1.6f)
+            horizontalLineTo(8.0f)
+            verticalLineToRelative(-4.0f)
+            horizontalLineTo(12.5f)
+            verticalLineToRelative(-4.0f)
+            horizontalLineTo(17.0f)
+            verticalLineToRelative(-4.0f)
+            horizontalLineTo(20.5f)
+            verticalLineTo(20.0f)
+            close()
+        }
+    }
+}
+
+/** Сон: месяц. */
+val SleepIcon: ImageVector by lazy {
+    materialIcon(name = "Filled.BedtimeCrescent") {
+        materialPath {
+            moveTo(10.6f, 2.4f)
+            curveTo(6.1f, 3.4f, 2.8f, 7.4f, 2.8f, 12.2f)
+            curveTo(2.8f, 17.6f, 7.2f, 22.0f, 12.6f, 22.0f)
+            curveTo(15.7f, 22.0f, 18.4f, 20.6f, 20.3f, 18.4f)
+            curveTo(19.5f, 18.5f, 18.7f, 18.6f, 17.9f, 18.6f)
+            curveTo(12.0f, 18.6f, 7.2f, 13.8f, 7.2f, 7.9f)
+            curveTo(7.2f, 5.8f, 7.8f, 4.0f, 10.6f, 2.4f)
+            close()
+        }
+    }
+}
+
+/** Расход: язык пламени. */
+val BurnIcon: ImageVector by lazy {
+    materialIcon(name = "Filled.Flame") {
+        materialPath {
+            moveTo(12.0f, 2.0f)
+            curveTo(10.6f, 4.7f, 9.2f, 6.6f, 8.2f, 8.7f)
+            curveTo(7.2f, 10.8f, 6.7f, 12.4f, 6.7f, 14.1f)
+            curveTo(6.7f, 17.1f, 9.1f, 19.5f, 12.0f, 19.5f)
+            curveTo(14.9f, 19.5f, 17.3f, 17.1f, 17.3f, 14.1f)
+            curveTo(17.3f, 12.8f, 16.8f, 11.6f, 16.0f, 10.3f)
+            curveTo(15.3f, 11.4f, 14.6f, 12.0f, 13.7f, 12.4f)
+            curveTo(14.0f, 10.2f, 13.4f, 6.9f, 12.0f, 2.0f)
+            close()
+        }
+    }
+}
+
+/** Пульс: сердце. */
+val PulseIcon: ImageVector by lazy {
+    materialIcon(name = "Filled.FavoriteHeart") {
+        materialPath {
+            moveTo(12.0f, 21.35f)
+            lineToRelative(-1.45f, -1.32f)
+            curveTo(5.4f, 15.36f, 2.0f, 12.28f, 2.0f, 8.5f)
+            curveTo(2.0f, 5.42f, 4.42f, 3.0f, 7.5f, 3.0f)
+            curveTo(9.24f, 3.0f, 10.91f, 3.81f, 12.0f, 5.09f)
+            curveTo(13.09f, 3.81f, 14.76f, 3.0f, 16.5f, 3.0f)
+            curveTo(19.58f, 3.0f, 22.0f, 5.42f, 22.0f, 8.5f)
+            curveTo(22.0f, 12.28f, 18.6f, 15.36f, 13.45f, 20.03f)
+            lineTo(12.0f, 21.35f)
+            close()
+        }
+    }
+}
+
+/** Еда: вилка и нож. */
+val FoodIcon: ImageVector by lazy {
+    materialIcon(name = "Filled.RestaurantForkKnife") {
+        materialPath {
+            // Вилка: три зубца, переходящие в ручку.
+            moveTo(7.0f, 2.0f)
+            horizontalLineTo(7.7f)
+            verticalLineTo(8.4f)
+            horizontalLineTo(8.3f)
+            verticalLineTo(2.0f)
+            horizontalLineTo(9.0f)
+            verticalLineTo(8.4f)
+            horizontalLineTo(9.6f)
+            verticalLineTo(2.0f)
+            horizontalLineTo(10.3f)
+            verticalLineTo(8.9f)
+            curveTo(10.3f, 10.0f, 9.6f, 10.9f, 8.65f, 11.2f)
+            verticalLineTo(22.0f)
+            horizontalLineTo(7.65f)
+            verticalLineTo(11.2f)
+            curveTo(7.2f, 11.05f, 7.0f, 10.5f, 7.0f, 9.9f)
+            close()
+            // Нож: прямой обушок, изогнутое лезвие, узкая ручка.
+            moveTo(16.2f, 2.0f)
+            curveTo(18.0f, 3.9f, 18.9f, 6.0f, 18.9f, 8.2f)
+            curveTo(18.9f, 10.1f, 17.7f, 11.4f, 16.1f, 11.7f)
+            verticalLineTo(22.0f)
+            horizontalLineTo(14.9f)
+            verticalLineTo(2.0f)
+            close()
+        }
+    }
+}
+
+/** Вес и состав тела: напольные весы со стрелкой. */
+val BodyIcon: ImageVector by lazy {
+    materialIcon(name = "Filled.MonitorScale") {
+        materialPath {
+            // Корпус со скруглениями.
+            moveTo(9.4f, 4.6f)
+            horizontalLineTo(14.6f)
+            curveTo(16.26f, 4.6f, 17.6f, 5.94f, 17.6f, 7.6f)
+            verticalLineTo(16.4f)
+            curveTo(17.6f, 18.06f, 16.26f, 19.4f, 14.6f, 19.4f)
+            horizontalLineTo(9.4f)
+            curveTo(7.74f, 19.4f, 6.4f, 18.06f, 6.4f, 16.4f)
+            verticalLineTo(7.6f)
+            curveTo(6.4f, 5.94f, 7.74f, 4.6f, 9.4f, 4.6f)
+            close()
+            // Стрелка циферблата.
+            moveTo(11.9f, 15.2f)
+            lineTo(14.8f, 9.6f)
+            lineTo(15.6f, 10.2f)
+            lineTo(13.3f, 15.7f)
+            close()
+        }
+    }
+}

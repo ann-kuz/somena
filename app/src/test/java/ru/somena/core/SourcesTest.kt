@@ -98,6 +98,95 @@ class SourcesTest {
 }
 
 /**
+ * Сводка строки показателя и подпись свежести Источника (спека 0018): список
+ * Источников первым словом отвечает «чьи данные я вижу», экран показателя
+ * показывает, кто «живой».
+ */
+class SourcesSummaryTest {
+
+    private fun group(sources: List<HcSource>, priority: List<String> = emptyList()) =
+        mergeSources(mapOf(SourceKind.STEPS to sources), mapOf(SourceGroup.ACTIVITY.key to priority))
+            .first { it.group == SourceGroup.ACTIVITY }
+
+    @Test
+    fun `без писавших - никто не пишет`() {
+        assertEquals("Никто не пишет", group(emptyList()).summary())
+    }
+
+    @Test
+    fun `один пишущий называется по имени`() {
+        assertEquals("Пишет: Mi Fitness", group(listOf(HcSource("com.xiaomi.wear", "Mi Fitness"))).summary())
+    }
+
+    @Test
+    fun `несколько без порядка - сколько приложений`() {
+        val sources = listOf(
+            HcSource("a", "Fitdays"),
+            HcSource("b", "Mi Fitness"),
+            HcSource("c", "Samsung Health"),
+        )
+        assertEquals("Пишут 3 приложения, порядок не задан", group(sources).summary())
+    }
+
+    @Test
+    fun `порядок задан - главный и запасные`() {
+        val sources = listOf(
+            HcSource("com.xiaomi.wear", "Mi Fitness"),
+            HcSource("com.samsung.health", "Samsung Health"),
+        )
+        assertEquals(
+            "Главный: Samsung Health, запасных: 1",
+            group(sources, priority = listOf("com.samsung.health")).summary(),
+        )
+    }
+
+    @Test
+    fun `состав тела берет самую позднюю запись по всем типам группы`() {
+        val older = Instant.parse("2026-09-01T08:00:00Z")
+        val newer = Instant.parse("2026-09-20T08:00:00Z")
+        val groups = mergeSources(
+            mapOf(
+                SourceKind.WEIGHT to listOf(HcSource("cn.fitdays.fitdays", "Fitdays", older)),
+                SourceKind.BODY_FAT to listOf(HcSource("cn.fitdays.fitdays", "Fitdays", newer)),
+            ),
+            emptyMap(),
+        )
+        assertEquals(newer, groups.first { it.group == SourceGroup.BODY }.sources.single().lastWrite)
+    }
+}
+
+/** Подпись «Последняя запись»: сегодня, вчера и дни назад с русскими формами. */
+class LastWriteLabelTest {
+
+    private val zone: ZoneId = ZoneId.of("Europe/Moscow")
+    private val now = java.time.LocalDateTime.of(2026, 10, 5, 15, 0).atZone(zone).toInstant()
+
+    private fun label(daysAgo: Long): String? {
+        val at = java.time.LocalDateTime.of(2026, 10, 5, 9, 0).minusDays(daysAgo).atZone(zone).toInstant()
+        return lastWriteLabel(at, now, zone)
+    }
+
+    @Test
+    fun `без записи подписи нет`() {
+        assertNull(lastWriteLabel(null, now, zone))
+    }
+
+    @Test
+    fun `сегодня и вчера`() {
+        assertEquals("Последняя запись: сегодня", label(0))
+        assertEquals("Последняя запись: вчера", label(1))
+    }
+
+    @Test
+    fun `дни назад с русскими формами числа`() {
+        assertEquals("Последняя запись: 2 дня назад", label(2))
+        assertEquals("Последняя запись: 5 дней назад", label(5))
+        assertEquals("Последняя запись: 21 день назад", label(21))
+        assertEquals("Последняя запись: 12 дней назад", label(12))
+    }
+}
+
+/**
  * Приоритет Источников при чтении (ADR-0010): за каждый день данные берутся у
  * первого Источника порядка, у которого они в этот день есть; дни, где у старших
  * Источников записей нет, падают на следующих - как выбор приложения в Google Fit.

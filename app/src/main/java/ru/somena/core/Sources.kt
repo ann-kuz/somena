@@ -12,8 +12,11 @@ import java.time.ZoneId
  * в этот день есть; без порядка учитываются все.
  */
 
-/** Найденный Источник: пакет и человекочитаемое имя приложения. */
-data class HcSource(val packageName: String, val label: String)
+/**
+ * Найденный Источник: пакет, человекочитаемое имя приложения и последняя запись
+ * в Health Connect за окно скана - по ней список показывает, кто «живой».
+ */
+data class HcSource(val packageName: String, val label: String, val lastWrite: Instant? = null)
 
 /** Тип данных, который приложение читает из Health Connect. Ключи стабильны. */
 enum class SourceKind(val key: String, val title: String) {
@@ -54,19 +57,62 @@ data class SourceGroupChoice(
 ) {
     /** Выбор нужен: один тип данных пишут несколько Источников. */
     val needsChoice: Boolean get() = sources.size > 1
+
+    /**
+     * Сводка строки показателя в списке Источников (спека 0018): первым словом
+     * отвечает «чьи данные я вижу» - главный, все пишущие или никто.
+     */
+    fun summary(): String = when {
+        sources.isEmpty() -> "Никто не пишет"
+        sources.size == 1 -> "Пишет: ${sources.single().label}"
+        priority.isEmpty() ->
+            "Пишут ${sources.size} ${pluralRu(sources.size, "приложение", "приложения", "приложений")}, порядок не задан"
+        else -> {
+            val main = sources.first { it.packageName == priority.first() }.label
+            "Главный: $main, запасных: ${sources.size - 1}"
+        }
+    }
+}
+
+/** Русские формы счётного существительного: 1 день, 2 дня, 5 дней. */
+internal fun pluralRu(n: Int, one: String, few: String, many: String): String = when {
+    n % 100 in 11..14 -> many
+    n % 10 == 1 -> one
+    n % 10 in 2..4 -> few
+    else -> many
+}
+
+/**
+ * Подпись свежести Источника на экране показателя (спека 0018): «Последняя
+ * запись: сегодня / вчера / N дней назад» по дню записи в зоне Пользователя.
+ * null (записи без времени) не подписывается.
+ */
+fun lastWriteLabel(lastWrite: Instant?, now: Instant, zone: ZoneId): String? {
+    if (lastWrite == null) return null
+    val days = java.time.temporal.ChronoUnit.DAYS.between(
+        lastWrite.atZone(zone).toLocalDate(),
+        now.atZone(zone).toLocalDate(),
+    )
+    return when {
+        days <= 0L -> "Последняя запись: сегодня"
+        days == 1L -> "Последняя запись: вчера"
+        else -> "Последняя запись: $days ${pluralRu(days.toInt(), "день", "дня", "дней")} назад"
+    }
 }
 
 /**
  * Собирает группы для настроек: Источники группы - объединение по её типам без
- * повторов, порядок стабильный (по имени, при равенстве - по пакету). Приоритет,
- * ссылающийся на пропавшие Источники, теряет их: данные снова идут из всех.
+ * повторов (последняя запись - самая поздняя по всем типам группы), порядок
+ * стабильный (по имени, при равенстве - по пакету). Приоритет, ссылающийся на
+ * пропавшие Источники, теряет их: данные снова идут из всех.
  */
 fun mergeSources(
     writers: Map<SourceKind, List<HcSource>>,
     choices: Map<String, List<String>>,
 ): List<SourceGroupChoice> = SourceGroup.entries.map { g ->
     val sources = writers.filterKeys { it in g.kinds }.values.flatten()
-        .distinctBy { it.packageName }
+        .groupBy { it.packageName }
+        .map { (pkg, same) -> HcSource(pkg, same.first().label, same.mapNotNull { it.lastWrite }.maxOrNull()) }
         .sortedWith(compareBy({ it.label.lowercase() }, { it.packageName }))
     val priority = choices[g.key].orEmpty().filter { pkg -> sources.any { it.packageName == pkg } }
     SourceGroupChoice(g, sources, priority)

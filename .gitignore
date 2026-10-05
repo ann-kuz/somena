@@ -19,3 +19,6 @@ backend/feedback.jsonl
 
 # Вложения багрепортов (спека 0013): файлы посетителей
 backend/feedback-files/
+
+# Служебные данные Kotlin-компилятора
+.kotlin/

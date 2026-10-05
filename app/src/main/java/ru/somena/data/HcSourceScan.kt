@@ -22,10 +22,12 @@ import ru.somena.core.SourceKind
 
 /**
  * Скан Источников Health Connect: какие приложения писали каждый тип данных
- * за окно. Обнаружение - по факту записей (ADR-0004), поэтому работает с любыми
- * приложениями, а не только с известным каталогом. Имя - ярлык приложения из
- * системы; для удалённого приложения остаётся пакет. Расход сканирует оба типа
- * калорий: общие и активные пишут разные приложения.
+ * за окно и когда писали последний раз - свежесть показывается у Источника
+ * на экране показателя (спека 0018), по ней видно, кто «живой». Обнаружение -
+ * по факту записей (ADR-0004), поэтому работает с любыми приложениями, а не
+ * только с известным каталогом. Имя - ярлык приложения из системы; для
+ * удалённого приложения остаётся пакет. Расход сканирует оба типа калорий:
+ * общие и активные пишут разные приложения.
  *
  * Каждый тип читается отдельно и стойко к отказу: не выданное разрешение или
  * сбой одного типа не роняет скан целиком - тип остаётся без писавших, а отказ
@@ -46,30 +48,42 @@ object HcSourceScan {
             context.packageManager.getApplicationLabel(info).toString()
         }.getOrDefault(pkg)
 
+        // endTime доступен у каждого типа записи, но не в общем интерфейсе Record,
+        // поэтому конец записи передаётся селектором.
         suspend fun <T : androidx.health.connect.client.records.Record> writers(
             type: KClass<T>,
-        ): List<String> = runCatching {
+            endOf: (T) -> Instant,
+        ): List<HcSource> = runCatching {
             client.readRecords(ReadRecordsRequest(type, range)).records
                 .groupBy { it.metadata.dataOrigin.packageName }
-                .map { (pkg, _) -> pkg }
+                .map { (pkg, records) ->
+                    HcSource(pkg, label(pkg), records.maxOf(endOf))
+                }
         }.getOrElse { e ->
             AppLog.append(context, AppLog.HC, "скан ${type.simpleName}: ${e.message}")
             emptyList()
         }
 
-        fun named(pkgs: List<String>): List<HcSource> =
-            pkgs.map { HcSource(it, label(it)) }.sortedWith(compareBy({ it.label.lowercase() }, { it.packageName }))
+        fun named(sources: List<HcSource>): List<HcSource> =
+            sources.sortedWith(compareBy({ it.label.lowercase() }, { it.packageName }))
+
+        // Расход: общий и активный калории - один список, у писавшего оба типа
+        // остаётся более поздняя запись.
+        val burn = (writers(TotalCaloriesBurnedRecord::class) { it.endTime } + writers(ActiveCaloriesBurnedRecord::class) { it.endTime })
+            .groupBy { it.packageName }
+            .map { (pkg, same) -> HcSource(pkg, same.first().label, same.mapNotNull { it.lastWrite }.maxOrNull()) }
 
         return mapOf(
-            SourceKind.STEPS to named(writers(StepsRecord::class)),
-            SourceKind.SLEEP to named(writers(SleepSessionRecord::class)),
-            SourceKind.BURN to named((writers(TotalCaloriesBurnedRecord::class) + writers(ActiveCaloriesBurnedRecord::class)).distinct()),
-            SourceKind.PULSE to named(writers(HeartRateRecord::class)),
-            SourceKind.FOOD to named(writers(NutritionRecord::class)),
-            SourceKind.WEIGHT to named(writers(WeightRecord::class)),
-            SourceKind.BODY_FAT to named(writers(BodyFatRecord::class)),
-            SourceKind.BONE to named(writers(BoneMassRecord::class)),
-            SourceKind.BMR to named(writers(BasalMetabolicRateRecord::class)),
+            SourceKind.STEPS to named(writers(StepsRecord::class) { it.endTime }),
+            SourceKind.SLEEP to named(writers(SleepSessionRecord::class) { it.endTime }),
+            SourceKind.BURN to named(burn),
+            SourceKind.PULSE to named(writers(HeartRateRecord::class) { it.endTime }),
+            SourceKind.FOOD to named(writers(NutritionRecord::class) { it.endTime }),
+            // Вес и состав тела - мгновенные записи, у них есть только момент времени.
+            SourceKind.WEIGHT to named(writers(WeightRecord::class) { it.time }),
+            SourceKind.BODY_FAT to named(writers(BodyFatRecord::class) { it.time }),
+            SourceKind.BONE to named(writers(BoneMassRecord::class) { it.time }),
+            SourceKind.BMR to named(writers(BasalMetabolicRateRecord::class) { it.time }),
         )
     }
 }

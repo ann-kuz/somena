@@ -66,7 +66,8 @@ object SettingsPages {
 
 /**
  * Вкладка «Настройки»: корневое меню списком, как в системных настройках, и подэкраны.
- * Кнопка «назад» из подэкрана возвращается в меню, из меню - на вкладку «Сегодня».
+ * Кнопка «назад» возвращает на ступень выше: из экрана показателя - в «Данные»,
+ * из подэкрана - в меню, из меню - на вкладку «Сегодня».
  */
 @Composable
 fun SettingsScreen(
@@ -76,10 +77,14 @@ fun SettingsScreen(
     onRepeatOnboarding: () -> Unit,
     onOpenToday: () -> Unit,
 ) {
-    BackHandler(enabled = page != null) { onPage(null) }
+    // Экран показателя Источников (спека 0018) - третья ступень под «Данными».
+    val sourceGroup = sourceGroupFromPage(page)
+    BackHandler(enabled = page != null) {
+        onPage(if (sourceGroup != null) SettingsPages.DATA else null)
+    }
     BackHandler(enabled = page == null) { onOpenToday() }
-    when (page) {
-        null -> Column(
+    when {
+        page == null -> Column(
             m.fillMaxSize().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -91,14 +96,18 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
             )
         }
-        SettingsPages.PROFILE -> SettingsSubScreen(
+        sourceGroup != null -> SettingsSubScreen(
+            m, sourceGroup.title, "Приоритет приложений: кто главный, а кто запасной",
+            { onPage(SettingsPages.DATA) },
+        ) { SourceGroupContent(sourceGroup) }
+        page == SettingsPages.PROFILE -> SettingsSubScreen(
             m, "Профиль", "Рост, пол, дата рождения, цель по весу и базовый расход", onPage,
         ) { ProfileSection() }
-        SettingsPages.DATA -> SettingsSubScreen(
+        page == SettingsPages.DATA -> SettingsSubScreen(
             m, "Данные", "Источники Health Connect и расчёт расхода от шагов", onPage,
         ) {
             StepsBurnSection()
-            SourcesSection()
+            SourcesSection(onOpenGroup = { onPage(sourceGroupPage(it)) })
             GhostButton("Пройти онбординг заново", onRepeatOnboarding, Modifier.fillMaxWidth())
             Text(
                 "Онбординг - это разрешение Health Connect и подсказки по подключению " +
@@ -107,10 +116,10 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
             )
         }
-        SettingsPages.CHAT -> SettingsSubScreen(
+        page == SettingsPages.CHAT -> SettingsSubScreen(
             m, "Чат по данным", "ИИ-сервис, ключ API и модели Ступеней", onPage,
         ) { ChatSettingsSection() }
-        SettingsPages.DEBUG -> SettingsSubScreen(
+        page == SettingsPages.DEBUG -> SettingsSubScreen(
             m, "Отладка", "Журнал чата, записи базы, ошибки и диагностика Health Connect", onPage,
         ) {
             DebugLogSection()
