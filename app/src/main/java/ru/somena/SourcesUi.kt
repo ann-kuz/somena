@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -46,6 +48,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import java.time.Instant
@@ -57,6 +60,7 @@ import ru.somena.core.SourceGroup
 import ru.somena.core.SourceKind
 import ru.somena.core.lastWriteLabel
 import ru.somena.core.mergeSources
+import ru.somena.data.EatenFloorStore
 import ru.somena.data.HcSourceScan
 import ru.somena.data.ProfileStore
 import ru.somena.data.SliceDb
@@ -128,6 +132,50 @@ fun StepsBurnSection() {
                 "Записи расхода из Health Connect не учитываются: тренировки без шагов " +
                     "(велосипед, бассейн) в расчёт не попадут. День без шагов или без веса " +
                     "показывает записанное значение. Выключение возвращает записанные значения.",
+                color = TextMuted,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+/**
+ * Порог съеденного (спека 0019), Настройки → Данные: поле с числом ккал, пусто -
+ * выключено. День с «Съедено» ниже порога считается днём без еды: его нет на
+ * графиках еды и Дефицита, на «Сегодня» и в Чате по данным. Поле принимает
+ * только цифры; записи при этом не стираются - очистка порога возвращает всё.
+ */
+@Composable
+fun EatenFloorSection() {
+    val context = LocalContext.current
+    val store = remember { EatenFloorStore(context) }
+    var text by remember {
+        mutableStateOf(store.threshold().takeIf { it > 0 }?.toInt()?.toString().orEmpty())
+    }
+    GlassCard(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Порог съеденного", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "Дни, где «Съедено» меньше порога, считаются днями без еды: не попадают " +
+                    "на графики еды и Дефицита, на «Сегодня» и в Чат по данным. Годится " +
+                    "для дней с недописанным дневником еды.",
+                color = TextMuted,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            OutlinedTextField(
+                value = text,
+                onValueChange = { raw ->
+                    val digits = raw.filter(Char::isDigit).take(4)
+                    text = digits
+                    store.setThreshold(digits.toDoubleOrNull() ?: 0.0)
+                },
+                label = { Text("Порог, ккал (пусто - выключено)") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                "Записи не стираются: сотри порог - и скрытые дни вернутся.",
                 color = TextMuted,
                 style = MaterialTheme.typography.bodySmall,
             )

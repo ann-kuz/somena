@@ -55,8 +55,10 @@ import ru.somena.core.manualMetric
 import ru.somena.core.metricSeries
 import ru.somena.core.PanAccumulator
 import ru.somena.core.weightTrend
+import ru.somena.core.withEatenFloor
 import ru.somena.core.withStepsBurn
 import ru.somena.data.CardLayoutStore
+import ru.somena.data.EatenFloorStore
 import ru.somena.data.ProfileStore
 import ru.somena.data.SliceDb
 import ru.somena.data.StepsBurnStore
@@ -91,10 +93,14 @@ fun ChartsScreen(m: Modifier) {
     val profile = remember { ProfileStore(context).load() }
     val profileBmr = profile.bmrKcal
     val stepsBurn = remember { StepsBurnStore(context).isEnabled() }
+    // Порог съеденного (спека 0019): день с «Съедено» ниже порога - день без еды.
+    val eatenFloor = remember { EatenFloorStore(context).threshold() }
     // Запись из меню графика растит ревизию: срезы и Самочувствие перечитываются.
     var revision by remember { mutableIntStateOf(0) }
     val slices = remember(revision) {
-        db.all().let { if (stepsBurn) it.withStepsBurn(profile) else it }
+        db.all()
+            .let { if (stepsBurn) it.withStepsBurn(profile) else it }
+            .withEatenFloor(eatenFloor)
     }
     val wellbeing = remember(revision) { db.allWellbeing() }
     val byDate = remember(slices) { slices.associateBy { it.date } }

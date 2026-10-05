@@ -106,10 +106,12 @@ import ru.somena.core.parseMedReply
 import ru.somena.core.sentenceCaseTyped
 import ru.somena.core.toSlice
 import ru.somena.core.toWellbeing
+import ru.somena.core.withEatenFloor
 import ru.somena.core.withStepsBurn
 import ru.somena.data.ChatClient
 import ru.somena.data.ChatMessage
 import ru.somena.data.ChatSettings
+import ru.somena.data.EatenFloorStore
 import ru.somena.data.AppLog
 import ru.somena.data.CatalogModel
 import ru.somena.data.MODE_CUSTOM
@@ -205,14 +207,20 @@ fun ChatScreen(m: Modifier) {
     val profile = remember { ProfileStore(context).load() }
     val profileBmr = profile.bmrKcal
     val stepsBurn = remember { StepsBurnStore(context).isEnabled() }
+    // Порог съеденного (спека 0019): день с «Съедено» ниже порога - день без еды.
+    val eatenFloor = remember { EatenFloorStore(context).threshold() }
     val settings = remember { ChatSettings(context) }
     val client = remember {
         ChatClient(settings.transport(), log = { line -> AppLog.append(context, AppLog.CHAT, line) })
     }
     // Данные для контекста вопроса и графиков ИИ: перечитываются после Разбора таблицы.
-    // Самочувствие группируется по дате: отметок в день бывает две.
+    // Самочувствие группируется по дате: отметок в день бывает две. Дни с «Съедено»
+    // ниже порога (спека 0019) - дни без еды: ИИ их не видит.
     fun readData(): DayData = DayData(
-        db.all().let { if (stepsBurn) it.withStepsBurn(profile) else it }.associateBy { it.date },
+        db.all()
+            .let { if (stepsBurn) it.withStepsBurn(profile) else it }
+            .withEatenFloor(eatenFloor)
+            .associateBy { it.date },
         db.allWellbeing().groupBy { it.date },
     )
     var data by remember { mutableStateOf(readData()) }

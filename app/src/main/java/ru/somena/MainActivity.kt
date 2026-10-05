@@ -73,7 +73,9 @@ import ru.somena.core.parseBirthDate
 import ru.somena.core.parseOptionalDouble
 import ru.somena.core.parseOptionalInt
 import ru.somena.core.todayPlatesFor
+import ru.somena.core.withEatenFloor
 import ru.somena.core.withStepsBurn
+import ru.somena.data.EatenFloorStore
 import ru.somena.data.HcImporter
 import ru.somena.data.ProfileStore
 import ru.somena.data.SliceDb
@@ -210,8 +212,12 @@ fun TodayScreen(m: Modifier, cycleRevision: Int, onCycleChanged: () -> Unit, onO
     val profile = remember { ProfileStore(context).load() }
     // Расход от шагов (спека 0017): переключатель «Настройки → Данные».
     val stepsBurn = remember { StepsBurnStore(context).isEnabled() }
+    // Порог съеденного (спека 0019): день с «Съедено» ниже порога - день без еды.
+    val eatenFloor = remember { EatenFloorStore(context).threshold() }
     fun readSlices(): List<DaySlice> =
-        db.all().let { if (stepsBurn) it.withStepsBurn(profile) else it }
+        db.all()
+            .let { if (stepsBurn) it.withStepsBurn(profile) else it }
+            .withEatenFloor(eatenFloor)
     // Порядок и скрытость плашек - настройка Пользователя, хранится локально.
     val plates = remember { todayPlatesFor(profile.sex == Sex.MALE) }
     val layoutStore = remember { CardLayoutStore(context, "today_order", "today_hidden", TodayPlate::byId) }

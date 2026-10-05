@@ -104,9 +104,10 @@ fun SettingsScreen(
             m, "Профиль", "Рост, пол, дата рождения, цель по весу и базовый расход", onPage,
         ) { ProfileSection() }
         page == SettingsPages.DATA -> SettingsSubScreen(
-            m, "Данные", "Источники Health Connect и расчёт расхода от шагов", onPage,
+            m, "Данные", "Источники Health Connect, расход от шагов и порог съеденного", onPage,
         ) {
             StepsBurnSection()
+            EatenFloorSection()
             SourcesSection(onOpenGroup = { onPage(sourceGroupPage(it)) })
             GhostButton("Пройти онбординг заново", onRepeatOnboarding, Modifier.fillMaxWidth())
             Text(
