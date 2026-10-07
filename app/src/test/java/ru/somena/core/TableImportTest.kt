@@ -5,7 +5,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
 import org.junit.Test
 
 class TableImportTest {
@@ -84,14 +83,14 @@ class TableImportTest {
     }
 
     @Test
-    fun `мердж не создаёт новую отметку из неполной строки`() {
+    fun `неполная строка без существующей отметки создаёт запись с неотмеченными шкалами`() {
+        // Ручной ввод: пустая шкала - «не отмечено», не отказ и не ноль (спека 0020).
+        // Разбор таблицы такие строки отбраковывает раньше, в parseImportReply.
         val entry = ImportWellbeingEntry(jan5, ImportWellbeing(mood = 7), ImportWellbeing())
-        try {
-            entry.toWellbeing(null)
-            fail("неполная строка без существующей отметки должна отказать")
-        } catch (e: IllegalStateException) {
-            // ожидаемый отказ: пустая шкала стала бы ложным нулём в графике
-        }
+        val wb = entry.toWellbeing(null)
+        assertNull(wb.energy)
+        assertEquals(7, wb.mood)
+        assertNull(wb.sleepQuality)
     }
 
     @Test
@@ -152,6 +151,18 @@ class TableImportTest {
         assertEquals("указана - заменена", 7, merged.mood)
         assertEquals(3, merged.sleepQuality)
         assertEquals("была мигрень", merged.note)
+    }
+
+    @Test
+    fun `мердж не подставляет ноль в неотмеченную шкалу`() {
+        // Существующая отметка с неотмеченным сном и строка без сна: сон остаётся
+        // не отмеченным, а не превращается в ноль (спека 0020).
+        val existing = Wellbeing(jan5, energy = 4, mood = 5, sleepQuality = null)
+        val entry = ImportWellbeingEntry(jan5, ImportWellbeing(mood = 7), ImportWellbeing(4, 5, null))
+        val merged = entry.toWellbeing(existing)
+        assertEquals(4, merged.energy)
+        assertEquals(7, merged.mood)
+        assertNull("неотмеченная шкала остаётся неотмеченной", merged.sleepQuality)
     }
 
     @Test

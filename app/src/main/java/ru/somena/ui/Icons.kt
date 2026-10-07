@@ -282,3 +282,36 @@ val BodyIcon: ImageVector by lazy {
         }
     }
 }
+
+/**
+ * Контурная звезда неотмеченной шкалы Самочувствия (спека 0020): залитая есть
+ * в core-наборе (Icons.Filled.Star), контурной там нет, а extended не тянем (спека 0001).
+ */
+val StarOutlineIcon: ImageVector by lazy {
+    materialIcon(name = "Outlined.Star") {
+        materialPath {
+            moveTo(22.0f, 9.24f)
+            lineTo(14.81f, 8.62f)
+            lineTo(12.0f, 2.0f)
+            lineTo(9.19f, 8.62f)
+            lineTo(2.0f, 9.24f)
+            lineTo(7.46f, 13.97f)
+            lineTo(5.82f, 21.0f)
+            lineTo(12.0f, 17.27f)
+            lineTo(18.18f, 21.0f)
+            lineTo(16.54f, 13.97f)
+            close()
+            moveTo(12.0f, 15.4f)
+            lineTo(8.24f, 17.67f)
+            lineTo(9.24f, 13.39f)
+            lineTo(5.92f, 10.51f)
+            lineTo(10.3f, 10.13f)
+            lineTo(12.0f, 6.1f)
+            lineTo(13.71f, 10.14f)
+            lineTo(18.09f, 10.52f)
+            lineTo(14.77f, 13.4f)
+            lineTo(15.77f, 17.68f)
+            close()
+        }
+    }
+}

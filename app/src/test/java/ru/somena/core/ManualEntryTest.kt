@@ -79,8 +79,30 @@ class ManualEntryTest {
     fun `шкалы самочувствия - целые от нуля до десяти`() {
         assertNull(manualWellbeingProblem("7", "8", "6"))
         assertNotNull(manualWellbeingProblem("11", "8", "6"))
-        assertNotNull(manualWellbeingProblem("7", "", "6"))
+        assertNotNull(manualWellbeingProblem("7", "25", "6"))
         assertNotNull(manualWellbeingProblem("7.5", "8", "6"))
+    }
+
+    @Test
+    fun `пустая шкала означает не отмеченную`() {
+        assertNull(manualWellbeingProblem("7", "", "6"))
+        assertNull(manualWellbeingProblem("", "", "5"))
+    }
+
+    @Test
+    fun `все три шкалы пустыми не сохраняются`() {
+        val problem = manualWellbeingProblem("", "", "")
+        assertNotNull(problem)
+        assertTrue(problem!!.contains("хотя бы одну"))
+    }
+
+    @Test
+    fun `ручной ввод с неотмеченной шкалой собирает предпросмотр`() {
+        val preview = manualWellbeingPreview(d27, energy = null, mood = 8, sleepQuality = null, existing = null)
+        val entry = preview.wellbeing.single()
+        assertNull(entry.values.energy)
+        assertEquals(8, entry.values.mood)
+        assertEquals("настроение 8", entry.values.describe())
     }
 
     @Test

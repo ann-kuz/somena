@@ -6,17 +6,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class WellbeingTest {
-
-    @Test
-    fun `шкалы ограничены диапазоном 0-10`() {
-        assertEquals(0, Wellbeing.clamp(-3))
-        assertEquals(0, Wellbeing.clamp(0))
-        assertEquals(10, Wellbeing.clamp(10))
-        assertEquals(10, Wellbeing.clamp(15))
-    }
-}
-
 class AiChartTest {
 
     @Test
@@ -104,6 +93,15 @@ class MetricSeriesTest {
         assertEquals(listOf(4.0, null), metricSeries(AiMetric.ENERGY, dates, DayData(wellbeingByDate = two)))
         assertEquals(listOf(5.0, null), metricSeries(AiMetric.MOOD, dates, DayData(wellbeingByDate = two)))
         assertEquals(listOf(9.0, null), metricSeries(AiMetric.SLEEP_QUALITY, dates, DayData(wellbeingByDate = two)))
+    }
+
+    @Test
+    fun `неотмеченная шкала не даёт точку графику`() {
+        // Спека 0020: неотмеченная шкала - это пропуск дня, а не ноль.
+        val partial = mapOf(d1 to listOf(Wellbeing(d1, energy = 7, mood = null, sleepQuality = null)))
+        assertEquals(listOf(7.0, null), metricSeries(AiMetric.ENERGY, dates, DayData(wellbeingByDate = partial)))
+        assertEquals(listOf<Double?>(null, null), metricSeries(AiMetric.MOOD, dates, DayData(wellbeingByDate = partial)))
+        assertEquals(listOf<Double?>(null, null), metricSeries(AiMetric.SLEEP_QUALITY, dates, DayData(wellbeingByDate = partial)))
     }
 
     @Test

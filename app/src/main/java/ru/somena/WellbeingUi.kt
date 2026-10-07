@@ -1,29 +1,29 @@
 package ru.somena
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,13 +45,17 @@ import ru.somena.ui.GhostButton
 import ru.somena.ui.GlowButton
 import ru.somena.ui.Indigo
 import ru.somena.ui.PeriodChip
+import ru.somena.ui.StarOutlineIcon
 import ru.somena.ui.TextMuted
 import ru.somena.ui.Violet
 import ru.somena.ui.neonSurface
 
-/** Цифра шкалы на плашке: первая отметка мельче и глаже, последняя - крупно и цветом метрики. */
+/**
+ * Цифра шкалы на плашке: первая отметка мельче и глаже, последняя - крупно и цветом
+ * метрики. Неотмеченная шкала - «—», как любой пропуск данных (правило «—» спеки 0002).
+ */
 @Composable
-private fun ScaleColumn(label: String, earlier: Int?, latest: Int, accent: Color, modifier: Modifier = Modifier) {
+private fun ScaleColumn(label: String, earlier: Int?, latest: Int?, accent: Color, modifier: Modifier = Modifier) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             label,
@@ -69,11 +73,11 @@ private fun ScaleColumn(label: String, earlier: Int?, latest: Int, accent: Color
                 )
             }
             Text(
-                "$latest",
+                latest?.toString() ?: "—",
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = (-0.5).sp,
-                color = accent,
+                color = if (latest != null) accent else TextMuted,
             )
         }
     }
@@ -82,7 +86,7 @@ private fun ScaleColumn(label: String, earlier: Int?, latest: Int, accent: Color
 /**
  * Плашка Самочувствия на «Сегодня»: неоновое стекло со свечением, цифры отметок
  * прямо на плашке (правило цветов метрик: фиолет, синий, приглушённый лавандовый).
- * Отметок в день бывает две (спека 0008).
+ * Отметок в день бывает две (спека 0008), неотмеченная шкала - «—» (спека 0020).
  */
 @Composable
 fun WellbeingSection(records: List<Wellbeing>, onEdit: () -> Unit) {
@@ -137,18 +141,25 @@ fun WellbeingSection(records: List<Wellbeing>, onEdit: () -> Unit) {
     }
 }
 
-/** Редактор: три шкалы + заметка + выбор отметки (первая или вторая) + дни задним числом + напоминание. */
+/**
+ * Редактор: три шкалы звёздами + заметка + выбор отметки (первая или вторая) + дни
+ * задним числом + напоминание. Звёзды вместо ползунков (спека 0020): тап по звезде -
+ * сколько звёзд, такова оценка; тап по уже горящей звезде снимает отметку шкалы,
+ * неотмеченная шкала сохраняется «—». Пустая запись (ни шкалы, ни заметки) удаляет
+ * отметку дня.
+ */
 @Composable
 fun WellbeingEditorDialog(db: SliceDb, initialDate: LocalDate, initialSlot: Int, onDismiss: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var date by remember { mutableStateOf(initialDate) }
     var slot by remember { mutableIntStateOf(initialSlot) }
     val existing = remember(date, slot) { db.getWellbeing(date, slot) }
-    var energy by remember(date, slot) { mutableStateOf((existing?.energy ?: 5).toFloat()) }
-    var mood by remember(date, slot) { mutableStateOf((existing?.mood ?: 5).toFloat()) }
-    var sleep by remember(date, slot) { mutableStateOf((existing?.sleepQuality ?: 5).toFloat()) }
+    var energy by remember(date, slot) { mutableStateOf(existing?.energy) }
+    var mood by remember(date, slot) { mutableStateOf(existing?.mood) }
+    var sleep by remember(date, slot) { mutableStateOf(existing?.sleepQuality) }
     var note by remember(date, slot) { mutableStateOf(existing?.note ?: "") }
     var remind by remember { mutableStateOf(WellbeingReminder.isEnabled(context)) }
+    val hasContent = energy != null || mood != null || sleep != null || note.isNotBlank()
 
     // На Android 13+ разрешение на уведомления запрашивается в момент включения галочки.
     val notifPermission = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -203,9 +214,14 @@ fun WellbeingEditorDialog(db: SliceDb, initialDate: LocalDate, initialSlot: Int,
                         slot = Wellbeing.SLOT_SECOND
                     }, modifier = Modifier.weight(1f))
                 }
-                SliderRow("Энергия", energy) { energy = it }
-                SliderRow("Настроение", mood) { mood = it }
-                SliderRow("Качество сна", sleep) { sleep = it }
+                StarRow("Энергия", energy, Violet) { energy = it }
+                StarRow("Настроение", mood, Indigo) { mood = it }
+                StarRow("Качество сна", sleep, TextMuted) { sleep = it }
+                Text(
+                    "Неотмеченная шкала сохранится «—». Тап по горящей звезде снимает отметку.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextMuted,
+                )
                 OutlinedTextField(
                     value = note,
                     onValueChange = { note = it },
@@ -223,19 +239,25 @@ fun WellbeingEditorDialog(db: SliceDb, initialDate: LocalDate, initialSlot: Int,
                     GlowButton(
                         "Сохранить",
                         onClick = {
-                            db.upsert(
-                                Wellbeing(
-                                    date = date,
-                                    energy = Wellbeing.clamp(energy.toInt()),
-                                    mood = Wellbeing.clamp(mood.toInt()),
-                                    sleepQuality = Wellbeing.clamp(sleep.toInt()),
-                                    note = note.takeIf { it.isNotBlank() },
-                                    slot = slot,
+                            if (hasContent) {
+                                db.upsert(
+                                    Wellbeing(
+                                        date = date,
+                                        energy = energy,
+                                        mood = mood,
+                                        sleepQuality = sleep,
+                                        note = note.takeIf { it.isNotBlank() },
+                                        slot = slot,
+                                    )
                                 )
-                            )
+                            } else {
+                                // Все шкалы сняты и заметка пуста: отметки больше нет.
+                                db.deleteWellbeing(date, slot)
+                            }
                             WellbeingReminder.setEnabled(context, remind)
                             onDismiss()
                         },
+                        enabled = hasContent || existing != null,
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -244,28 +266,45 @@ fun WellbeingEditorDialog(db: SliceDb, initialDate: LocalDate, initialSlot: Int,
     }
 }
 
+/**
+ * Шкала звёздами (спека 0020): десять звёзд - оценки 1–10 в цвете метрики, контурная
+ * звезда - не отмечено. Ячейки делят строку поровну, чтобы звёзды влезали на узких
+ * экранах и рос тач-таргет на широких.
+ */
 @Composable
-private fun SliderRow(label: String, value: Float, onChange: (Float) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, Modifier.weight(1f), color = TextMuted)
-        Text(
-            "${value.toInt()}",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            fontSize = 18.sp,
-            color = Violet,
-        )
-        Slider(
-            value = value,
-            onValueChange = onChange,
-            valueRange = Wellbeing.MIN.toFloat()..Wellbeing.MAX.toFloat(),
-            steps = Wellbeing.MAX - Wellbeing.MIN - 1,
-            modifier = Modifier.weight(2f),
-            colors = SliderDefaults.colors(
-                thumbColor = Violet,
-                activeTrackColor = Violet,
-                inactiveTrackColor = Color.White.copy(alpha = 0.12f),
-            ),
-        )
+private fun StarRow(label: String, value: Int?, accent: Color, onChange: (Int?) -> Unit) {
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, Modifier.weight(1f), color = TextMuted)
+            Text(
+                value?.toString() ?: "—",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                color = if (value != null) accent else TextMuted,
+            )
+        }
+        Row(Modifier.fillMaxWidth().height(44.dp)) {
+            for (star in 1..Wellbeing.MAX) {
+                val lit = value != null && star <= value
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clickable { onChange(if (value == star) null else star) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        if (lit) Icons.Filled.Star else StarOutlineIcon,
+                        contentDescription = when {
+                            value == star -> "$label: $star из 10, снять отметку"
+                            else -> "$label: $star из 10"
+                        },
+                        tint = if (lit) accent else TextMuted.copy(alpha = 0.55f),
+                        modifier = Modifier.padding(horizontal = 1.dp),
+                    )
+                }
+            }
+        }
     }
 }

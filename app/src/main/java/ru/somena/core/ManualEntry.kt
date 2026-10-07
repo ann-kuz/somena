@@ -142,25 +142,32 @@ fun manualEatenPreview(
     return ImportPreview(entries = listOf(ImportEntry(date, values, old)))
 }
 
-/** Причина негодности шкал Самочувствия (все три обязательны, целые 0..10) или null. */
+/**
+ * Причина негодности шкал Самочувствия или null: заполненная шкала - целое 0..10,
+ * пустая шкала означает «не отмечена»; хотя бы одна шкала должна быть заполнена
+ * (спека 0020).
+ */
 fun manualWellbeingProblem(energy: String, mood: String, sleepQuality: String): String? {
     fun scaleProblem(raw: String): Boolean {
+        if (raw.isBlank()) return false
         val v = parseManualNumber(raw) ?: return true
         return v != Math.round(v).toDouble() || v < Wellbeing.MIN || v > Wellbeing.MAX
     }
     return when {
+        energy.isBlank() && mood.isBlank() && sleepQuality.isBlank() ->
+            "отметьте хотя бы одну шкалу"
         scaleProblem(energy) || scaleProblem(mood) || scaleProblem(sleepQuality) ->
-            "три шкалы, целые от ${Wellbeing.MIN} до ${Wellbeing.MAX}"
+            "заполненные шкалы - целые от ${Wellbeing.MIN} до ${Wellbeing.MAX}"
         else -> null
     }
 }
 
-/** Предпросмотр отметки Самочувствия: полная строка трёх шкал. */
+/** Предпросмотр отметки Самочувствия: неотмеченная шкала идёт в запись null (спека 0020). */
 fun manualWellbeingPreview(
     date: LocalDate,
-    energy: Int,
-    mood: Int,
-    sleepQuality: Int,
+    energy: Int?,
+    mood: Int?,
+    sleepQuality: Int?,
     existing: Wellbeing?,
 ): ImportPreview {
     val values = ImportWellbeing(energy, mood, sleepQuality)

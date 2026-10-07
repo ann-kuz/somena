@@ -3,7 +3,9 @@ package ru.somena.core
 import java.time.LocalDate
 
 /**
- * Самочувствие (тикет 05): три шкалы 0–10 и заметка по желанию.
+ * Самочувствие (тикет 05): три шкалы 0–10 и заметка по желанию. Шкала, которую
+ * Пользователь не отметил, хранится null и остаётся «—» — это пропуск, а не ноль
+ * (спека 0020, как правило «—» спеки 0002).
  * Локальные данные приложения, в Health Connect не пишутся.
  * Старые записи со шкалой 1–5 переносятся на новую шкалу удвоением (миграция БД v3).
  * Отметок в день может быть две (слот 1 и слот 2, миграция БД v5): прежние записи
@@ -11,9 +13,9 @@ import java.time.LocalDate
  */
 data class Wellbeing(
     val date: LocalDate,
-    val energy: Int,
-    val mood: Int,
-    val sleepQuality: Int,
+    val energy: Int?,
+    val mood: Int?,
+    val sleepQuality: Int?,
     val note: String? = null,
     val slot: Int = SLOT_FIRST,
 ) {
@@ -22,8 +24,6 @@ data class Wellbeing(
         const val MAX = 10
         const val SLOT_FIRST = 1
         const val SLOT_SECOND = 2
-
-        fun clamp(value: Int): Int = value.coerceIn(MIN, MAX)
     }
 }
 

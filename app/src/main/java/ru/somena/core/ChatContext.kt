@@ -186,12 +186,32 @@ private fun dayLine(s: DaySlice?, ws: List<Wellbeing>, cyc: CycleDay?, phase: Cy
     if (ws.isNotEmpty()) {
         val first = ws.minByOrNull { it.slot }!!
         val second = ws.firstOrNull { it.slot > first.slot }
+        // Неотмеченная шкала в текст не попадает: для ИИ это пропуск, а не ноль (спека 0020).
         if (second == null) {
-            parts += "самочувствие: энергия ${first.energy}/10, настроение ${first.mood}/10, сон ${first.sleepQuality}/10"
+            val scales = listOfNotNull(
+                first.energy?.let { "энергия $it/10" },
+                first.mood?.let { "настроение $it/10" },
+                first.sleepQuality?.let { "сон $it/10" },
+            )
+            if (scales.isNotEmpty()) parts += "самочувствие: " + scales.joinToString(", ")
             first.note?.takeIf { it.isNotBlank() }?.let { parts += "заметка: «$it»" }
         } else {
-            parts += "самочувствие (первая и вторая отметки): энергия ${first.energy} и ${second.energy} из 10, " +
-                "настроение ${first.mood} и ${second.mood} из 10, сон ${first.sleepQuality} и ${second.sleepQuality} из 10"
+            fun scaleWords(a: Int?, b: Int?, label: String): String? {
+                val values = listOfNotNull(a?.toString(), b?.toString())
+                return when (values.size) {
+                    0 -> null
+                    1 -> "$label ${values[0]} из 10"
+                    else -> "$label ${values[0]} и ${values[1]} из 10"
+                }
+            }
+            val scales = listOfNotNull(
+                scaleWords(first.energy, second.energy, "энергия"),
+                scaleWords(first.mood, second.mood, "настроение"),
+                scaleWords(first.sleepQuality, second.sleepQuality, "сон"),
+            )
+            if (scales.isNotEmpty()) {
+                parts += "самочувствие (первая и вторая отметки): " + scales.joinToString(", ")
+            }
             val notes = listOf(first, second).mapNotNull { it.note?.takeIf { n -> n.isNotBlank() } }
             if (notes.isNotEmpty()) parts += "заметки: " + notes.joinToString(", ") { "«$it»" }
         }

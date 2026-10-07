@@ -1169,8 +1169,9 @@ private fun ManualEntryDialog(
     }
     val ready = when (metric) {
         null -> false
+        // Хотя бы одна шкала заполнена: пустая шкала - «не отмечено», все пустые - не запись (спека 0020).
         ManualMetric.WELLBEING -> date != null && problem == null &&
-            energy.isNotBlank() && mood.isNotBlank() && sleepQ.isNotBlank()
+            (energy.isNotBlank() || mood.isNotBlank() || sleepQ.isNotBlank())
         else -> date != null && value.isNotBlank() && problem == null
     }
 
@@ -1275,6 +1276,11 @@ private fun ManualEntryDialog(
                         OutlinedTextField(energy, onValueChange = { energy = it }, label = { Text("Энергия, 0-10") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(mood, onValueChange = { mood = it }, label = { Text("Настроение, 0-10") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(sleepQ, onValueChange = { sleepQ = it }, label = { Text("Качество сна, 0-10") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                        Text(
+                            "Пустая шкала сохранится не отмеченной («—»)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextMuted,
+                        )
                     } else {
                         OutlinedTextField(
                             value,
@@ -1294,8 +1300,9 @@ private fun ManualEntryDialog(
                             enabled = ready,
                             onClick = {
                                 val preview = if (m == ManualMetric.WELLBEING) {
+                                    fun scale(raw: String): Int? = raw.trim().takeIf { it.isNotEmpty() }?.toInt()
                                     manualWellbeingPreview(
-                                        d, energy.toInt(), mood.toInt(), sleepQ.toInt(), firstWellbeingAt(d),
+                                        d, scale(energy), scale(mood), scale(sleepQ), firstWellbeingAt(d),
                                     )
                                 } else {
                                     manualSlicePreview(m, parseManualNumber(value)!!, d, sliceAt(d))

@@ -88,6 +88,35 @@ class ChatContextTest {
     }
 
     @Test
+    fun `неотмеченная шкала не попадает в контекст`() {
+        // Спека 0020: шкала, которую Пользователь не отметил, остаётся не отмеченной
+        // и не превращается в ноль или пустую пару.
+        val partial = wellbeing.copy(sleepQuality = null)
+        val text = context(wellbeing = mapOf(yesterday to listOf(partial)))
+        assertTrue(text.contains("самочувствие: энергия 7/10, настроение 8/10"))
+        assertFalse(text.contains("сон 6/10"))
+    }
+
+    @Test
+    fun `заметка без шкал попадает в контекст заметкой`() {
+        val noteOnly = wellbeing.copy(energy = null, mood = null, sleepQuality = null)
+        val text = context(wellbeing = mapOf(yesterday to listOf(noteOnly)))
+        assertTrue(text.contains("заметка: «устала»"))
+        assertFalse(text.contains("энергия"))
+    }
+
+    @Test
+    fun `у двух отметок несовпадающие шкалы пишутся кто отмечен`() {
+        val evening = wellbeing.copy(slot = Wellbeing.SLOT_SECOND, energy = null, mood = 5, sleepQuality = null)
+        val text = context(wellbeing = mapOf(yesterday to listOf(wellbeing, evening)))
+        assertTrue(
+            text.contains(
+                "самочувствие (первая и вторая отметки): энергия 7 из 10, настроение 8 и 5 из 10, сон 6 из 10"
+            )
+        )
+    }
+
+    @Test
     fun `дефицит в контексте прибавляет ручной базовый расход из профиля`() {
         val text = context(profile = Profile(bmrKcal = 1200.0))
         assertTrue(text.contains("дефицит 1500 ккал"))

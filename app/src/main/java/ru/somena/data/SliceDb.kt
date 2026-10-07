@@ -121,7 +121,7 @@ private fun medPayloadToRecord(
 )
 
 /** Локальное хранилище Дневных срезов, Самочувствия, Записей цикла, истории чата и Медкарты (ADR-0002: данные живут на телефоне). */
-class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 7) {
+class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 8) {
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -164,6 +164,17 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 7
         }
         if (oldVersion < 6) db.execSQL(SQL_CREATE_MED_RECORDS)
         if (oldVersion < 7) db.execSQL("ALTER TABLE med_records ADD COLUMN mark TEXT")
+        if (oldVersion < 8) {
+            // Шкала Самочувствия может остаться не отмеченной (спека 0020): колонки шкал
+            // стали nullable. SQLite не снимает NOT NULL правкой - таблица пересоздаётся.
+            db.execSQL("ALTER TABLE wellbeing RENAME TO wellbeing_old")
+            db.execSQL(SQL_CREATE_WELLBEING)
+            db.execSQL(
+                "INSERT INTO wellbeing (date, slot, energy, mood, sleep_quality, note, updated_at) " +
+                    "SELECT date, slot, energy, mood, sleep_quality, note, updated_at FROM wellbeing_old"
+            )
+            db.execSQL("DROP TABLE wellbeing_old")
+        }
     }
 
     /**
@@ -220,6 +231,15 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 7
         return true
     }
 
+    /** Удаление отметки: редактор Самочувствия стирает запись, если все шкалы сняты (спека 0020). */
+    fun deleteWellbeing(date: LocalDate, slot: Int): Boolean {
+        val deleted = writableDatabase.delete(
+            "wellbeing", "date = ? AND slot = ?", arrayOf(date.format(ISO_LOCAL_DATE), slot.toString())
+        ) > 0
+        if (deleted) logged("самочувствие ${date} удалено, отметка №${slot + 1}")
+        return deleted
+    }
+
     /** Последняя отметка дня: значение дня для напоминания и «Сегодня». */
     fun getLatestWellbeing(date: LocalDate): ru.somena.core.Wellbeing? =
         readableDatabase.rawQuery(
@@ -251,9 +271,9 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 7
                 while (c.moveToNext()) add(
                     ru.somena.core.Wellbeing(
                         date = LocalDate.parse(c.getString(5)),
-                        energy = c.getInt(1),
-                        mood = c.getInt(2),
-                        sleepQuality = c.getInt(3),
+                        energy = if (c.isNull(1)) null else c.getInt(1),
+                        mood = if (c.isNull(2)) null else c.getInt(2),
+                        sleepQuality = if (c.isNull(3)) null else c.getInt(3),
                         note = if (c.isNull(4)) null else c.getString(4),
                         slot = c.getInt(0),
                     )
@@ -264,9 +284,9 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 7
     private fun readWellbeing(c: android.database.Cursor, date: LocalDate): ru.somena.core.Wellbeing =
         ru.somena.core.Wellbeing(
             date = date,
-            energy = c.getInt(1),
-            mood = c.getInt(2),
-            sleepQuality = c.getInt(3),
+            energy = if (c.isNull(1)) null else c.getInt(1),
+            mood = if (c.isNull(2)) null else c.getInt(2),
+            sleepQuality = if (c.isNull(3)) null else c.getInt(3),
             note = if (c.isNull(4)) null else c.getString(4),
             slot = c.getInt(0),
         )
@@ -411,9 +431,9 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 7
             "CREATE TABLE IF NOT EXISTS wellbeing (" +
                 "date TEXT NOT NULL, " +
                 "slot INTEGER NOT NULL, " +
-                "energy INTEGER NOT NULL, " +
-                "mood INTEGER NOT NULL, " +
-                "sleep_quality INTEGER NOT NULL, " +
+                "energy INTEGER, " +
+                "mood INTEGER, " +
+                "sleep_quality INTEGER, " +
                 "note TEXT, " +
                 "updated_at INTEGER NOT NULL, " +
                 "PRIMARY KEY(date, slot))"

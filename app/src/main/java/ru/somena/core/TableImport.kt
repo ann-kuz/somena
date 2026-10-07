@@ -202,8 +202,9 @@ fun parseImportReply(
                         "${bad.first} вне шкалы ${Wellbeing.MIN}..${Wellbeing.MAX} или не целое",
                     )
                     values == ImportWellbeing() -> rejected += RejectedRow(day.date, "в строке нет показателей")
-                    // Пустая шкала в новой отметке стала бы ложным нулём в графике:
-                    // неполная строка годится только как замена существующей отметки.
+                    // Новая отметка из Разбора - только полной строкой: частичные отметки
+                    // вручную вносит редактор звёзд, а недобор шкал из ИИ - подозрение
+                    // на потерянные при разборе данные.
                     existingWellbeing[date] == null && anyScaleMissing(values) ->
                         rejected += RejectedRow(day.date, "для нового дня нужны все три шкалы")
                     else -> byWellbeingDate[date] = values
@@ -289,19 +290,19 @@ fun ImportEntry.toSlice(existing: DaySlice?): DaySlice =
 
 /**
  * Запись отметки Самочувствия: заменяются только указанные шкалы, заметка старой целa.
- * Новый день создаётся только полной строкой: неполная строка без существующей отметки
- * подставила бы нули вместо неуказанных шкал - ложные нули в графике.
+ * Неуказанная шкала остаётся не отмеченной (null), а не нулём (спека 0020) - поэтому
+ * частичная запись и без существующей отметки годится (ручной ввод одной шкалы).
+ * Разбор таблицы по-прежнему принимает только полные строки новых дней: фильтр
+ * стоит в parseImportReply, а не здесь.
  */
-fun ImportWellbeingEntry.toWellbeing(existing: Wellbeing?): Wellbeing {
-    check(existing != null || !anyScaleMissing(values)) { "новый день Самочувствия - только полной строкой" }
-    return Wellbeing(
+fun ImportWellbeingEntry.toWellbeing(existing: Wellbeing?): Wellbeing =
+    Wellbeing(
         date = date,
-        energy = values.energy ?: existing?.energy ?: Wellbeing.MIN,
-        mood = values.mood ?: existing?.mood ?: Wellbeing.MIN,
-        sleepQuality = values.sleepQuality ?: existing?.sleepQuality ?: Wellbeing.MIN,
+        energy = values.energy ?: existing?.energy,
+        mood = values.mood ?: existing?.mood,
+        sleepQuality = values.sleepQuality ?: existing?.sleepQuality,
         note = existing?.note,
     )
-}
 
 /** Человекочитаемая строка значений дня для Предпросмотра, например «вес 62.4, съедено 1850 ккал». */
 fun ImportValues.describe(): String {
