@@ -1,10 +1,12 @@
-name: Сборка и релиз APK
+name: Релиз APK (зеркало стабильной)
 
-# Стабильная раздача (спека 0012, дополнение про РФ): агент пуши тег v<версия>
-# по просьбе владелицы перевести сборку в стабильные; GitHub собирает тот же
-# debug-APK (JDK 17, Gradle 8.11.1 - как scripts/build-apk.sh на сервере) и
-# выкладывает релиз с файлом somena.apk. Постоянная ссылка на последнюю
-# стабильную: releases/latest/download/somena.apk
+# Стабильная раздача (спека 0012, дополнение про подпись): связка
+# «promote-apk.sh + пуш тега v<версия>» сначала обновляет стабильный APK на
+# домене, затем агент пушит тег; GitHub прикладывает к релизу тот же серверный
+# APK с домена. Раннер свой APK не собирает: у ephemeral-раннера свой случайный
+# debug-ключ на каждый запуск, и APK с зеркала не вставал поверх версий
+# с домена - Андроид отвечал «пакет повреждён». Постоянная ссылка последней
+# стабильной: releases/latest/download/somena.apk
 on:
   push:
     tags: ['v*']
@@ -16,16 +18,11 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.11.1'
-      - run: gradle --no-daemon --console=plain :app:assembleDebug
-      - run: mv app/build/outputs/apk/debug/app-debug.apk somena.apk
+      - name: Стабильный APK с домена (тот же файл, что и основная ссылка)
+        run: |
+          curl -fL --retry 3 https://elunaris-vitrail.strangled.net/apk/somena.apk -o somena.apk
+          [ "$(head -c 2 somena.apk)" = "PK" ] || { echo 'скачался не APK (нет zip-заголовка)'; exit 1; }
+          [ "$(stat -c%s somena.apk)" -ge 10000000 ] || { echo 'APK подозрительно мал'; exit 1; }
       - uses: softprops/action-gh-release@v2
         with:
           name: Somena ${{ github.ref_name }}
