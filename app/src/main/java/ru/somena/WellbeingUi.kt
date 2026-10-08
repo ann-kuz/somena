@@ -14,7 +14,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,7 +29,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -45,7 +49,9 @@ import ru.somena.ui.GhostButton
 import ru.somena.ui.GlowButton
 import ru.somena.ui.Indigo
 import ru.somena.ui.PeriodChip
-import ru.somena.ui.StarOutlineIcon
+import ru.somena.ui.StarBurstGlowPath
+import ru.somena.ui.StarBurstIcon
+import ru.somena.ui.StarBurstOutlineIcon
 import ru.somena.ui.TextMuted
 import ru.somena.ui.Violet
 import ru.somena.ui.neonSurface
@@ -267,9 +273,11 @@ fun WellbeingEditorDialog(db: SliceDb, initialDate: LocalDate, initialSlot: Int,
 }
 
 /**
- * Шкала звёздами (спека 0020): десять звёзд - оценки 1–10 в цвете метрики, контурная
- * звезда - не отмечено. Ячейки делят строку поровну, чтобы звёзды влезали на узких
- * экранах и рос тач-таргет на широких.
+ * Шкала звёздами (спека 0020, дополнение): десять восьмилучевых звёзд - оценки
+ * 1–10 в цвете метрики, контурная звезда - не отмечено. Горящая звезда светится
+ * статичным ореолом цвета метрики (правило «свечение - статично», спека 0002),
+ * неотмеченная - тихий контур без свечения. Ячейки делят строку поровну, чтобы
+ * звёзды влезали на узких экранах и рос тач-таргет на широких.
  */
 @Composable
 private fun StarRow(label: String, value: Int?, accent: Color, onChange: (Int?) -> Unit) {
@@ -295,16 +303,31 @@ private fun StarRow(label: String, value: Int?, accent: Color, onChange: (Int?) 
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        if (lit) Icons.Filled.Star else StarOutlineIcon,
+                        if (lit) StarBurstIcon else StarBurstOutlineIcon,
                         contentDescription = when {
                             value == star -> "$label: $star из 10, снять отметку"
                             else -> "$label: $star из 10"
                         },
                         tint = if (lit) accent else TextMuted.copy(alpha = 0.55f),
-                        modifier = Modifier.padding(horizontal = 1.dp),
+                        modifier = Modifier
+                            .padding(horizontal = 1.dp)
+                            .then(if (lit) Modifier.drawBehind { drawStarHalo(accent) } else Modifier),
                     )
                 }
             }
         }
+    }
+}
+
+/**
+ * Статичный ореол горящей звезды: две ступени полупрозрачной обводки по контуру
+ * звезды - широкий тусклый и узкий поярче, как ореол линий графиков (спека 0002:
+ * свечение рисуется приложением, без системных теней и анимаций).
+ */
+private fun DrawScope.drawStarHalo(color: Color) {
+    val scale = size.minDimension / 24f
+    withTransform({ scale(scale, scale, pivot = Offset.Zero) }) {
+        drawPath(StarBurstGlowPath, color.copy(alpha = 0.14f), style = Stroke(width = 20f))
+        drawPath(StarBurstGlowPath, color.copy(alpha = 0.28f), style = Stroke(width = 9f))
     }
 }

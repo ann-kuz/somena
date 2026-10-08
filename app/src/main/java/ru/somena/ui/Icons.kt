@@ -2,7 +2,12 @@ package ru.somena.ui
 
 import androidx.compose.material.icons.materialIcon
 import androidx.compose.material.icons.materialPath
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.PathBuilder
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
  * Пузырь чата в стиле Material filled: в core-наборе иконок такой нет, а тащить
@@ -283,35 +288,66 @@ val BodyIcon: ImageVector by lazy {
     }
 }
 
-/**
- * Контурная звезда неотмеченной шкалы Самочувствия (спека 0020): залитая есть
- * в core-наборе (Icons.Filled.Star), контурной там нет, а extended не тянем (спека 0001).
+/*
+ * Восьмилучевая звезда шкал Самочувствия (спека 0020, дополнение): 4 длинных
+ * луча крестом и 4 коротких по диагоналям. Рисована вручную: extended-пакет
+ * не тянем (спека 0001). Вершины считаются формулой, чтобы заливка, контур
+ * и путь для свечения рисовали одну и ту же геометрию.
  */
-val StarOutlineIcon: ImageVector by lazy {
-    materialIcon(name = "Outlined.Star") {
+
+private const val STAR_RAY_LONG = 11f
+private const val STAR_RAY_SHORT = 7.5f
+private const val STAR_RAY_INNER = 2.8f
+private const val STAR_OUTLINE_SCALE = 0.55f
+
+/** Вершины звезды в системе 24×24: чередование внешних лучей и впадин. */
+private fun starVertices(scale: Float): List<Offset> {
+    val vertices = mutableListOf<Offset>()
+    for (i in 0 until 16) {
+        val angle = Math.toRadians((90.0 - 22.5 * i))
+        val radius = when {
+            i % 2 == 1 -> STAR_RAY_INNER * scale
+            (i / 2) % 2 == 0 -> STAR_RAY_LONG * scale
+            else -> STAR_RAY_SHORT * scale
+        }
+        vertices += Offset((12.0 + radius * cos(angle)).toFloat(), (12.0 - radius * sin(angle)).toFloat())
+    }
+    return vertices
+}
+
+private fun pathOf(vertices: List<Offset>): Path = Path().apply {
+    vertices.forEachIndexed { index, p ->
+        if (index == 0) moveTo(p.x, p.y) else lineTo(p.x, p.y)
+    }
+    close()
+}
+
+private fun PathBuilder.starSubpath(scale: Float) {
+    val vertices = starVertices(scale)
+    moveTo(vertices[0].x, vertices[0].y)
+    for (i in 1 until vertices.size) lineTo(vertices[i].x, vertices[i].y)
+    close()
+}
+
+/** Залитая восьмилучевая звезда - отмеченная шкала. */
+val StarBurstIcon: ImageVector by lazy {
+    materialIcon(name = "Filled.StarBurst8") {
+        materialPath { starSubpath(1f) }
+    }
+}
+
+/**
+ * Контурная восьмилучевая звезда - неотмеченная шкала: та же звезда с вырезом
+ * (два подконтура, чётное правило заливки) - приём контурных иконок Material.
+ */
+val StarBurstOutlineIcon: ImageVector by lazy {
+    materialIcon(name = "Outlined.StarBurst8") {
         materialPath {
-            moveTo(22.0f, 9.24f)
-            lineTo(14.81f, 8.62f)
-            lineTo(12.0f, 2.0f)
-            lineTo(9.19f, 8.62f)
-            lineTo(2.0f, 9.24f)
-            lineTo(7.46f, 13.97f)
-            lineTo(5.82f, 21.0f)
-            lineTo(12.0f, 17.27f)
-            lineTo(18.18f, 21.0f)
-            lineTo(16.54f, 13.97f)
-            close()
-            moveTo(12.0f, 15.4f)
-            lineTo(8.24f, 17.67f)
-            lineTo(9.24f, 13.39f)
-            lineTo(5.92f, 10.51f)
-            lineTo(10.3f, 10.13f)
-            lineTo(12.0f, 6.1f)
-            lineTo(13.71f, 10.14f)
-            lineTo(18.09f, 10.52f)
-            lineTo(14.77f, 13.4f)
-            lineTo(15.77f, 17.68f)
-            close()
+            starSubpath(1f)
+            starSubpath(STAR_OUTLINE_SCALE)
         }
     }
 }
+
+/** Путь звезды для статичного ореола горящих звёзд (рисует WellbeingUi). */
+val StarBurstGlowPath: Path by lazy { pathOf(starVertices(1f)) }
