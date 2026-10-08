@@ -104,11 +104,12 @@ fun SettingsScreen(
             m, "Профиль", "Рост, пол, дата рождения, цель по весу и базовый расход", onPage,
         ) { ProfileSection() }
         page == SettingsPages.DATA -> SettingsSubScreen(
-            m, "Данные", "Источники Health Connect, расход от шагов и порог съеденного", onPage,
+            m, "Данные", "Источники, расход от шагов, порог съеденного и копия данных", onPage,
         ) {
             StepsBurnSection()
             EatenFloorSection()
             SourcesSection(onOpenGroup = { onPage(sourceGroupPage(it)) })
+            ExportSection()
             GhostButton("Пройти онбординг заново", onRepeatOnboarding, Modifier.fillMaxWidth())
             Text(
                 "Онбординг - это разрешение Health Connect и подсказки по подключению " +
@@ -159,7 +160,7 @@ private data class MenuRow(val icon: ImageVector, val title: String, val subtitl
 private fun SettingsMenu(onPage: (String?) -> Unit) {
     val rows = listOf(
         MenuRow(Icons.Filled.Person, "Профиль", "Рост, пол, цель по весу, базовый расход", SettingsPages.PROFILE),
-        MenuRow(Icons.Filled.Refresh, "Данные", "Источники Health Connect, расход от шагов", SettingsPages.DATA),
+        MenuRow(Icons.Filled.Refresh, "Данные", "Источники, порог съеденного и копия данных", SettingsPages.DATA),
         MenuRow(ChatBubbleIcon, "Чат", "ИИ-сервис, ключ API, модели Ступеней", SettingsPages.CHAT),
         MenuRow(Icons.Filled.Build, "Отладка", "Журнал чата, базы и ошибок", SettingsPages.DEBUG),
     )

@@ -121,7 +121,7 @@ private fun medPayloadToRecord(
 )
 
 /** Локальное хранилище Дневных срезов, Самочувствия, Записей цикла, истории чата и Медкарты (ADR-0002: данные живут на телефоне). */
-class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 8) {
+class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, VERSION) {
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -421,7 +421,10 @@ class SliceDb(context: Context) : SQLiteOpenHelper(context, "somena.db", null, 8
         payload = json.decodeFromString<MedPayloadDto>(c.getString(5)),
     )
 
-    private companion object {
+    companion object {
+        /** Версия схемы: Экспорт сверяет её с версией базы в копии (спека 0021). */
+        const val VERSION = 8
+
         const val SQL_CREATE_DAY_SLICES =
             "CREATE TABLE day_slices (" +
                 "date TEXT PRIMARY KEY NOT NULL, " +
