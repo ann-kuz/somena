@@ -31,9 +31,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -320,14 +320,26 @@ private fun StarRow(label: String, value: Int?, accent: Color, onChange: (Int?) 
 }
 
 /**
- * Статичный ореол горящей звезды: две ступени полупрозрачной обводки по контуру
- * звезды - широкий тусклый и узкий поярче, как ореол линий графиков (спека 0002:
- * свечение рисуется приложением, без системных теней и анимаций).
+ * Статичный ореол горящей звезды: мягкий радиальный диск - как свечение выбранной
+ * точки на графиках (спека 0002: свечение рисуется приложением, без системных
+ * теней и анимаций) - плюс звезда-ореол на 18% крупнее, залитая тем же цветом
+ * в слабую альфу, чтобы свечение повторяло лучи. Обводкой контура ореол не
+ * делается: на острых лучах она даёт ступенчатые кольца.
  */
 private fun DrawScope.drawStarHalo(color: Color) {
+    val radius = size.minDimension * 0.75f
+    drawCircle(
+        Brush.radialGradient(
+            listOf(color.copy(alpha = 0.26f), Color.Transparent),
+            center = center,
+            radius = radius,
+        ),
+        radius = radius,
+    )
     val scale = size.minDimension / 24f
     withTransform({ scale(scale, scale, pivot = Offset.Zero) }) {
-        drawPath(StarBurstGlowPath, color.copy(alpha = 0.14f), style = Stroke(width = 20f))
-        drawPath(StarBurstGlowPath, color.copy(alpha = 0.28f), style = Stroke(width = 9f))
+        withTransform({ scale(1.18f, 1.18f, pivot = Offset(12f, 12f)) }) {
+            drawPath(StarBurstGlowPath, color.copy(alpha = 0.14f))
+        }
     }
 }
