@@ -598,7 +598,7 @@ private fun Legend(seriesList: List<ChartSeries>) {
 /**
  * Ряд боксов среднего за окно (спека 0022): пилюля тёмного стекла на серию
  * со средним, число цвета серии в формате точек графика. Серия без значений
- * в окне показывает «⌀ —» - заглушку «нет данных», не ноль. Не интерактивно
+ * в окне показывает «ср. —» - заглушку «нет данных», не ноль. Не интерактивно
  * и без свечения: свечение - только у активного (спека 0002).
  */
 @Composable
@@ -606,7 +606,7 @@ private fun AverageRow(seriesList: List<ChartSeries>) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         seriesList.filter { it.showAverage }.forEach { s ->
             Text(
-                averageOf(s.values)?.let { "⌀ ${fmtNum(it)} ${s.unit}" } ?: "⌀ —",
+                averageOf(s.values)?.let { "ср. ${fmtNum(it)} ${s.unit}" } ?: "ср. —",
                 style = MaterialTheme.typography.labelSmall,
                 color = s.color,
                 modifier = Modifier
