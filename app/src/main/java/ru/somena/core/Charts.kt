@@ -13,6 +13,15 @@ fun weightTrend(weights: List<Double?>, windowDays: Int = 7, minValues: Int = 3)
         window.takeIf { it.size >= minValues }?.sumOf { it }?.div(window.size)
     }
 
+/**
+ * Среднее за окно (спека 0022): среднее по значениям, которые есть - пропуск
+ * дня не ноль и в среднее не считается (спека 0001). Одни пропуска дают null:
+ * боксу достанется заглушка «—». Дни ниже Порога съеденного приходят пустыми
+ * заранее (спека 0019) - отдельно фильтровать не надо.
+ */
+fun averageOf(values: List<Double?>): Double? =
+    values.filterNotNull().takeIf { it.isNotEmpty() }?.average()
+
 /** Последние [days] календарных дней, кончая [endInclusive]: общая форма окна для графиков и контекста. */
 fun lastDays(endInclusive: LocalDate, days: Int): List<LocalDate> =
     (days - 1 downTo 0).map { endInclusive.minusDays(it.toLong()) }

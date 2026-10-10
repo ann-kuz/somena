@@ -2,6 +2,7 @@ package ru.somena
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -27,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -43,6 +46,7 @@ import java.util.Locale
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 import ru.somena.core.AiMetric
+import ru.somena.core.averageOf
 import ru.somena.core.ChartCard
 import ru.somena.core.ChartLayout
 import ru.somena.core.DayData
@@ -314,7 +318,7 @@ private fun ChartByCard(
             chart.title, days,
             listOf(
                 ChartSeries("Вес", seriesOf(days, data) { it.weightKg }, MaterialTheme.colorScheme.primary, "кг"),
-                ChartSeries("Тренд", weightTrend(seriesOf(days, data) { it.weightKg }), MaterialTheme.colorScheme.secondary, "кг"),
+                ChartSeries("Тренд", weightTrend(seriesOf(days, data) { it.weightKg }), MaterialTheme.colorScheme.secondary, "кг", showAverage = false),
             ),
             onPan = onPan,
             onLongPress = onLongPress,
@@ -383,11 +387,13 @@ private fun ChartByCard(
     }
 }
 
+/** Серия графика: [showAverage] убирает бокс среднего - Тренд веса сам скользящее среднее (спека 0022). */
 data class ChartSeries(
     val label: String,
     val values: List<Double?>,
     val color: Color,
     val unit: String,
+    val showAverage: Boolean = true,
 )
 
 /**
@@ -395,6 +401,8 @@ data class ChartSeries(
  * и долгим нажатием (меню карточки). При отсутствии данных точка отсутствует,
  * но линия не рвётся — соединяется с ближайшей имеющейся.
  * [yMin]/[yMax] фиксируют ось: шкалы Самочувствия всегда рисуются 0–10.
+ * [showAverages] включает ряд боксов среднего за окно (спека 0022): вкладка
+ * «Графики» показывает, графики ИИ в Чате выключают.
  */
 @Composable
 fun LineChart(
@@ -406,6 +414,7 @@ fun LineChart(
     yMin: Double? = null,
     yMax: Double? = null,
     caption: String? = null,
+    showAverages: Boolean = true,
 ) {
     val n = dates.size
     val allValues = seriesList.flatMap { it.values }.filterNotNull()
@@ -560,6 +569,9 @@ fun LineChart(
             Text(fmtDate(dates[0]), style = MaterialTheme.typography.labelSmall, color = TextMuted, modifier = Modifier.padding(start = 44.dp))
         }
         Legend(seriesList)
+        if (showAverages) {
+            AverageRow(seriesList)
+        }
     }
 }
 
@@ -579,6 +591,30 @@ private fun Legend(seriesList: List<ChartSeries>) {
                 }
                 Text(" ${s.label} (${s.unit})", style = MaterialTheme.typography.bodySmall, color = TextMuted)
             }
+        }
+    }
+}
+
+/**
+ * Ряд боксов среднего за окно (спека 0022): пилюля тёмного стекла на серию
+ * со средним, число цвета серии в формате точек графика. Серия без значений
+ * в окне показывает «⌀ —» - заглушку «нет данных», не ноль. Не интерактивно
+ * и без свечения: свечение - только у активного (спека 0002).
+ */
+@Composable
+private fun AverageRow(seriesList: List<ChartSeries>) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        seriesList.filter { it.showAverage }.forEach { s ->
+            Text(
+                averageOf(s.values)?.let { "⌀ ${fmtNum(it)} ${s.unit}" } ?: "⌀ —",
+                style = MaterialTheme.typography.labelSmall,
+                color = s.color,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(100.dp))
+                    .background(Color.White.copy(alpha = 0.04f))
+                    .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(100.dp))
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+            )
         }
     }
 }

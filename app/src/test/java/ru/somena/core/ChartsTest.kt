@@ -96,6 +96,33 @@ class ChartsTest {
     }
 
     @Test
+    fun `среднее за окно считает только дни со значениями`() {
+        assertEquals(71.0, averageOf(listOf(70.0, null, 72.0))!!, 0.001)
+        assertEquals(70.0, averageOf(listOf(70.0, null))!!, 0.001)
+        // одни пропуска - среднего нет, боксу достанется «—», а не ноль
+        assertNull(averageOf(listOf(null, null)))
+        assertNull(averageOf(emptyList()))
+    }
+
+    @Test
+    fun `дни ниже порога съеденного не попадают в среднее за окно`() {
+        // Стык с Порогом съеденного (спека 0019): отфильтрованные дни пусты,
+        // среднее за окно считается без них - калории, БЖУ и Дефицит вместе.
+        val d1 = LocalDate.of(2026, 10, 1)
+        val d2 = d1.plusDays(1)
+        val slices = listOf(
+            DaySlice(d1, eatenKcal = 120.0, proteinG = 8.0, burnedKcal = 2_000.0),
+            DaySlice(d2, eatenKcal = 1_800.0, proteinG = 90.0, burnedKcal = 2_000.0, bmrKcal = 1_400.0),
+        ).withEatenFloor(500.0)
+        val data = DayData(slices.associateBy { it.date })
+        val dates = listOf(d1, d2)
+        assertEquals(1_800.0, averageOf(metricSeries(AiMetric.EATEN, dates, data))!!, 0.001)
+        assertEquals(90.0, averageOf(metricSeries(AiMetric.PROTEIN, dates, data))!!, 0.001)
+        // Дефицит неполного дня пуст: день без еды дефицита не даёт.
+        assertEquals(1_600.0, averageOf(metricSeries(AiMetric.DEFICIT, dates, data))!!, 0.001)
+    }
+
+    @Test
     fun `окно месяца дотягивается до занесённого задним числом веса`() {
         // Сценарий Разбора таблицы: HC дал только недавние дни, вес приехал из таблицы
         // за старые месяцы редкими взвешиваниями. Как на экране Графиков: окно месяца

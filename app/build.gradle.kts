@@ -13,8 +13,8 @@ android {
         applicationId = "ru.somena"
         minSdk = 28
         targetSdk = 35
-        versionCode = 56
-        versionName = "0.39.1"
+        versionCode = 57
+        versionName = "0.40.0"
     }
 
     buildTypes {

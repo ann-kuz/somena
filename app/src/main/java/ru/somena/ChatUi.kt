@@ -790,6 +790,8 @@ fun AiChartCard(spec: AiChartSpec, anchor: LocalDate, data: DayData, profileBmr:
         seriesList = seriesList,
         yMin = if (wbOnly) Wellbeing.MIN.toDouble() else null,
         yMax = if (wbOnly) Wellbeing.MAX.toDouble() else null,
+        // Боксы среднего - только вкладка «Графики» (спека 0022): график ИИ - разовая иллюстрация.
+        showAverages = false,
     )
 }
 
